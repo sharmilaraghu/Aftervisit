@@ -1,0 +1,5 @@
+# esbuild backs drizzle-kit; unrs-resolver backs eslint's module resolution.
+# Both need their install scripts to place a native binary.
+onlyBuiltDependencies:
+  - esbuild
+  - unrs-resolver
