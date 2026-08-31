@@ -423,3 +423,47 @@ a {
 .control.mono {
   font-size: 14px;
 }
+
+/*
+ * The mark.
+ *
+ * Two animations, both on strokes. Nothing scales or fades in place — the
+ * Advance Rule forbids it, and a throbbing logo is exactly what it forbids.
+ *
+ * `logo-loop` turns the open ring and its arrowhead: 14s, slow enough to read
+ * as ongoing work rather than as a spinner asking you to wait. Care Loop is
+ * named for a loop that keeps running, and the gap travelling round is that
+ * loop still open.
+ *
+ * `logo-trace` writes the ECG left to right the way a monitor does, holds the
+ * completed trace for a beat, then clears and starts again. The hold is the
+ * whole difference between a heartbeat and a progress bar: an evenly sweeping
+ * line reads as loading, a line that draws, rests and repeats reads as alive.
+ *
+ * Additive, per the Additive Motion Rule. With both stripped the mark is still a
+ * complete cross and trace inside an open ring, which is what the reduced-motion
+ * block leaves a reader.
+ */
+.logo-loop {
+  transform-origin: 50% 50%;
+  animation: logo-loop 14s linear infinite;
+}
+
+@keyframes logo-loop {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.logo-trace {
+  animation: logo-trace 3.2s ease-in-out infinite;
+}
+
+@keyframes logo-trace {
+  /* Written left to right, quickly — a monitor does not dawdle. */
+  0%   { stroke-dashoffset: 34; }
+  45%  { stroke-dashoffset: 0; }
+  /* Held, so the shape of the beat is actually readable. */
+  70%  { stroke-dashoffset: 0; }
+  /* Cleared off the same way it arrived, then round again. */
+  100% { stroke-dashoffset: -34; }
+}

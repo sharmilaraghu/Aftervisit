@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="32" height="32">
+  <!--
+    The tab icon: the same mark, held still.
+
+    A favicon renders at 16px, so everything is coarsened — a wider ring gap, a
+    thicker stroke, and a simplified trace with one deflection instead of three.
+    The detail that makes the mark good at 22px turns to grey mush at 16.
+
+    Colours are literal rather than tokens: this file is served on its own, with
+    no stylesheet to resolve var() against.
+  -->
+  <rect width="24" height="24" fill="#1c1a18"/>
+  <circle cx="12" cy="12" r="9.4" fill="none" stroke="#e8850c" stroke-width="2.2"
+          stroke-dasharray="49 10"/>
+  <g fill="#f6f3ed">
+    <rect x="10.1" y="6.2" width="3.8" height="11.6"/>
+    <rect x="6.2" y="10.1" width="11.6" height="3.8"/>
+  </g>
+  <polyline points="4.4,12 10,12 11.4,7.4 13,16.2 14.2,12 19.6,12"
+            fill="none" stroke="#e8850c" stroke-width="1.9"
+            stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

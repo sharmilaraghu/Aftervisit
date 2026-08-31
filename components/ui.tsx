@@ -11,6 +11,7 @@ import Link from "next/link";
 import type { ComponentProps, CSSProperties, ReactNode } from "react";
 
 import { ConsoleNav } from "@/components/ConsoleNav";
+import { Logo } from "@/components/Logo";
 
 /* Strip tones. Red is danger and is never used for anything else. */
 export type Tone = "amber" | "danger" | "info" | "clear" | "plain";
@@ -258,12 +259,17 @@ export function Masthead() {
           href="/"
           className="display"
           style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "calc(var(--cell) * 1.25)",
             fontSize: 22,
             letterSpacing: "-0.02em",
             textDecoration: "none",
             color: "var(--bench-ink)",
           }}
         >
+          {/* The link already says the name, so the mark is not read twice. */}
+          <Logo size={26} title={null} />
           Care&nbsp;Loop
         </Link>
 
@@ -331,12 +337,16 @@ export function TopBar({
           href="/"
           className="display"
           style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "calc(var(--cell) * 1.25)",
             fontSize: 19,
             letterSpacing: "-0.02em",
             textDecoration: "none",
             color: "var(--bench-ink)",
           }}
         >
+          <Logo size={22} title={null} />
           Care&nbsp;Loop
         </Link>
 
