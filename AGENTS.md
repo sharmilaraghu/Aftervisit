@@ -45,7 +45,7 @@ the authenticated API before trusting anything a webhook claims.
 
 ```
 doctor's free-text note
-  → compile.ts    OpenAI, strict schema, every defaultable field NULLABLE
+  → compile.ts    Gemini (OpenAI fallback), strict schema, every defaultable field NULLABLE
                   → defaults.ts stamps provenance (note | default | clinician)
                   → grounding.ts refuses any medication not present in the note
                   → guard phase 1 on each question, individually, UNMASKED
@@ -67,8 +67,13 @@ doctor's free-text note
    `CARELOOP_CALL_ALLOWLIST` is what replaces the human "press to call" gate that a manual
    tool would have. A scheduled call to a number not on the list is refused with a visible
    reason. Never silently skipped, never quietly simulated.
-3. **Never weaken the guard, the consent gate, the AI disclosure, or the emergency
+3. **Never weaken the guard, the AI disclosure, the emergency stop, or the emergency
    handoff** to make a demo smoother. If they get in the way, that *is* the demo.
+   *Consent moved off the call deliberately* — it is a condition of enrolment recorded on
+   the patient record, not a question re-asked every day. What replaced it in the guard is
+   stricter: a script must tell the agent to **stop the call** when a patient describes
+   something urgent, because a real transcript had it answer "I can't answer that one" to
+   "I feel like fainting and I don't have bladder control" and ask the next question.
 4. **Care Loop never gives clinical advice and never diagnoses anyone.** There is no code
    path that makes a clinical decision. An uncertain call becomes a human's problem via an
    escalation. Escalation is routing, never a verdict.
@@ -109,7 +114,7 @@ Care Loop/
   lib/
     calle/port.ts         the ONLY place that talks to CALL-E
     calle/fake-server.ts  offline stand-in so the suite runs with no API key
-    plan/                 compile → defaults → grounding → result-schema → extract
+    plan/                 provider → compile → defaults → grounding → result-schema → extract
     script/build.ts       assembleTask (pure, tested) — all safety language lives here
     script/guard.ts       the three-phase clinical guard
     rules/                the closed rule DSL, the catalog, the pure evaluator
@@ -128,8 +133,10 @@ Care Loop/
   training data (see the generated block below).
 - **Neon Postgres** + **Drizzle ORM**. Migrations are generated, never written by hand.
 - **CALL-E SDK** (`@call-e/calle`) behind `lib/calle/port.ts`.
-- **OpenAI** for the note compiler only. Screening questions are never model-authored
-  free text beyond what the doctor's note grounds.
+- **Gemini** for the note compiler only, with **OpenAI as a fallback** behind one
+  provider interface (`lib/plan/provider.ts`). Which one actually ran is persisted on
+  the note, so "Gemini with a fallback" stays a checkable claim. Screening questions are
+  never model-authored free text beyond what the doctor's note grounds.
 - **Vitest** for the pure logic. No zod — schemas are hand-written JSON Schema objects
   with `as const satisfies JsonObject` plus a mirrored TS interface.
 - Plain CSS with tokens in `app/globals.css`; inline styles in components.

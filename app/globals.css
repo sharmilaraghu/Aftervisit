@@ -374,3 +374,52 @@ a {
     scroll-behavior: auto !important;
   }
 }
+
+/*
+ * Form controls.
+ *
+ * A control is a box ruled on label stock — square, like everything else, and
+ * bordered with the same hairline that divides a table row. `--rule` is the
+ * lightest border that still reads as an edge on white; anything softer and the
+ * field stops looking like somewhere you can type.
+ *
+ * Focus is inherited from the global :focus-visible ring, which inside a .sheet
+ * darkens to amber-deep so it stays legible on white.
+ */
+.control {
+  display: block;
+  width: 100%;
+  padding: calc(var(--cell) * 1.25) calc(var(--cell) * 1.5);
+  border: 1px solid var(--rule);
+  border-radius: 0;
+  background: var(--label);
+  color: var(--print);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.control::placeholder {
+  color: var(--print-3);
+}
+
+.control:hover:not(:disabled) {
+  border-color: var(--print-3);
+}
+
+.control:disabled {
+  background: var(--label-3);
+  color: var(--print-3);
+  cursor: not-allowed;
+}
+
+/* A field that failed validation is ruled in danger, and says why underneath. */
+.control[aria-invalid="true"] {
+  border-color: var(--danger);
+  border-width: 2px;
+}
+
+/* Numbers, ids and phone entry are compared by eye, so they are set in mono. */
+.control.mono {
+  font-size: 14px;
+}

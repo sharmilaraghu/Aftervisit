@@ -9,7 +9,7 @@ const NOT_ARMED = "+14155550199";
 const SAFE_TASK = [
   "You are an AI assistant calling on behalf of Bridgeview Family Practice.",
   "Say: I'm an AI assistant calling for Dr Rao's team.",
-  "Ask: Is now a good time to go through a few quick questions?",
+  "If anything sounds urgent, stop asking questions and end the call.",
   "Say: I can't give medical advice, but I'll pass anything on to your care team.",
   "If this is an emergency, tell them to hang up and call emergency services now.",
   "Say: Your care team will call you back about anything I can't answer.",
@@ -51,6 +51,60 @@ describe("createCallePort — the happy path", () => {
     const [body] = fake.createdCalls();
     expect(body.task).toBe(SAFE_TASK);
     expect((body.recipients as Array<{ phones: string[] }>)[0].phones).toEqual([ARMED]);
+  });
+});
+
+describe("createCallePort — the allowlist opt-out", () => {
+  /*
+   * The gate exists because there is no auth: with a login, "a clinician
+   * approved this plan" would itself authorise the dial. Opening it is an
+   * explicit act, never a default — an empty list still refuses everything, so
+   * forgetting to configure the allowlist can only fail closed.
+   */
+  it("dials any number when the gate is explicitly open", async () => {
+    const fake = createFakeCalleFetch();
+    const outcome = await createCallePort({
+      apiKey: "test-key",
+      allowlist: [],
+      allowlistOpen: true,
+      fetch: fake,
+    }).dial(request({ phone: NOT_ARMED }));
+
+    expect(outcome.ok).toBe(true);
+  });
+
+  it("still refuses everything when the list is merely empty", async () => {
+    const fetchSpy = vi.fn();
+    const outcome = await createCallePort({
+      apiKey: "test-key",
+      allowlist: [],
+      fetch: fetchSpy as never,
+    }).dial(request({ phone: NOT_ARMED }));
+
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.refusal).toBe("not_allowlisted");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("still enforces the guard and E.164 when the gate is open", async () => {
+    const fetchSpy = vi.fn();
+    const port = createCallePort({
+      apiKey: "test-key",
+      allowlist: [],
+      allowlistOpen: true,
+      fetch: fetchSpy as never,
+    });
+
+    const badPhone = await port.dial(request({ phone: "12345", allowlistOpen: undefined }));
+    expect(badPhone.ok).toBe(false);
+    if (!badPhone.ok) expect(badPhone.refusal).toBe("invalid_phone");
+
+    const badTask = await port.dial(request({ task: "Say: don't worry, that's normal." }));
+    expect(badTask.ok).toBe(false);
+    if (!badTask.ok) expect(badTask.refusal).toBe("guard_violation");
+
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
 

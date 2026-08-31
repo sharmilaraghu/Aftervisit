@@ -6,6 +6,7 @@
 #   ./start.sh --restart    kill whatever holds the port first
 #   ./start.sh --clean      discard .next (stale Turbopack graph)
 #   ./start.sh --migrate    apply pending migrations first
+#   ./start.sh --seed       reseed the demo cohort first (destructive: clears rows)
 #   ./start.sh --ticker     also poll /api/tick, so the scheduler runs
 #   ./start.sh --prod       build and serve production
 #   ./start.sh --test       run the gate, then exit
@@ -26,6 +27,7 @@ PORT=3001
 RESTART=0
 CLEAN=0
 MIGRATE=0
+SEED=0
 TICKER=0
 PROD=0
 
@@ -68,6 +70,7 @@ while [ $# -gt 0 ]; do
     --restart) RESTART=1 ;;
     --clean)   CLEAN=1 ;;
     --migrate) MIGRATE=1 ;;
+    --seed)    SEED=1 ;;
     --ticker)  TICKER=1 ;;
     --prod)    PROD=1 ;;
     --stop)    stop_server; exit 0 ;;
@@ -108,6 +111,14 @@ fi
 [ "$CLEAN" = "1" ]   && { info "Removing .next…"; rm -rf .next; }
 [ "$MIGRATE" = "1" ] && { info "Applying migrations…"; pnpm run db:migrate; }
 
+# Seeding clears the Care Loop tables first. Say so before doing it, rather than
+# letting a flag quietly delete someone's afternoon of hand-entered patients.
+if [ "$SEED" = "1" ]; then
+  [ -n "$(env_value DATABASE_URL)" ] || die "--seed needs DATABASE_URL in .env."
+  warn "Reseeding: this clears every patient, plan, call and escalation first."
+  pnpm run db:seed
+fi
+
 # ---------------------------------------------------------------------------
 # The banner.
 # ---------------------------------------------------------------------------
@@ -116,6 +127,9 @@ ALLOWLIST=$(env_value CARELOOP_CALL_ALLOWLIST)
 DB_URL=$(env_value DATABASE_URL)
 OPENAI_KEY=$(env_value OPENAI_API_KEY)
 TICK_TOKEN=$(env_value CARELOOP_TICK_TOKEN)
+
+OPEN_GATE=0
+case ",$ALLOWLIST," in *,\*,*) OPEN_GATE=1 ;; esac
 
 if [ -n "$ALLOWLIST" ]; then
   ARMED=$(printf '%s' "$ALLOWLIST" | tr ',' '\n' | grep -c '[0-9]' || true)
@@ -134,6 +148,9 @@ echo
 
 if [ -z "$CALLE_KEY" ]; then
   warn "  CALLS ARE OFF — no CALLE_API_KEY. Nothing can be dialled."
+elif [ "$OPEN_GATE" = "1" ]; then
+  printf '%s  CALLS ARE LIVE and the dial allowlist is OPEN. Any number on an%s\n' "$RED$BOLD" "$OFF"
+  printf '%s  approved plan will be called. This costs money and reaches people.%s\n' "$RED$BOLD" "$OFF"
 elif [ "$ARMED" = "0" ]; then
   warn "  CALLS ARE LIVE, but the dial allowlist is EMPTY."
   echo "$DIM  Every scheduled call will be refused with a visible reason.$OFF"

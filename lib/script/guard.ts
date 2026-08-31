@@ -55,7 +55,7 @@ export type GuardCategory =
   | "false_reassurance"
   | "attributed_to_doctor"
   | "missing_ai_disclosure"
-  | "missing_consent_gate"
+  | "missing_emergency_stop"
   | "missing_non_advice_statement"
   | "missing_emergency_handoff"
   | "missing_human_handoff";
@@ -190,10 +190,23 @@ const REQUIRED_CLAUSES: RequiredClause[] = [
     patterns: [/\bAI (?:assistant|agent|calling|voice)\b/i, /\bautomated (?:call|assistant)\b/i],
   },
   {
-    category: "missing_consent_gate",
+    /*
+     * Consent moved to the patient record, so the per-call gate is gone — it is
+     * obtained once at registration rather than re-asked every day.
+     *
+     * What replaced it is stricter. A patient who describes something urgent
+     * must end the call there, not be deflected and asked the next question. A
+     * real transcript had the agent answer "I can't answer that one, but I'll
+     * pass it on" to "I feel like fainting and I don't have bladder control" and
+     * then continue the survey. The script must carry an explicit stop.
+     */
+    category: "missing_emergency_stop",
     reason:
-      "The agent must ask permission before the first question, and stop if the patient declines.",
-    patterns: [/\bis (?:now|this) a good time\b/i, /\bokay to (?:ask|go ahead|continue)\b/i],
+      "The agent must stop the call when a patient describes something urgent, not carry on to the next question.",
+    patterns: [
+      /\bstop asking\b[\s\S]{0,200}\bquestions?\b/i,
+      /\bdo not ask (?:them )?(?:any )?(?:more|further) questions\b/i,
+    ],
   },
   {
     category: "missing_non_advice_statement",

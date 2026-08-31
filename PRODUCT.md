@@ -94,17 +94,21 @@ reusable.
 
 ### Build state — what is true today
 
-The repo is a **scaffold with the safety core built and tested, and nothing else**. Shipped
-and verified: `lib/phone/normalize.ts` (E.164 or a typed refusal, plus `maskPhone`),
-`lib/script/guard.ts` (the three-phase clinical guard), `lib/calle/port.ts` (the only door to
-CALL-E), `lib/calle/fake-server.ts`, `lib/config.ts`, `start.sh`. The only route is `/`, and
-it is an explicitly labelled scaffold page that lists what is not built.
+The pipeline is **built end to end and tested**. A doctor can add a patient, write a
+note, watch it compile into a reviewable plan with every defaulted field marked, approve
+it in one click, and see it expand into dated rows; the scheduler then dials, extracts
+typed answers, evaluates them with a pure rule engine, escalates, and retries.
 
-**Not built yet:** the database and seeds, the task assembler, the rule DSL and evaluator,
-the note compiler, the scheduler, extraction, the KPI layer, and the entire console
-(`/patients`, `/patients/<id>`, `/patients/<id>/new-plan`, `/plans/<id>`, `/calls/<id>`,
-`/queue`, `/api/tick`). Capability statements elsewhere in this file describe **confirmed
-product truth**, not shipped surface area.
+Shipped and verified (162 tests, running on zero credentials): `lib/phone/normalize.ts`,
+`lib/script/guard.ts`, `lib/script/build.ts`, `lib/calle/port.ts`, `lib/calle/fake-server.ts`,
+`lib/rules/` (types, catalog, pure engine), `lib/time/clock.ts`, `lib/plan/` (provider,
+compile, defaults, grounding, result-schema, extract), `lib/schedule/` (expand, store, tick,
+trigger), `lib/db/` (schema, queries, patients, plans, calls), and the console:
+`/dashboard`, `/patients`, `/patients/new`, `/patients/[id]`, `/patients/[id]/edit`,
+`/patients/[id]/new-plan`, `/plans/[id]`, `/calls/[id]`, `/queue`, `POST /api/tick`.
+
+**Not built:** the plan-v2 editing UI, `book_appointment`, webhooks, and charts — all
+deliberately cut. `skill/` ships with the pattern and three worked examples.
 
 ### What a clinician will be able to do, end to end
 
@@ -129,12 +133,18 @@ when a rule fires.
   occurrences may not. The review screen says so.
 - `patients.timezone` (IANA) is required — `"10:00"` without a zone means the server's 10:00
   and drifts across DST.
-- **Consent to be called by an AI** is a field on the patient record *and* a first-call
-  consent gate. Not optional.
+- **Consent to be called by an AI** is a field on the patient record, recorded once at
+  enrolment. There is deliberately **no per-call consent gate** — re-asking permission every
+  day made the call longer without making it safer, and the real transcript spent 45 seconds
+  on preamble before its first question. A recorded refusal is still honoured and the dial
+  allowlist is still the gate that decides whether anything rings.
+- **An urgent disclosure ends the call.** If a patient describes something that sounds
+  urgent, the agent stops asking questions, tells them the care team is being notified now,
+  and hangs up. It never deflects and continues the survey.
 
 ### Hard constraints
 
-- **The guard, the consent gate, the AI disclosure, and the emergency handoff are never
+- **The guard, the AI disclosure, the emergency stop, and the emergency handoff are never
   weakened to smooth a demo.** If they get in the way, that *is* the demo.
 - **Care Loop never gives clinical advice and never diagnoses.** No code path makes a
   clinical decision. Escalation is routing, never a verdict.
@@ -149,8 +159,9 @@ when a rule fires.
   implying a login.
 - **Hackathon prototype. Not for use with real patient data.** This must be stated on the
   landing page and in the README.
-- Without `OPENAI_API_KEY`, compiling a note is **refused** and the review screen shows a
-  blank hand-editable plan. It never silently invents a generic follow-up plan.
+- Without `GEMINI_API_KEY` (and without the `OPENAI_API_KEY` fallback), compiling a note
+  is **refused** and the review screen shows a blank hand-editable plan. It never silently
+  invents a generic follow-up plan.
 - Without `DATABASE_URL`, data pages throw a named error rather than rendering an empty
   console.
 - Technical shape that constrains any interface work: Next.js 16 App Router, React 19,

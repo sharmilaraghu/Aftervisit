@@ -15,6 +15,9 @@ const eslintConfig = defineConfig([
     "drizzle/**",
     ".remember/**",
     ".impeccable/**",
+    ".cursor/**",
+    ".codex/**",
+    ".claude/**",
   ]),
 ]);
 

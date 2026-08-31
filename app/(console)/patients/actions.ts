@@ -1,0 +1,247 @@
+"use server";
+
+/**
+ * Patient mutations.
+ *
+ * There is no auth in this build, deliberately, and the chrome says so. Every
+ * action here is therefore reachable by anyone with the URL — which is why the
+ * dial allowlist, not a session, is what stops the scheduler phoning a stranger.
+ *
+ * Validation refuses rather than guesses. A phone number without a country code
+ * is rejected with the sentence already written in `lib/phone/normalize.ts`,
+ * because a guessed code dials someone who never consented to anything.
+ */
+
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+
+import {
+  archivePatient,
+  createPatient,
+  deletePatient,
+  DuplicatePhoneError,
+  stopCalls,
+  updatePatient,
+  type PatientInput,
+} from "@/lib/db/patients";
+import { REJECTION_TEXT, normalizePhone } from "@/lib/phone/normalize";
+import { compileNote } from "@/lib/plan/compile";
+import { applyDefaults } from "@/lib/plan/defaults";
+import { createPlanFromNote } from "@/lib/db/plans";
+import { redFlagsFor } from "@/data/red-flags";
+import { isValidTimezone } from "@/lib/patients/timezones";
+import type { ConsentState } from "@/lib/db/enums";
+import type { PatientFormState } from "@/lib/patients/form";
+
+const CONSENTS: ConsentState[] = ["unknown", "granted", "declined"];
+
+function parse(formData: FormData): {
+  state: PatientFormState;
+  input: PatientInput | null;
+} {
+  const name = String(formData.get("name") ?? "").trim();
+  const ageRaw = String(formData.get("age") ?? "").trim();
+  const phoneRaw = String(formData.get("phone") ?? "").trim();
+  const timezone = String(formData.get("timezone") ?? "").trim();
+  /*
+   * Consent is not asked per call any more, and not asked on this form either.
+   * It is a condition of being enrolled in follow-up, recorded once — the field
+   * stays on the patient record so a withdrawal can still be honoured, and the
+   * dial allowlist remains the gate that decides whether anything rings.
+   */
+  const consentRaw = String(formData.get("consent") ?? "granted").trim() || "granted";
+  const note = String(formData.get("note") ?? "").trim();
+  const timeScale = String(formData.get("timeScale") ?? "1");
+
+  const state: PatientFormState = {
+    errors: {},
+    values: { name, age: ageRaw, phone: phoneRaw, timezone, consent: consentRaw, note, timeScale },
+  };
+
+  /*
+   * The note is optional — pure admin entry is a real case — but a couple of
+   * words is not a note. Better to refuse than to compile a plan out of nothing
+   * and hand the doctor something they have to unpick.
+   */
+  if (note && note.length < 20) {
+    state.errors.note =
+      "Write a little more, or leave it blank. There is nothing to compile from a few words.";
+  }
+
+  if (!name) state.errors.name = "A name is required.";
+
+  const age = Number(ageRaw);
+  if (!ageRaw) {
+    state.errors.age = "An age is required.";
+  } else if (!Number.isInteger(age) || age < 0 || age > 129) {
+    state.errors.age = "Age must be a whole number between 0 and 129.";
+  }
+
+  // The refusal text is already written, in the product's voice, and tested.
+  // Rewriting it here would let two versions of the same sentence drift.
+  const phone = normalizePhone(phoneRaw);
+  if (!phone.ok) state.errors.phone = REJECTION_TEXT[phone.reason];
+
+  if (!isValidTimezone(timezone)) {
+    state.errors.timezone =
+      "Pick a timezone. Without one, a plan's 10:00 means the server's 10:00 and drifts across daylight saving.";
+  }
+
+  const consent = CONSENTS.includes(consentRaw as ConsentState)
+    ? (consentRaw as ConsentState)
+    : null;
+  if (!consent) state.errors.consent = "Choose whether this patient has agreed to AI calls.";
+
+  if (Object.keys(state.errors).length > 0 || !phone.ok || !consent) {
+    return { state, input: null };
+  }
+
+  return {
+    state,
+    input: {
+      name,
+      age,
+      phoneE164: phone.e164,
+      timezone,
+      aiCallConsent: consent,
+    },
+  };
+}
+
+export async function createPatientAction(
+  _prev: PatientFormState,
+  formData: FormData,
+): Promise<PatientFormState> {
+  const { state, input } = parse(formData);
+  if (!input) return state;
+
+  const note = state.values.note;
+  const timeScale = Number(state.values.timeScale) || 1;
+
+  let id: string;
+  try {
+    id = await createPatient(input);
+  } catch (error) {
+    if (error instanceof DuplicatePhoneError) {
+      return {
+        ...state,
+        errors: {
+          ...state.errors,
+          phone:
+            "Another active patient already has this number. Care Loop will not " +
+            "create a second record on it — two plans would phone the same person twice.",
+        },
+      };
+    }
+    throw error;
+  }
+
+  /*
+   * With a note, the same submit compiles it. A refusal is not an error here —
+   * the patient is saved either way, and the doctor lands on a blank plan they
+   * can fill in rather than losing what they typed.
+   */
+  if (note) {
+    const outcome = await compileNote({ noteBody: note, fallbackReason: "Follow-up" });
+
+    const resolved = outcome.ok
+      ? outcome.plan
+      : applyDefaults(
+          {
+            reason: null,
+            condition: null,
+            durationDays: null,
+            cadence: null,
+            localTime: null,
+            questions: null,
+            redFlagTerms: null,
+            medications: null,
+          },
+          { fallbackReason: "Follow-up", baseRedFlags: redFlagsFor(null), baseRules: [] },
+        );
+
+    const planId = await createPlanFromNote({
+      patientId: id,
+      noteBody: note,
+      plan: resolved,
+      compile: outcome.ok
+        ? {
+            status: "compiled",
+            provider: outcome.provider,
+            model: outcome.model,
+            raw: outcome.raw,
+            error: null,
+          }
+        : { status: "refused", provider: null, model: null, raw: null, error: outcome.detail },
+      rejectedQuestions: outcome.ok ? outcome.rejectedQuestions : undefined,
+      timeScale,
+    });
+
+    revalidatePath("/patients");
+    // Straight to the thing they now have to decide on.
+    redirect(`/plans/${planId}`);
+  }
+
+  revalidatePath("/patients");
+  // redirect() throws to unwind, so it must sit outside the try above or the
+  // catch would swallow it and the form would silently do nothing.
+  redirect(`/patients/${id}?created=1`);
+}
+
+export async function updatePatientAction(
+  id: string,
+  _prev: PatientFormState,
+  formData: FormData,
+): Promise<PatientFormState> {
+  const { state, input } = parse(formData);
+  if (!input) return state;
+
+  let ok: boolean;
+  try {
+    ok = await updatePatient(id, input);
+  } catch (error) {
+    if (error instanceof DuplicatePhoneError) {
+      return {
+        ...state,
+        errors: {
+          ...state.errors,
+          phone: "Another active patient already has this number.",
+        },
+      };
+    }
+    throw error;
+  }
+
+  if (!ok) {
+    return {
+      ...state,
+      errors: { ...state.errors, form: "That patient no longer exists, or has been archived." },
+    };
+  }
+
+  revalidatePath("/patients");
+  revalidatePath(`/patients/${id}`);
+  redirect(`/patients/${id}`);
+}
+
+/** The emergency brake: skip every unplaced call and pause the plan. */
+export async function stopCallsAction(id: string): Promise<{ stopped: number }> {
+  const result = await stopCalls(id);
+  revalidatePath("/patients");
+  revalidatePath(`/patients/${id}`);
+  return { stopped: result.stopped };
+}
+
+/** Permanent. Archiving is the reversible option; this is not it. */
+export async function deletePatientAction(id: string): Promise<void> {
+  await deletePatient(id);
+  revalidatePath("/patients");
+  redirect("/patients");
+}
+
+export async function archivePatientAction(id: string): Promise<void> {
+  await archivePatient(id);
+  revalidatePath("/patients");
+  revalidatePath(`/patients/${id}`);
+  redirect("/patients");
+}

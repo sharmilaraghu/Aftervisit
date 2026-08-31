@@ -16,6 +16,26 @@ export default function ConsoleLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   const config = readConfig();
 
+  /*
+   * The honesty line, and it has to keep pace with the build. Saying "the
+   * scheduler is not built" after it was built is the same failure as claiming
+   * it works before it did — so the sentence is derived from configuration
+   * rather than typed as a fact that goes stale.
+   */
+  /*
+   * Derived, never typed as a fact. An earlier version asserted "seeded demo
+   * data, every patient here is fictional" — which became false the moment a
+   * real patient was added, and a stale honesty notice is worse than none.
+   * What this says now is only what configuration can prove.
+   */
+  const notice = config.liveCallsEnabled
+    ? config.allowlistOpen
+      ? "Prototype — not for real patient data. The dial allowlist is OPEN: any number on an approved plan can be called, without anyone pressing a button."
+      : config.callAllowlist.length > 0
+      ? `Prototype — not for real patient data. The scheduler is armed: ${config.callAllowlist.length} number${config.callAllowlist.length === 1 ? "" : "s"} can be dialled without anyone pressing a button.`
+      : "Prototype — not for real patient data. The scheduler is running, but the dial allowlist is empty, so every call will be refused with a visible reason."
+    : "Prototype — not for real patient data. No CALL-E key is set, so nothing can be dialled from here.";
+
   return (
     <div style={{ minHeight: "100dvh", display: "flex", flexDirection: "column" }}>
       <TopBar
@@ -23,12 +43,17 @@ export default function ConsoleLayout({
         armed={config.callAllowlist.length}
       />
 
-      {/* The console runs on fixtures. Say so rather than implying a database. */}
       <div
         style={{
-          background: "var(--amber)",
+          /*
+            The quiet variant, not the filled one. This notice is inert — it
+            says the same thing on every page and never changes while you work —
+            and a full-amber band across the whole console would spend the one
+            amber every view is allowed on chrome rather than on the action.
+          */
+          background: "var(--amber-wash)",
           color: "var(--print)",
-          borderBottom: "1px solid var(--amber-deep)",
+          borderBottom: "1px solid var(--amber)",
         }}
       >
         {/*
@@ -44,9 +69,7 @@ export default function ConsoleLayout({
             lineHeight: 1.45,
           }}
         >
-          <strong>Demo data.</strong> The database and scheduler are not built
-          yet, so nothing on these pages is live and no call can be placed from
-          here.
+          {notice}
         </p>
       </div>
 

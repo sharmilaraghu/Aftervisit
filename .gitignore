@@ -1,0 +1,30 @@
+# Secrets. .env holds a live Neon connection string and, once armed, real phone
+# numbers. Only the example is ever committed.
+.env
+.env.*
+!.env.example
+
+docs/
+
+node_modules/
+.next/
+out/
+build/
+next-env.d.ts
+
+.DS_Store
+*.tsbuildinfo
+
+# Plugin scratch space.
+.impeccable/config.local.json
+.remember/
+
+.impeccable/
+.codex/
+.claude/
+.cursor/
+.next/
+.remember/
+skill/
+scripts/
+

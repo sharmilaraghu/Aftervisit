@@ -32,6 +32,8 @@ export interface CallePortConfig {
   baseUrl?: string;
   /** The only numbers this port may dial. Empty means: dial nobody. */
   allowlist?: string[];
+  /** `CARELOOP_CALL_ALLOWLIST=*`: any number on an approved plan may be dialled. */
+  allowlistOpen?: boolean;
   /** Injectable so the whole suite can run against the fake server. */
   fetch?: (input: Request) => Promise<Response>;
 }
@@ -116,9 +118,15 @@ export function createCallePort(config: CallePortConfig): CallePort {
         };
       }
 
-      // 3. The allowlist — the gate that replaces the missing human.
+      /*
+       * 3. The allowlist — the gate that replaces the missing human.
+       *
+       * `allowlistOpen` is an explicit opt-out, never a default: an absent or
+       * empty list still refuses everything, so forgetting to configure the
+       * allowlist can only ever fail closed.
+       */
       const allowlist = config.allowlist ?? [];
-      if (!allowlist.includes(request.phone)) {
+      if (!config.allowlistOpen && !allowlist.includes(request.phone)) {
         return {
           ok: false,
           refusal: "not_allowlisted",
@@ -181,6 +189,7 @@ export function callePortFromEnv(env: NodeJS.ProcessEnv = process.env): CallePor
     apiKey: env.CALLE_API_KEY ?? "",
     locale: config.callLocale,
     allowlist: config.callAllowlist,
+    allowlistOpen: config.allowlistOpen,
     ...(env.CALLE_BASE_URL ? { baseUrl: env.CALLE_BASE_URL } : {}),
   });
 }

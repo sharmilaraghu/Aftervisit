@@ -8,7 +8,9 @@
  */
 
 import Link from "next/link";
-import type { CSSProperties, ReactNode } from "react";
+import type { ComponentProps, CSSProperties, ReactNode } from "react";
+
+import { ConsoleNav } from "@/components/ConsoleNav";
 
 /* Strip tones. Red is danger and is never used for anything else. */
 export type Tone = "amber" | "danger" | "info" | "clear" | "plain";
@@ -64,12 +66,22 @@ export function Panel({
   aside,
   children,
   style,
+  headingLevel = 2,
 }: {
   title?: ReactNode;
   aside?: ReactNode;
   children: ReactNode;
   style?: CSSProperties;
+  /**
+   * Panel titles are the page's real structure, so they are real headings.
+   *
+   * They used to render as a `<span class="caps">`, which meant every route was
+   * one `h1` and nothing else — a screen reader got no outline of the page at
+   * all. The visual treatment is unchanged; only the element is.
+   */
+  headingLevel?: 2 | 3;
 }) {
+  const Heading = headingLevel === 3 ? "h3" : "h2";
   return (
     <section className="sheet" style={{ ...style }}>
       {title !== undefined && (
@@ -83,9 +95,10 @@ export function Panel({
             borderBottom: "1px solid var(--rule-ink)",
           }}
         >
-          <span className="caps" style={{ color: "var(--print)" }}>
+          {/* `.caps` carries the type; only the heading's own margin is reset. */}
+          <Heading className="caps" style={{ color: "var(--print)", margin: 0 }}>
             {title}
-          </span>
+          </Heading>
           {aside}
         </header>
       )}
@@ -292,11 +305,6 @@ export function TopBar({
   live: boolean;
   armed: number;
 }) {
-  const nav = [
-    ["Patients", "/patients"],
-    ["Queue", "/queue"],
-  ] as const;
-
   return (
     <header
       style={{
@@ -332,18 +340,7 @@ export function TopBar({
           Care&nbsp;Loop
         </Link>
 
-        <nav style={{ display: "flex", gap: "calc(var(--cell) * 3)" }}>
-          {nav.map(([label, href]) => (
-            <Link
-              key={href}
-              href={href}
-              className="caps"
-              style={{ color: "var(--bench-ink-2)", textDecoration: "none" }}
-            >
-              {label}
-            </Link>
-          ))}
-        </nav>
+        <ConsoleNav />
 
         <div
           className="topbar-status"
@@ -370,5 +367,131 @@ export function TopBar({
         </div>
       </div>
     </header>
+  );
+}
+
+/**
+ * A labelled control.
+ *
+ * The label is a field label, so it is tracked caps — that is what caps are for
+ * in this system. `hint` explains the format *before* someone gets it wrong;
+ * `error` replaces it afterwards and is wired to the input by `aria-describedby`
+ * so a screen reader reads the reason, not just "invalid".
+ */
+export function Field({
+  label,
+  htmlFor,
+  hint,
+  error,
+  children,
+}: {
+  label: string;
+  htmlFor: string;
+  hint?: ReactNode;
+  error?: string | null;
+  children: ReactNode;
+}) {
+  return (
+    <div style={{ marginBottom: "calc(var(--cell) * 3)" }}>
+      <label
+        className="caps"
+        htmlFor={htmlFor}
+        style={{
+          display: "block",
+          color: "var(--print-3)",
+          marginBottom: "calc(var(--cell) * 0.75)",
+        }}
+      >
+        {label}
+      </label>
+      {children}
+      {error ? (
+        <p
+          id={`${htmlFor}-error`}
+          role="alert"
+          style={{
+            margin: "calc(var(--cell) * 0.75) 0 0",
+            color: "var(--danger-deep)",
+            fontSize: 14,
+            lineHeight: 1.45,
+          }}
+        >
+          {error}
+        </p>
+      ) : hint ? (
+        <p
+          id={`${htmlFor}-hint`}
+          style={{
+            margin: "calc(var(--cell) * 0.75) 0 0",
+            color: "var(--print-3)",
+            fontSize: 13,
+            lineHeight: 1.45,
+          }}
+        >
+          {hint}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** A ruled box on label stock. `mono` for anything compared by eye. */
+/**
+ * Which element describes this control.
+ *
+ * Explicit, because guessing was a real bug: the inputs used to derive
+ * `${id}-hint` unconditionally while `Field` only renders that element when a
+ * hint is actually passed — so every hint-less field shipped an
+ * `aria-describedby` pointing at nothing, and a screen reader announced a
+ * dangling reference instead of the label.
+ */
+export function describedBy(
+  id: string,
+  opts: { hint?: boolean; error?: boolean },
+): string | undefined {
+  if (opts.error) return `${id}-error`;
+  if (opts.hint) return `${id}-hint`;
+  return undefined;
+}
+
+export function TextInput({
+  mono = false,
+  invalid = false,
+  ...props
+}: ComponentProps<"input"> & { mono?: boolean; invalid?: boolean }) {
+  return (
+    <input
+      {...props}
+      aria-invalid={invalid || undefined}
+      className={mono ? "control mono" : "control"}
+    />
+  );
+}
+
+export function Textarea({
+  invalid = false,
+  ...props
+}: ComponentProps<"textarea"> & { invalid?: boolean }) {
+  return (
+    <textarea {...props} aria-invalid={invalid || undefined} className="control" />
+  );
+}
+
+export function Select({
+  options,
+  invalid = false,
+  ...props
+}: ComponentProps<"select"> & {
+  options: { value: string; label: string }[];
+  invalid?: boolean;
+}) {
+  return (
+    <select {...props} aria-invalid={invalid || undefined} className="control">
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
   );
 }

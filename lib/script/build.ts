@@ -1,0 +1,191 @@
+/**
+ * Assemble the task CALL-E is given.
+ *
+ * **Every sentence the agent may say lives in this file.** That is not a
+ * stylistic choice — CALL-E has no mid-call tool calling, so there is no moment
+ * during a call when the agent can ask us anything. Whatever is not written
+ * here up front cannot happen. Anything the script does not cover has to become
+ * a human's problem afterwards, which is why "record it as unclear" appears
+ * against every question rather than an instruction to interpret.
+ *
+ * The five safety clauses below are not decoration either. `inspectTask` fails
+ * a script that is *missing* any of them, so the frame and the guard are two
+ * halves of one contract: change the wording here and the guard tests go red.
+ *
+ * Pure. No clock, no IO, no model. Given the same plan it returns the same
+ * bytes, which is what makes the script diffable across a retry.
+ */
+
+import type { AnswerType } from "@/lib/db/enums";
+
+export interface TaskQuestion {
+  questionId: string;
+  /** The exact text spoken. Phase 2 exempts this string by location, so it must match. */
+  prompt: string;
+  answerType: AnswerType;
+  enumValues?: string[] | null;
+  /** Guard phase 1's stored verdict. An unapproved question can never reach a script. */
+  guardApproved: boolean;
+}
+
+export interface TaskInput {
+  patientName: string;
+  practiceName: string;
+  clinicianName: string;
+  questions: TaskQuestion[];
+  /**
+   * Sentences the clinician actually wrote, which the agent may quote. Only
+   * these are attributable to a person; everything else the agent says is the
+   * agent's own.
+   */
+  clinicianStatements?: string[];
+  /**
+   * Retained for callers, but the script no longer asks permission per call.
+   * Consent lives on the patient record, obtained once, not re-asked daily.
+   */
+  consentAlreadyGranted: boolean;
+  attempt: number;
+  maxAttempts: number;
+}
+
+export type AssembleResult =
+  | {
+      ok: true;
+      task: string;
+      /** Passed to `port.dial()` as the phase-2 exemption set. */
+      approvedQuestions: string[];
+      clinicianStatements: string[];
+    }
+  | { ok: false; reason: "no_questions" | "unapproved_question"; detail: string };
+
+/** How to record each kind of answer, and what to do when it does not fit. */
+function answerInstruction(q: TaskQuestion): string {
+  switch (q.answerType) {
+    case "boolean":
+      return "Record yes or no. If they do not give a clear yes or no, record it as unclear.";
+    case "scale_0_10":
+      return "Record a whole number from 0 to 10. If they do not give a number, record it as unclear.";
+    case "enum": {
+      const values = (q.enumValues ?? []).join(", ");
+      return (
+        `Record exactly one of: ${values}. ` +
+        "If what they say does not match one of those, record it as unclear. " +
+        "Do not pick the nearest one."
+      );
+    }
+    case "text":
+      return "Record what they say, in their own words. Do not summarise it.";
+  }
+}
+
+/**
+ * The frame.
+ *
+ * Ordered the way the call runs, because the model follows it in order: who is
+ * being called, how to open, what must be said before any question is asked,
+ * the questions, what to do when unsure, how to close.
+ */
+function frame(input: TaskInput, questionBlock: string, quotes: string): string {
+  const firstName = input.patientName.trim().split(/\s+/)[0];
+  const attemptNote =
+    input.attempt > 1
+      ? `\nThis is attempt ${input.attempt} of ${input.maxAttempts}. Earlier attempts today were not answered. Do not mention the earlier attempts unless they ask.\n`
+      : "";
+
+  return `You are an AI assistant making an automated follow-up call from ${input.practiceName} on behalf of ${input.clinicianName}.
+
+Your job is to ask a short, fixed set of questions and record the answers. You are not here to advise, explain, reassure, or interpret. You have no ability to change anything about this person's care.
+
+Keep this call short. Say each line once, do not repeat yourself, and do not fill silence with chatter. A follow-up call should take about a minute.
+${attemptNote}
+WHO YOU ARE CALLING
+
+Ask for ${firstName}. If the person who answers is not ${firstName}, do not share anything at all about their health, their medicines, or why you are calling. Say only that you will try again later, then end the call.
+
+HOW TO OPEN
+
+Say this, and nothing more, then go straight to the first question:
+
+"Hello, this is an AI assistant calling from ${input.practiceName} on behalf of ${input.clinicianName}. This is an automated call — I can't give you medical advice, I'm just checking how you're getting on, and it will take about a minute."
+
+${firstName} has already agreed to these calls, so do not ask permission again. If they say it is a bad time, ask when would suit and end the call.
+
+STOP THE CALL IF SOMETHING IS URGENT
+
+This overrides everything below.
+
+If at any point they describe something that sounds urgent — fainting, chest pain, losing control of their bladder or bowels, numbness or weakness, bleeding, confusion, or anything they say is an emergency — **stop asking questions immediately.** Do not ask the remaining questions. Do not say you cannot answer.
+
+Say: "Thank you for telling me — that does need looking at today. I'm going to stop here and let the care team know right now, and someone will call you back."
+
+Then say: "If this is an emergency, hang up and call your local emergency number now."
+
+Then end the call. Record everything they told you.
+
+THE QUESTIONS
+
+Ask these in this order, using the wording given. Ask each one once. Do not add questions of your own, and do not explain what a question means.
+
+You must ask every one of them out loud, including the last ones, even if the call has gone well and the answers seem obvious to you. **Never record an answer to a question you did not actually ask.** If the call ends early — including because you stopped it for something urgent — record the questions you did not ask as unclear. That is accurate, and a person will pick them up.
+
+${questionBlock}
+
+WHEN YOU ARE NOT SURE
+
+Never guess an answer, and never pick the closest option because nothing matched. Record it as unclear instead. An unclear answer is passed to a person to follow up, which is the correct outcome — a guess is not.
+
+If they ask you a medical question — what a symptom means, whether to change a dose — say: "I can't answer that one, but I'll pass it on and someone will get back to you." Then move to the next question. This is only for questions they ask you. It is never the response to a patient describing something urgent, which stops the call.
+
+If they ask to speak to a person, record that they asked and close the call politely.
+${quotes}
+HOW TO CLOSE
+
+Say: "That's everything, thank you for your time. Someone from the care team will call you back if anything here needs attention."
+
+Then end the call.`;
+}
+
+export function assembleTask(input: TaskInput): AssembleResult {
+  if (input.questions.length === 0) {
+    return {
+      ok: false,
+      reason: "no_questions",
+      detail: "A plan with no questions has nothing to ask. Care Loop will not place an empty call.",
+    };
+  }
+
+  /*
+   * The gate that closes the laundering hole. A question that failed guard
+   * phase 1 must never reach a script, because `port.dial()` exempts every
+   * string in `approvedQuestions` from phase 2 — so an unapproved question in
+   * that list would be laundered past the very check that rejected it.
+   */
+  const unapproved = input.questions.find((q) => !q.guardApproved);
+  if (unapproved) {
+    return {
+      ok: false,
+      reason: "unapproved_question",
+      detail:
+        `The question "${unapproved.questionId}" has not passed the clinical guard. ` +
+        "Care Loop will not build a script around it.",
+    };
+  }
+
+  const questionBlock = input.questions
+    .map((q, i) => `${i + 1}. Ask: "${q.prompt}"\n   ${answerInstruction(q)}`)
+    .join("\n\n");
+
+  const statements = input.clinicianStatements ?? [];
+  const quotes = statements.length
+    ? `\nWHAT ${input.clinicianName.toUpperCase()} WROTE\n\nYou may read any of these out word for word if it is relevant. Do not paraphrase them, and do not add to them.\n\n${statements
+        .map((s) => `- "${s}"`)
+        .join("\n")}\n`
+    : "";
+
+  return {
+    ok: true,
+    task: frame(input, questionBlock, quotes),
+    approvedQuestions: input.questions.map((q) => q.prompt),
+    clinicianStatements: statements,
+  };
+}

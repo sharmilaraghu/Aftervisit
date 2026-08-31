@@ -17,8 +17,7 @@ function safeFrame(body = ""): string {
   return [
     "You are an AI assistant calling on behalf of Bridgeview Family Practice.",
     "Say: I'm an AI assistant calling for Dr Rao's team at Bridgeview.",
-    "Ask: Is now a good time to go through a few quick questions?",
-    "If they say no, thank them and end the call.",
+    "If anything sounds urgent, stop asking questions and end the call.",
     "Say: I can't give medical advice, but I'll pass anything on to your care team.",
     "If this is an emergency, tell them to hang up and call emergency services now.",
     "Say: Your care team will call you back about anything I can't answer.",
@@ -142,9 +141,19 @@ describe("phase 2 — required clauses (the guard is bidirectional)", () => {
     expect(categories(inspectTask(task))).toContain("missing_ai_disclosure");
   });
 
-  it("reports a missing consent gate", () => {
-    const task = safeFrame().replace(/.*good time.*\n?/g, "");
-    expect(categories(inspectTask(task))).toContain("missing_consent_gate");
+  /*
+   * The consent gate was replaced by this. Consent now lives on the patient
+   * record, obtained once; what a script must carry instead is an explicit
+   * stop, because a real call deflected "I feel like fainting and I don't have
+   * bladder control" with "I can't answer that one" and asked the next question.
+   */
+  it("reports a missing emergency stop", () => {
+    const task = safeFrame().replace(/.*stop asking.*\n?/g, "");
+    expect(categories(inspectTask(task))).toContain("missing_emergency_stop");
+  });
+
+  it("accepts a script that does tell the agent to stop", () => {
+    expect(categories(inspectTask(safeFrame()))).not.toContain("missing_emergency_stop");
   });
 
   it("reports a missing non-advice statement", () => {
