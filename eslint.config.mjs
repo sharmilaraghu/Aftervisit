@@ -18,6 +18,8 @@ const eslintConfig = defineConfig([
     ".cursor/**",
     ".codex/**",
     ".claude/**",
+    // The cloned rivals repo — reference material, not ours to lint.
+    "misc/**",
   ]),
 ]);
 

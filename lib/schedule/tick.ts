@@ -24,6 +24,7 @@ import { sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { callePortFromEnv, REFUSAL_TEXT, type CallePort } from "@/lib/calle/port";
 import { assembleTask } from "@/lib/script/build";
+import { spokenLanguageName } from "@/lib/patients/languages";
 import { extractSlots, foldOutcome, someoneSpoke } from "@/lib/plan/extract";
 import { evaluate } from "@/lib/rules/engine";
 import { inspectTranscript } from "@/lib/script/guard";
@@ -73,6 +74,8 @@ interface CallContext extends DueCall {
   patientName: string;
   phoneE164: string;
   timezone: string;
+  /** BCP 47; the per-recipient locale hint and the script's speak-language input. */
+  language: string;
   consent: string;
   maxAttempts: number;
   rules: PlanRule[];
@@ -92,7 +95,7 @@ interface CallContext extends DueCall {
 async function loadContext(call: DueCall): Promise<CallContext | null> {
   const db = getDb();
   const rows = await db.execute(sql`
-    select pt.name, pt.phone_e164, pt.timezone, pt.ai_call_consent,
+    select pt.name, pt.phone_e164, pt.timezone, pt.language, pt.ai_call_consent,
            p.max_attempts, p.rules, p.red_flag_terms, p.result_schema, n.body as note_body
     from follow_up_plans p
     join patients pt on pt.id = p.patient_id
@@ -112,6 +115,7 @@ async function loadContext(call: DueCall): Promise<CallContext | null> {
     patientName: String(row.name),
     phoneE164: String(row.phone_e164),
     timezone: String(row.timezone),
+    language: String(row.language ?? "en-US"),
     consent: String(row.ai_call_consent),
     maxAttempts: Number(row.max_attempts),
     rules: (row.rules ?? []) as PlanRule[],
@@ -360,6 +364,7 @@ async function dialOne(
     clinicianName: "Dr Rao",
     questions: ctx.questions,
     consentAlreadyGranted: ctx.consent === "granted",
+    speakLanguage: spokenLanguageName(ctx.language),
     attempt: ctx.attempt,
     maxAttempts: ctx.maxAttempts,
   });
@@ -382,6 +387,7 @@ async function dialOne(
     idempotencyKey: ctx.idempotencyKey,
     approvedQuestions: script.approvedQuestions,
     clinicianStatements: script.clinicianStatements,
+    locale: ctx.language,
   });
 
   if (!outcome.ok) {

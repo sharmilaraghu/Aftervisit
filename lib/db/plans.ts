@@ -39,6 +39,8 @@ export interface PlanForReview {
   patientId: string;
   patientName: string;
   timezone: string;
+  /** BCP 47 tag; shown at approval so the doctor knows what the agent will speak. */
+  language: string;
   phoneE164: string;
   /** Needed at the approval moment: the doctor must be told whether it was asked. */
   consent: string;
@@ -170,7 +172,7 @@ export async function createPlanFromNote(input: {
 export async function getPlanForReview(planId: string): Promise<PlanForReview | null> {
   const db = getDb();
   const rows = await db.execute(sql`
-    select p.*, pt.name as patient_name, pt.timezone, pt.phone_e164,
+    select p.*, pt.name as patient_name, pt.timezone, pt.language, pt.phone_e164,
            pt.ai_call_consent, n.body as note_body, n.compile_status, n.compile_provider,
            n.compile_model, n.compile_error
     from follow_up_plans p
@@ -192,6 +194,7 @@ export async function getPlanForReview(planId: string): Promise<PlanForReview | 
     patientId: String(r.patient_id),
     patientName: String(r.patient_name),
     timezone: String(r.timezone),
+    language: String(r.language ?? "en-US"),
     phoneE164: String(r.phone_e164),
     consent: String(r.ai_call_consent),
     noteId: String(r.note_id),

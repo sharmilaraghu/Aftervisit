@@ -1,0 +1,1 @@
+ALTER TABLE "patients" ADD COLUMN "language" text DEFAULT 'en-US' NOT NULL;

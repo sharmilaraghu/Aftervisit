@@ -8,7 +8,7 @@
 
 export interface PatientFormState {
   errors: Partial<
-    Record<"name" | "age" | "phone" | "timezone" | "consent" | "note" | "form", string>
+    Record<"name" | "age" | "phone" | "timezone" | "language" | "consent" | "note" | "form", string>
   >;
   /** Echoed back so a rejected form does not make the clinician retype everything. */
   values: {
@@ -16,6 +16,7 @@ export interface PatientFormState {
     age: string;
     phone: string;
     timezone: string;
+    language: string;
     consent: string;
     /** Written in the same step as the patient, because that is when it exists. */
     note: string;
@@ -30,6 +31,7 @@ export const EMPTY_PATIENT_FORM: PatientFormState = {
     age: "",
     phone: "",
     timezone: "Europe/London",
+    language: "en-US",
     consent: "unknown",
     note: "",
     timeScale: "1",

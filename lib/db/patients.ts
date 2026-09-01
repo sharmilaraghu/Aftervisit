@@ -22,6 +22,8 @@ export interface PatientInput {
   /** Already E.164. Callers normalize first; this layer does not guess. */
   phoneE164: string;
   timezone: string;
+  /** BCP 47 tag; what the agent speaks on the call. Validated by the form layer. */
+  language: string;
   aiCallConsent: ConsentState;
 }
 
@@ -297,6 +299,7 @@ export async function createPatient(input: PatientInput): Promise<string> {
       age: input.age,
       phoneE164: input.phoneE164,
       timezone: input.timezone,
+      language: input.language,
       aiCallConsent: input.aiCallConsent,
       aiCallConsentAt: input.aiCallConsent === "unknown" ? null : new Date(),
       aiCallConsentSource: input.aiCallConsent === "unknown" ? null : "registration",
@@ -330,6 +333,7 @@ export async function updatePatient(id: string, input: PatientInput): Promise<bo
         age: input.age,
         phoneE164: input.phoneE164,
         timezone: input.timezone,
+        language: input.language,
         aiCallConsent: input.aiCallConsent,
         ...(consentChanged
           ? {

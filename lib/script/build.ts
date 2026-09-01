@@ -44,6 +44,13 @@ export interface TaskInput {
    * Consent lives on the patient record, obtained once, not re-asked daily.
    */
   consentAlreadyGranted: boolean;
+  /**
+   * Human-readable language to conduct the call in ("Hindi", "Tamil"), set only
+   * when the patient's language is not English. The task text itself stays in
+   * English — the guard's required clauses are English patterns, and they check
+   * the instructions, not the conversation.
+   */
+  speakLanguage?: string;
   attempt: number;
   maxAttempts: number;
 }
@@ -91,8 +98,11 @@ function frame(input: TaskInput, questionBlock: string, quotes: string): string 
     input.attempt > 1
       ? `\nThis is attempt ${input.attempt} of ${input.maxAttempts}. Earlier attempts today were not answered. Do not mention the earlier attempts unless they ask.\n`
       : "";
+  const languageNote = input.speakLanguage
+    ? `\nSPEAK THEIR LANGUAGE\n\nConduct the whole call in ${input.speakLanguage}. The questions below are written in English: ask them in ${input.speakLanguage}, keeping their meaning exactly, and record answers using the answer sets given.\n`
+    : "";
 
-  return `You are an AI assistant making an automated follow-up call from ${input.practiceName} on behalf of ${input.clinicianName}.
+  return `You are an AI assistant making an automated call from ${input.practiceName} on behalf of ${input.clinicianName} — a scheduled follow-up.
 
 Your job is to ask a short, fixed set of questions and record the answers. You are not here to advise, explain, reassure, or interpret. You have no ability to change anything about this person's care.
 
@@ -106,9 +116,10 @@ HOW TO OPEN
 
 Say this, and nothing more, then go straight to the first question:
 
-"Hello, this is an AI assistant calling from ${input.practiceName} on behalf of ${input.clinicianName}. This is an automated call — I can't give you medical advice, I'm just checking how you're getting on, and it will take about a minute."
+"Hello — this is ${input.practiceName}'s AI assistant calling on behalf of ${input.clinicianName}. It's your follow-up call, and it'll just take a minute."
 
 ${firstName} has already agreed to these calls, so do not ask permission again. If they say it is a bad time, ask when would suit and end the call.
+${languageNote}
 
 STOP THE CALL IF SOMETHING IS URGENT
 
@@ -134,7 +145,7 @@ WHEN YOU ARE NOT SURE
 
 Never guess an answer, and never pick the closest option because nothing matched. Record it as unclear instead. An unclear answer is passed to a person to follow up, which is the correct outcome — a guess is not.
 
-If they ask you a medical question — what a symptom means, whether to change a dose — say: "I can't answer that one, but I'll pass it on and someone will get back to you." Then move to the next question. This is only for questions they ask you. It is never the response to a patient describing something urgent, which stops the call.
+If they ask you a medical question — what a symptom means, whether to change a dose — say: "I can't give you medical advice, but I'll pass it on and someone will get back to you." Then move to the next question. This is only for questions they ask you. It is never the response to a patient describing something urgent, which stops the call.
 
 If they ask to speak to a person, record that they asked and close the call politely.
 ${quotes}

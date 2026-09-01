@@ -21,6 +21,7 @@ import { getPlanForReview } from "@/lib/db/plans";
 import { formatStamp } from "@/lib/format";
 import { maskPhone } from "@/lib/phone/normalize";
 import { readConfig } from "@/lib/config";
+import { LANGUAGE_OPTIONS } from "@/lib/patients/languages";
 import { expandPlan } from "@/lib/schedule/expand";
 import type { Provenance } from "@/lib/db/enums";
 
@@ -324,6 +325,9 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
           timezone={plan.timezone}
           maxAttempts={plan.maxAttempts}
           consent={CONSENT_SENTENCE[plan.consent] ?? "Not asked yet"}
+          language={
+            LANGUAGE_OPTIONS.find((o) => o.value === plan.language)?.label ?? plan.language
+          }
           allowlisted={
             readConfig().allowlistOpen || readConfig().callAllowlist.includes(plan.phoneE164)
           }

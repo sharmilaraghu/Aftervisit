@@ -30,6 +30,7 @@ import { applyDefaults } from "@/lib/plan/defaults";
 import { createPlanFromNote } from "@/lib/db/plans";
 import { redFlagsFor } from "@/data/red-flags";
 import { isValidTimezone } from "@/lib/patients/timezones";
+import { isValidLanguage } from "@/lib/patients/languages";
 import type { ConsentState } from "@/lib/db/enums";
 import type { PatientFormState } from "@/lib/patients/form";
 
@@ -43,6 +44,7 @@ function parse(formData: FormData): {
   const ageRaw = String(formData.get("age") ?? "").trim();
   const phoneRaw = String(formData.get("phone") ?? "").trim();
   const timezone = String(formData.get("timezone") ?? "").trim();
+  const language = String(formData.get("language") ?? "en-US").trim() || "en-US";
   /*
    * Consent is not asked per call any more, and not asked on this form either.
    * It is a condition of being enrolled in follow-up, recorded once — the field
@@ -55,7 +57,7 @@ function parse(formData: FormData): {
 
   const state: PatientFormState = {
     errors: {},
-    values: { name, age: ageRaw, phone: phoneRaw, timezone, consent: consentRaw, note, timeScale },
+    values: { name, age: ageRaw, phone: phoneRaw, timezone, language, consent: consentRaw, note, timeScale },
   };
 
   /*
@@ -87,6 +89,11 @@ function parse(formData: FormData): {
       "Pick a timezone. Without one, a plan's 10:00 means the server's 10:00 and drifts across daylight saving.";
   }
 
+  if (!isValidLanguage(language)) {
+    state.errors.language =
+      "Pick a language. This is what the agent speaks on the call, so a malformed tag reaches a real phone.";
+  }
+
   const consent = CONSENTS.includes(consentRaw as ConsentState)
     ? (consentRaw as ConsentState)
     : null;
@@ -103,6 +110,7 @@ function parse(formData: FormData): {
       age,
       phoneE164: phone.e164,
       timezone,
+      language,
       aiCallConsent: consent,
     },
   };

@@ -124,6 +124,13 @@ export const patients = pgTable(
      * silently becomes the server's 10:00 and drifts across DST.
      */
     timezone: text("timezone").notNull(),
+    /**
+     * BCP 47 tag for the language the call is conducted in. Unlike `timezone`
+     * this one *does* carry a default: existing rows need a backfill value, and
+     * a call in the wrong language is recoverable in a way a call at the wrong
+     * hour is not — the patient just answers in English.
+     */
+    language: text("language").notNull().default("en-US"),
     /** Ternary on purpose — "never asked" must not behave like "refused". */
     aiCallConsent: text("ai_call_consent").$type<ConsentState>().notNull().default("unknown"),
     aiCallConsentAt: ts("ai_call_consent_at"),

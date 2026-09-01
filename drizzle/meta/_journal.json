@@ -8,6 +8,13 @@
       "when": 1788088239943,
       "tag": "0000_nifty_zuras",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788237152300,
+      "tag": "0001_complex_hemingway",
+      "breakpoints": true
     }
   ]
 }

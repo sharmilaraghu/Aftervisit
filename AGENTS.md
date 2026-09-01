@@ -74,6 +74,9 @@ doctor's free-text note
    stricter: a script must tell the agent to **stop the call** when a patient describes
    something urgent, because a real transcript had it answer "I can't answer that one" to
    "I feel like fainting and I don't have bladder control" and ask the next question.
+   *Known limitation of per-patient call language:* the phase-3 transcript guard's patterns
+   are English-only, so a non-English call's agent turns are not phase-3-checkable — the
+   safety clauses stay enforced in the English task text that phases 1 and 2 inspect.
 4. **Care Loop never gives clinical advice and never diagnoses anyone.** There is no code
    path that makes a clinical decision. An uncertain call becomes a human's problem via an
    escalation. Escalation is routing, never a verdict.

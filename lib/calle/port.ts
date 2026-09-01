@@ -52,6 +52,8 @@ export interface DialRequest {
   approvedQuestions?: string[];
   /** Sentences the clinician actually wrote. */
   clinicianStatements?: string[];
+  /** Per-patient BCP 47 locale. Falls back to the port's global locale. */
+  locale?: string;
 }
 
 export type RefusalReason =
@@ -149,7 +151,10 @@ export function createCallePort(config: CallePortConfig): CallePort {
             recipients: [
               {
                 phones: [request.phone],
-                ...(config.locale ? { locale: config.locale } : {}),
+                // Per-patient language wins; the env-level locale is the fallback.
+                ...((request.locale ?? config.locale)
+                  ? { locale: request.locale ?? config.locale }
+                  : {}),
               },
             ],
             resultSchema: request.resultSchema,

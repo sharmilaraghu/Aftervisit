@@ -22,6 +22,7 @@ import { useActionState, useEffect, useRef } from "react";
 import { Button, Field, Panel, Select, TextInput, Textarea, describedBy } from "@/components/ui";
 import type { PatientFormState } from "@/lib/patients/form";
 import { TIMEZONE_OPTIONS } from "@/lib/patients/timezones";
+import { LANGUAGE_OPTIONS } from "@/lib/patients/languages";
 import { TIME_SCALE_OPTIONS } from "@/lib/patients/plan-form";
 
 export function PatientForm({
@@ -151,6 +152,26 @@ export function PatientForm({
               aria-describedby={describedBy("timezone", {
                 hint: true,
                 error: Boolean(state.errors.timezone),
+              })}
+            />
+          </Field>
+
+          <Field
+            label="Call language"
+            htmlFor="language"
+            error={state.errors.language}
+            hint="The language the agent speaks on the call. Questions stay as written; the agent asks them in this language."
+          >
+            <Select
+              id="language"
+              name="language"
+              defaultValue={v.language}
+              options={LANGUAGE_OPTIONS}
+              style={{ maxWidth: 420 }}
+              invalid={Boolean(state.errors.language)}
+              aria-describedby={describedBy("language", {
+                hint: true,
+                error: Boolean(state.errors.language),
               })}
             />
           </Field>

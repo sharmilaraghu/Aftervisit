@@ -111,7 +111,7 @@ export default async function PatientPage({
               className="mono"
               style={{ margin: 0, color: "var(--bench-ink-2)", fontSize: 14 }}
             >
-              {patient.age} · {maskPhone(patient.phoneE164)} · {patient.timezone}
+              {patient.age} · {maskPhone(patient.phoneE164)} · {patient.timezone} · {patient.language}
             </p>
           </div>
 

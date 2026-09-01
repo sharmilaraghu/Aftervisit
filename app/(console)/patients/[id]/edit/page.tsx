@@ -59,6 +59,7 @@ export default async function EditPatientPage({
             age: String(patient.age),
             phone: patient.phoneE164,
             timezone: patient.timezone,
+            language: patient.language,
             consent: patient.aiCallConsent,
             // Editing a patient never touches their plan, so the note fields
             // are absent from this form entirely.

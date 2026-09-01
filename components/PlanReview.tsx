@@ -114,6 +114,7 @@ export function ApprovePlan({
   calls,
   maxAttempts,
   consent,
+  language,
   allowlisted,
   allowlistOpen = false,
 }: {
@@ -126,6 +127,8 @@ export function ApprovePlan({
   calls: number;
   maxAttempts: number;
   consent: string;
+  /** BCP 47 tag with its label, e.g. "hi-IN — Hindi". What the agent will speak. */
+  language: string;
   allowlisted: boolean;
   /** True when the gate is open for every number, not this one specifically. */
   allowlistOpen?: boolean;
@@ -177,6 +180,7 @@ export function ApprovePlan({
                 : `${calls} ${calls === 1 ? "call" : "calls"}, up to ${maxAttempts} attempts each`,
             ],
             ["Consent", consent],
+            ["Language", language],
           ].map(([label, value]) => (
             <div key={label}>
               <dt className="caps" style={{ color: "var(--print-3)", marginBottom: 2 }}>
