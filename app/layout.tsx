@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Archivo, Martian_Mono } from "next/font/google";
+import { Archivo, Martian_Mono, Zilla_Slab } from "next/font/google";
 import "./globals.css";
 
 /*
@@ -12,6 +12,19 @@ const archivo = Archivo({
   subsets: ["latin"],
   axes: ["wdth"],
   variable: "--font-archivo",
+  display: "swap",
+});
+
+/*
+ * The wordmark, and only the wordmark. A slab serif is the apothecary's
+ * lettering — the face a dispensing label prints the pharmacy's own name in —
+ * so the brand speaks in a different voice from the content it sits above.
+ * Archivo is the page; this is who is publishing it.
+ */
+const zilla = Zilla_Slab({
+  subsets: ["latin"],
+  weight: ["600", "700"],
+  variable: "--font-zilla",
   display: "swap",
 });
 
@@ -31,7 +44,10 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${archivo.variable} ${martian.variable}`}>
+    <html
+      lang="en"
+      className={`${archivo.variable} ${martian.variable} ${zilla.variable}`}
+    >
       <body>
         {/*
           THESIS: A follow-up plan is a dispensing label — one instruction, issued

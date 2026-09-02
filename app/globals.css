@@ -79,6 +79,8 @@
   /* --font-archivo / --font-martian are set on <html> by next/font */
   --sans: var(--font-archivo), ui-sans-serif, system-ui, sans-serif;
   --mono: var(--font-martian), ui-monospace, "SF Mono", Menlo, monospace;
+  /* The wordmark only. Never body, never a heading. */
+  --brand: var(--font-zilla), ui-serif, Georgia, serif;
 }
 
 * {
@@ -213,9 +215,49 @@ a {
 
 /* Composition ------------------------------------------------------------- */
 
-.hero-grid,
-.refusal-row {
+/*
+ * Stacked, the artifact comes before the explanation of it. A phone reader who
+ * meets four stage paragraphs first reaches the compile sheet ~1000px down and
+ * mostly never does — and the sheet is the whole argument.
+ */
+.hero-grid {
   grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "intro"
+    "sheet"
+    "stages";
+}
+
+.stage-row {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Stacked, the console button sits under the name; side by side it takes the
+   far end of the band. */
+.masthead-cta {
+  display: inline-flex;
+}
+
+@media (min-width: 720px) {
+  .masthead-cta {
+    margin-left: auto;
+  }
+}
+
+.hero-intro  { grid-area: intro; }
+.hero-sheet  { grid-area: sheet; }
+.hero-stages { grid-area: stages; }
+
+/*
+ * The four stages sit under the hero's CTA, so they pair up as soon as there is
+ * room rather than running as one long column that would push the page past a
+ * screen. They never go to four across: at that width each stage's line breaks
+ * to five words and stops being readable.
+ */
+@media (min-width: 560px) {
+  .stage-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 /*
@@ -227,16 +269,6 @@ a {
   width: 100%;
 }
 
-/* The masthead's descriptor is the first thing to go when space is short. */
-.masthead-tag {
-  display: none;
-}
-
-@media (min-width: 720px) {
-  .masthead-tag {
-    display: inline;
-  }
-}
 
 @media (min-width: 860px) {
   .topbar-status {
@@ -245,15 +277,23 @@ a {
   }
 }
 
-@media (min-width: 720px) {
-  .refusal-row {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-}
-
+/*
+ * Side by side, the sheet spans both rows of the left column's stack. The
+ * second row takes all the slack (`1fr`) so the pipeline sits straight under
+ * the lede and any leftover height falls below it, rather than opening a hole
+ * in the middle of the column.
+ */
 @media (min-width: 1000px) {
   .hero-grid {
     grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+    grid-template-rows: min-content 1fr;
+    grid-template-areas:
+      "intro  sheet"
+      "stages sheet";
+  }
+
+  .hero-sheet {
+    align-self: center;
   }
 }
 
@@ -395,24 +435,79 @@ a {
  * One animation, on a stroke. Nothing scales or fades in place — the Advance
  * Rule forbids it, and a throbbing logo is exactly what it forbids.
  *
- * `logo-sweep` is a bright writing-point riding the pulse ring: it laps the
- * ring once and comes to rest lit on the heartbeat. The hold is the whole
+ * `logo-sweep` is a bright writing-point riding the pulse trace: it runs the
+ * line once and comes to rest lit on the beat. The hold is the whole
  * difference between a heartbeat and a progress bar — an evenly sweeping line
  * reads as loading; a line that travels, lands and rests reads as alive.
  *
  * Additive, per the Additive Motion Rule: the sweep is an overlay on a base
- * ring that is complete and static throughout, which is what the
+ * trace that is complete and legible throughout, which is what the
  * reduced-motion block leaves a reader.
  */
-.logo-sweep {
-  animation: logo-sweep 3.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+/*
+ * Both marks run on one 3.2s clock and take their easing from the keyframes,
+ * so the outer `linear` is a carrier, not a curve.
+ *
+ * The sequence is a sentence: the loop advances a week (`logo-orbit`), and then
+ * the patient answers (`logo-sweep`). Rest is most of it.
+ */
+.logo-orbit {
+  animation: logo-orbit 3.2s linear infinite;
 }
 
+.logo-sweep {
+  animation: logo-sweep 3.2s linear infinite;
+}
+
+/* The week advancing: a smooth lap of the ring, then rest at the top. */
+@keyframes logo-orbit {
+  0%,
+  30% {
+    stroke-dashoffset: 134;
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  52%,
+  100% { stroke-dashoffset: 34; }
+}
+
+/*
+ * The beat. A heartbeat is rest, a fast excursion, rest — so the travel is
+ * 12% of the cycle on a sharp curve, not an even sweep across the whole of it.
+ * An evenly sweeping line reads as loading; this reads as a systole.
+ */
 @keyframes logo-sweep {
-  /* One full lap behind its rest position… */
-  0%   { stroke-dashoffset: 122; }
-  /* …sweeps clockwise round the ring… */
-  72%  { stroke-dashoffset: 22; }
-  /* …and holds, lit, on the heartbeat. */
-  100% { stroke-dashoffset: 22; }
+  0%,
+  58% {
+    stroke-dashoffset: 154;
+    animation-timing-function: cubic-bezier(0.85, 0, 0.15, 1);
+  }
+  70%,
+  100% { stroke-dashoffset: 54; }
+}
+
+/*
+ * The compile tab's invitation. The page's whole argument is behind this pull
+ * and nothing else on screen says the sheet is live, so it keeps offering —
+ * a double nudge every 5.4s — until the first pointer or focus reaches it, at
+ * which point the class comes off for good. Additive: it rides the same
+ * transform channel the drag uses and leaves no fill behind.
+ */
+.tab-invite {
+  animation: tab-invite 5400ms cubic-bezier(0.16, 1, 0.3, 1) 1.2s infinite;
+}
+
+@keyframes tab-invite {
+  0%   { transform: translateX(0); }
+  4%   { transform: translateX(8px); }
+  9%   { transform: translateX(0); }
+  13%  { transform: translateX(8px); }
+  18%,
+  100% { transform: translateX(0); }
+}
+
+/* The tab is a sibling of `.sheet`, not a descendant, so the scoped ring in
+   that rule never reached it — and plain amber on white stock is 2.7:1. */
+.tab-invite:focus-visible,
+.pull-tab:focus-visible {
+  outline-color: var(--amber-deep);
 }

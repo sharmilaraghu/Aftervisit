@@ -1,22 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="32" height="32">
   <!--
-    The tab icon: the pulse ring, held still.
+    The tab icon: the ring with the pulse beating across it, held still.
 
-    A favicon renders at 16px, so everything is coarsened — a fatter stroke, one
-    spike and one dip instead of the full QRS, and a slightly smaller cross so
-    the trough clears it. The detail that makes the mark good at 26px turns to
-    grey mush at 16. No animation: a favicon never animates.
+    A favicon renders at 16px, so the stroke is fatter than the in-app mark and
+    the beat is a single spike. No animation: a favicon never animates.
 
     Colours are literal rather than tokens: this file is served on its own, with
-    no stylesheet to resolve var() against. #c8102e is --danger — the brand
-    mark's carved red exception, per DESIGN.md.
+    no stylesheet to resolve var() against. They are the bench ground, bench ink
+    and the amber beat, matching the mark in the app.
   -->
   <rect width="24" height="24" fill="#1c1a18"/>
-  <path d="M 16 3.9 A 9 9 0 1 1 8 3.9 L 10 3.9 L 11.7 1.2 L 13.1 5.6 L 14 3.9 L 16 3.9 Z"
-        fill="none" stroke="#c8102e" stroke-width="2.2"
+  <circle cx="12" cy="12" r="8.8" fill="none" stroke="#f6f3ed" stroke-width="2.1"/>
+  <path d="M 6 12 H 9.2 L 10.5 8.4 L 12.6 15.8 L 13.9 12 H 18"
+        fill="none" stroke="#e8850c" stroke-width="2.1"
         stroke-linecap="round" stroke-linejoin="round"/>
-  <g fill="#f6f3ed">
-    <rect x="10.2" y="7" width="3.6" height="10"/>
-    <rect x="7" y="10.2" width="10" height="3.6"/>
-  </g>
 </svg>

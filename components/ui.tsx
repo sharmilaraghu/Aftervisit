@@ -234,6 +234,18 @@ export function Button({
  * A dispensing sleeve prints the dispensing pharmacy's name across the top, so
  * the product's name rides the same band here. The console gets `TopBar`
  * instead — it carries state this surface has no business showing.
+ *
+ * A printed letterhead: the name at the left, the door at the right.
+ *
+ * The wordmark is set in the slab — the apothecary's lettering, and the one
+ * place this product uses it, so the brand speaks in a different voice from
+ * the page beneath it. The console button is the band's counterweight and the
+ * page's only door, which is why the amber lives up here now.
+ *
+ * An earlier version bridged the two with a `flex: 1` hairline "leader rule".
+ * It spanned 597px — half the band — and a leader rule does not fill a void,
+ * it *measures* one: it is the device a table of contents uses to join a label
+ * to its value. Two elements with weight at either end need no bridge.
  */
 export function Masthead() {
   return (
@@ -248,51 +260,43 @@ export function Masthead() {
         style={{
           maxWidth: "var(--maxw)",
           margin: "0 auto",
-          padding: "calc(var(--cell) * 2) calc(var(--cell) * 3)",
+          padding: "calc(var(--cell) * 1.5) calc(var(--cell) * 3)",
           display: "flex",
           alignItems: "center",
-          justifyContent: "space-between",
           gap: "calc(var(--cell) * 2)",
+          flexWrap: "wrap",
         }}
       >
         <Link
           href="/"
-          className="display"
           style={{
             display: "inline-flex",
             alignItems: "center",
-            gap: "calc(var(--cell) * 1.25)",
-            fontSize: 22,
-            letterSpacing: "-0.02em",
+            gap: "calc(var(--cell) * 1.5)",
+            /* Comfortably past 44px with the padding — a real touch target. */
+            padding: "calc(var(--cell) * 0.75) 0",
+            fontFamily: "var(--brand)",
+            fontWeight: 700,
+            fontSize: 30,
+            letterSpacing: "-0.015em",
+            lineHeight: 1,
             textDecoration: "none",
             color: "var(--bench-ink)",
           }}
         >
           {/* The link already says the name, so the mark is not read twice. */}
-          <Logo size={26} title={null} />
+          <Logo size={36} title={null} />
           Care&nbsp;Loop
         </Link>
 
-        <span
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "calc(var(--cell) * 2)",
-          }}
-        >
-          <span
-            className="caps masthead-tag"
-            style={{ color: "var(--bench-ink-3)", whiteSpace: "nowrap" }}
-          >
-            Clinical follow-up, run by an agent
-          </span>
-          <Link
-            href="/patients"
-            className="caps"
-            style={{ color: "var(--bench-ink)", whiteSpace: "nowrap" }}
-          >
-            Console
-          </Link>
+        {/* The page's only door, and its one amber-filled button. The wrapper
+            carries the `auto` margin so it can be dropped once the band wraps:
+            stacked, the button lands under the name rather than floating alone
+            against the right edge. */}
+        <span className="masthead-cta">
+          <Button href="/patients" variant="primary">
+            Open the console
+          </Button>
         </span>
       </div>
     </header>

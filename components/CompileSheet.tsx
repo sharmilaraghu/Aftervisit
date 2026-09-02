@@ -13,14 +13,16 @@
  * staggered, never by fading in place.
  */
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Badge } from "./ui";
 
 const NOTE = `Asha K, 54. Started metformin 500mg BD today for new T2DM. Worried about side effects.
 
 Follow up daily for a week — GI upset, whether she's actually taking it, any dizziness.
 
-If she's vomiting or can't keep fluids down I want to know the same day. She's at work until 5 most days.`;
+If she's vomiting or can't keep fluids down I want to know the same day. She's at work until 5 most days.
+
+BP 138/86 today. Repeat U&Es and HbA1c in three months. Went through the sick-day rules with her.`;
 
 /* Approved 16 Aug, so the window is the seven calendar days that follow. */
 const DATES = ["17 Aug", "18 Aug", "19 Aug", "20 Aug", "21 Aug", "22 Aug", "23 Aug"];
@@ -44,8 +46,20 @@ const LOCKED = [
 
 const PULL_DISTANCE = 150;
 
-export function CompileSheet() {
+export function CompileSheet({
+  onOpenChange,
+}: {
+  /** Lets the page mark the pipeline stages this pull just performed. */
+  onOpenChange?: (open: boolean) => void;
+}) {
   const [pulled, setPulled] = useState(false);
+  /*
+   * The invitation runs until the first touch and never returns. Nothing else
+   * on the page says this sheet is live, and the page's whole argument is
+   * behind the pull — but a control that keeps waving after you have used it
+   * is nagging, not inviting.
+   */
+  const [touched, setTouched] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [drag, setDrag] = useState(0);
   const startX = useRef<number | null>(null);
@@ -55,6 +69,7 @@ export function CompileSheet() {
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     startX.current = e.clientX;
     setDragging(true);
+    setTouched(true);
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   }, []);
 
@@ -91,6 +106,10 @@ export function CompileSheet() {
   const progress = dragging ? drag : pulled ? 1 : 0;
   const open = progress > 0.5;
 
+  useEffect(() => {
+    onOpenChange?.(open);
+  }, [open, onOpenChange]);
+
   return (
     <div style={{ display: "flex", alignItems: "stretch", maxWidth: 560, width: "100%" }}>
       <div
@@ -99,7 +118,14 @@ export function CompileSheet() {
           flex: 1,
           minWidth: 0,
           padding: "calc(var(--cell) * 3)",
-          minHeight: 470,
+          /*
+             No minimum height. Matching the note state to the compiled state's
+             592px was tried and is worse: it buys a jump-free pull at the cost
+             of ~250px of blank stock, and empty white reads far louder than
+             the bench margin it replaces. The note is now long enough to fill
+             a sheet honestly, and the pull expands it — an expansion the
+             reader caused, which is the one kind that needs no apology.
+          */
           display: "flex",
           flexDirection: "column",
         }}
@@ -124,20 +150,49 @@ export function CompileSheet() {
         </div>
 
         {!open && (
-          <p
+          <div
             key="note"
             style={{
-              margin: 0,
-              fontFamily: "var(--mono)",
-              fontSize: 13,
-              lineHeight: 1.8,
-              color: "var(--print-2)",
-              whiteSpace: "pre-line",
+              display: "flex",
+              flexDirection: "column",
+              flex: 1,
               animation: "feed 380ms cubic-bezier(0.16, 1, 0.3, 1) both",
             }}
           >
-            {NOTE}
-          </p>
+            <p
+              style={{
+                margin: 0,
+                fontFamily: "var(--mono)",
+                fontSize: 13,
+                lineHeight: 1.8,
+                color: "var(--print-2)",
+                whiteSpace: "pre-line",
+              }}
+            >
+              {NOTE}
+            </p>
+
+            {/* A note is signed. The sign-off keeps the sheet's foot from
+                reading as blank stock while the plan state is this tall. */}
+            <div
+              style={{
+                marginTop: "auto",
+                paddingTop: "calc(var(--cell) * 1.5)",
+                borderTop: "1px solid var(--rule)",
+                display: "flex",
+                alignItems: "baseline",
+                justifyContent: "space-between",
+                gap: "var(--cell)",
+              }}
+            >
+              <span className="caps" style={{ color: "var(--print-3)" }}>
+                Signed · Dr Rao
+              </span>
+              <span className="mono" style={{ fontSize: 11, color: "var(--print-3)" }}>
+                Bridgeview Family Practice
+              </span>
+            </div>
+          </div>
         )}
 
         {open && (
@@ -270,6 +325,8 @@ export function CompileSheet() {
       {/* The perforated tab. Drag it, click it, or focus it and press Enter. */}
       <button
         type="button"
+        className={touched ? "pull-tab" : "pull-tab tab-invite"}
+        onFocus={() => setTouched(true)}
         aria-pressed={open}
         aria-label={
           open ? "Pull back to the consultation note" : "Pull to compile the note into a plan"
@@ -281,17 +338,27 @@ export function CompileSheet() {
         onClick={onClick}
         style={{
           flex: "0 0 auto",
-          width: "calc(var(--cell) * 6)",
+          width: "calc(var(--cell) * 7)",
           border: "none",
           borderRadius: "0 var(--radius-tab) var(--radius-tab) 0",
+          /*
+             Amber. Label stock was tried and is the reason nobody found this:
+             a grey tab on a white sheet reads as part of the sheet, and the
+             page's entire argument is behind it. Amber is this product's
+             action colour, and a pull tab is the one piece of material on the
+             page you are meant to grab.
+             Print ink was tried too and fails twice over: 1.6:1 against the
+             bench, and `.perf` punches its holes in the bench colour, so on
+             ink they read at 1.15:1 as smudges rather than light through paper.
+          */
           background: open ? "var(--amber-deep)" : "var(--amber)",
           color: open ? "var(--label)" : "var(--print)",
+          boxShadow: "var(--lift)",
           cursor: "grab",
           touchAction: "none",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          boxShadow: "var(--lift)",
           transform: `translateX(${progress * 6}px)`,
           transition: dragging
             ? "none"
