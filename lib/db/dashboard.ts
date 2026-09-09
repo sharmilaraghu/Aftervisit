@@ -1,18 +1,21 @@
 /**
- * Reads that only the overview needs.
+ * The read behind Today — one row per patient, ordered by who needs a call back.
  *
- * Kept out of `queries.ts` because they answer a different question. The roster
- * asks "what state is each patient in"; these ask "what has this practice been
- * doing today" — a shift summary rather than a clinical judgement.
+ * The console used to answer this across seven queries and four panels, which
+ * meant the answer to "who do I ring first?" was assembled by the reader. This
+ * assembles it once, here, so the page is a rendering rather than a synthesis.
  *
- * Both rules from `queries.ts` still hold: never `select *` on `scheduled_calls`
- * (its transcript column is TOASTed jsonb), and never aggregate two child tables
- * in one join.
+ * Two rules from `queries.ts` still hold: never `select *` on `scheduled_calls`
+ * (its transcript column is TOASTed jsonb), and never aggregate two child
+ * tables in one join — hence the separate passes below rather than one clever
+ * statement.
  */
 
 import { sql } from "drizzle-orm";
 
 import { getDb } from "@/lib/db/client";
+import { getRoster, getQueue } from "@/lib/db/queries";
+import type { PlanHealth } from "@/lib/db/enums";
 
 export interface NextCall {
   planId: string;
@@ -63,98 +66,218 @@ export async function getPlanProgress(): Promise<Map<string, NextCall>> {
   return out;
 }
 
-export interface PatientPhrase {
-  patientId: string;
-  /** The patient's own words, verbatim. Never a summary of them. */
-  text: string;
+/** The model's last reading of a patient, whether or not it raised anything. */
+interface LatestTriage {
+  callId: string;
+  verdict: string;
+  /** One sentence a clinician reads before anything else. */
+  summary: string | null;
+  /** The doctor's own escalating conditions that this call touched, in their wording. */
+  matchedConcerns: string[];
+  quote: string | null;
   at: Date;
-  /** True when this phrase is what a rule fired on. */
-  flagged: boolean;
 }
 
 /**
- * The last thing each patient actually said.
+ * The most recent triage per patient.
  *
- * This is the column a clinician reads. "Next call" told them when the
- * scheduler would act, which is the machine reporting on itself; a verbatim
- * sentence is the evidence they would have gathered by picking up the phone.
- *
- * Two sources, because a phrase matters whether or not a rule fired on it: the
- * utterance stored on an escalation, and free-text answers extracted from a
- * call. `distinct on` keeps the most recent per patient in one pass.
+ * Not the most recent *escalation*: a call the model read and cleared is still
+ * a reading, and a page that only shows what was raised cannot tell "nothing
+ * is wrong" from "nobody has listened yet". `distinct on` takes the latest in
+ * one pass rather than a subquery per patient.
  */
-export async function getLatestPhrases(): Promise<Map<string, PatientPhrase>> {
+async function getLatestTriage(): Promise<Map<string, LatestTriage>> {
   const db = getDb();
   const result = await db.execute(sql`
-    select distinct on (patient_id) patient_id, text, at, flagged
-    from (
-      select e.patient_id, e.utterance as text, e.raised_at as at, true as flagged
-      from escalations e
-      where e.utterance is not null and length(trim(e.utterance)) > 0
-
-      union all
-
-      -- Free text only. value_text also carries the chosen option of an enum
-      -- answer, and a cell reading "severe" or "none" is not the patient
-      -- speaking, it is our own answer set played back. Anything shorter than
-      -- this is a slot value rather than a sentence.
-      select c.patient_id, s.value_text as text, c.finished_at as at, false as flagged
-      from extracted_slots s
-      join scheduled_calls c on c.id = s.call_id
-      where s.value_text is not null and length(trim(s.value_text)) > 24
-        and c.finished_at is not null
-    ) said
-    order by patient_id, at desc
+    select distinct on (t.patient_id)
+           t.patient_id, t.call_id, t.verdict, t.summary,
+           t.matched_concerns, t.quote, t.created_at
+    from call_triage t
+    order by t.patient_id, t.created_at desc
   `);
 
-  const out = new Map<string, PatientPhrase>();
+  const out = new Map<string, LatestTriage>();
   for (const r of result.rows as Record<string, unknown>[]) {
     out.set(String(r.patient_id), {
-      patientId: String(r.patient_id),
-      text: String(r.text),
-      at: new Date(String(r.at)),
-      flagged: Boolean(r.flagged),
+      callId: String(r.call_id),
+      verdict: String(r.verdict),
+      summary: r.summary ? String(r.summary) : null,
+      matchedConcerns: Array.isArray(r.matched_concerns)
+        ? (r.matched_concerns as unknown[]).map(String)
+        : [],
+      quote: r.quote ? String(r.quote) : null,
+      at: new Date(String(r.created_at)),
     });
   }
   return out;
 }
 
-export type ActivityKind = "answered" | "no_answer" | "escalation" | "approved";
-
-export interface ActivityItem {
-  kind: ActivityKind;
+/** The last time we actually dialled, answered or not. */
+interface LastCall {
+  callId: string;
   at: Date;
-  patientId: string;
-  patientName: string;
-  /** One line, already written for a human — no ids, no rule slugs. */
-  detail: string;
-  href: string;
+  /** Null when the row finished without a mapped outcome. */
+  outcome: string | null;
 }
-
-
 
 /**
- * The practice's last fourteen days, one column per day.
+ * The last call placed for each patient.
  *
- * This is the only aggregate on the console that a table cannot say. Fourteen
- * rows of "answered 4, flagged 1, no answer 0" is a list a doctor has to read
- * and difference in their head; the same fourteen columns show, at a glance,
- * the shape that matters — a band that was green all week and turned amber on
- * Monday means something broke on Monday, and that is a systemic fact about the
- * practice rather than about any one patient.
- *
- * Deliberately outcomes, not a rate. A percentage hides how many calls it is a
- * percentage of, and a single unanswered call out of one reads as 0%.
- *
- * `date_trunc` in the *server's* zone, not each patient's: this is one practice
- * looking at its own working days, and fourteen columns cannot be in fourteen
- * timezones at once. The per-patient views are the ones that owe a patient their
- * own clock.
+ * Distinct from the roster's `lastHeard`, which is the last time somebody
+ * *answered*. A patient dialled three times into silence has a recent last
+ * call and no last heard, and the gap between those two is the thing this
+ * product exists to make visible.
  */
-export interface DayColumn {
-  day: string;
-  answered: number;
-  flagged: number;
-  missed: number;
+async function getLastCalls(): Promise<Map<string, LastCall>> {
+  const db = getDb();
+  const result = await db.execute(sql`
+    select distinct on (c.patient_id)
+           c.patient_id, c.id, c.finished_at, c.outcome
+    from scheduled_calls c
+    where c.finished_at is not null
+    order by c.patient_id, c.finished_at desc
+  `);
+
+  const out = new Map<string, LastCall>();
+  for (const r of result.rows as Record<string, unknown>[]) {
+    out.set(String(r.patient_id), {
+      callId: String(r.id),
+      at: new Date(String(r.finished_at)),
+      outcome: r.outcome ? String(r.outcome) : null,
+    });
+  }
+  return out;
 }
 
+/** Everything one line of Today prints. Assembled here, rendered there. */
+export interface TodayRow {
+  patientId: string;
+  name: string;
+  age: number;
+  phoneE164: string;
+  timezone: string;
+
+  planId: string | null;
+  planStatus: string | null;
+  /** What this patient is being followed up for. */
+  reason: string;
+  health: PlanHealth;
+
+  /** `severe | escalate | low`, or null when no call has been read yet. */
+  severity: string | null;
+  /** The model's one-line account of the last call. */
+  severitySummary: string | null;
+  /** Which of the doctor's own escalation notes the call touched. */
+  matchedConcerns: string[];
+  /** One line the patient actually said. Evidence, not summary. */
+  quote: string | null;
+
+  /** Set only while an escalation is open or acknowledged — what the actions act on. */
+  escalationId: string | null;
+  escalationStatus: string | null;
+  /** Which floor rule raised it, when one did. */
+  ruleLabel: string | null;
+  pausedPlan: boolean;
+
+  lastCallId: string | null;
+  lastCallAt: Date | null;
+  lastCallOutcome: string | null;
+  /** Calendar days since anyone last answered, in the patient's own zone. */
+  quietFor: number | null;
+
+  nextCallAt: Date | null;
+}
+
+/*
+ * Who to ring back first.
+ *
+ * Severity leads, because that is the question the page asks. Underneath it,
+ * a patient nothing has been said about yet is ranked by the state of their
+ * plan rather than dropped to the bottom: never reached and needs-a-plan are
+ * silences, and a silence nobody has looked at outranks a call the model has
+ * already cleared.
+ */
+const SEVERITY_RANK: Record<string, number> = { severe: 0, escalate: 2, low: 5 };
+const HEALTH_RANK: Record<PlanHealth, number> = {
+  escalated: 1,
+  never_reached: 3,
+  drifting: 3,
+  needs_plan: 4,
+  awaiting_approval: 4,
+  paused: 4,
+  on_track: 6,
+  completed: 7,
+};
+
+/**
+ * Every patient, ordered by who needs a call back now.
+ *
+ * Every patient, not every escalation — a patient nobody has managed to reach
+ * has no escalation to their name and is exactly who this page must not lose.
+ */
+export async function getToday(): Promise<TodayRow[]> {
+  const [roster, queue, triage, lastCalls, progress] = await Promise.all([
+    getRoster(),
+    getQueue(),
+    getLatestTriage(),
+    getLastCalls(),
+    getPlanProgress(),
+  ]);
+
+  /* The newest open escalation per patient. `getQueue` already returns them in
+     the order the queue reads, so the first one seen is the one that matters. */
+  const open = new Map<string, (typeof queue)[number]>();
+  for (const q of queue) if (!open.has(q.patientId)) open.set(q.patientId, q);
+
+  const rows: TodayRow[] = roster.map((p) => {
+    const t = triage.get(p.patientId);
+    const e = open.get(p.patientId);
+    const last = lastCalls.get(p.patientId);
+    const next = p.planId ? progress.get(p.planId) : undefined;
+
+    return {
+      patientId: p.patientId,
+      name: p.name,
+      age: p.age,
+      phoneE164: p.phoneE164,
+      timezone: p.timezone,
+
+      planId: p.planId,
+      planStatus: p.planStatus,
+      reason: p.reason,
+      health: p.health,
+
+      /* The escalation's copy wins when there is one: it is the verdict that
+         actually routed this patient to a human, and the triage row may have
+         moved on since. */
+      severity: e?.severity ?? t?.verdict ?? null,
+      severitySummary: e?.summary ?? t?.summary ?? null,
+      matchedConcerns: t?.matchedConcerns ?? [],
+      quote: e?.utterance ?? t?.quote ?? null,
+
+      escalationId: e?.id ?? null,
+      escalationStatus: e?.status ?? null,
+      ruleLabel: e?.ruleLabel ?? null,
+      pausedPlan: e?.pausedPlan ?? false,
+
+      lastCallId: last?.callId ?? e?.callId ?? t?.callId ?? null,
+      lastCallAt: last?.at ?? null,
+      lastCallOutcome: last?.outcome ?? null,
+      quietFor: p.quietFor,
+
+      nextCallAt: next?.scheduledFor ?? null,
+    };
+  });
+
+  return rows.sort((a, b) => {
+    const ra = a.severity ? SEVERITY_RANK[a.severity] ?? 5 : HEALTH_RANK[a.health];
+    const rb = b.severity ? SEVERITY_RANK[b.severity] ?? 5 : HEALTH_RANK[b.health];
+    if (ra !== rb) return ra - rb;
+    /* Longest silence first inside a band, then by name so the order is total
+       and a re-render never reshuffles two equal rows under the cursor. */
+    const qa = a.quietFor ?? -1;
+    const qb = b.quietFor ?? -1;
+    if (qa !== qb) return qb - qa;
+    return a.name.localeCompare(b.name) || a.patientId.localeCompare(b.patientId);
+  });
+}

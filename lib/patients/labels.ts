@@ -83,3 +83,34 @@ export const HEALTH_ORDER: Record<PlanHealth, number> = {
   on_track: 6,
   completed: 7,
 };
+
+/**
+ * The model's verdict, as a clinician reads it.
+ *
+ * The stored values are `severe | escalate | low` and they stay that way —
+ * they carry consequences the words here do not: `severe` pauses the plan,
+ * `escalate` queues the call while the follow-up keeps dialling. This is the
+ * one place that decides how they are spoken, so renaming a badge never
+ * quietly renames a behaviour.
+ *
+ * A patient with no triage at all is not a fourth severity. They are a row
+ * with nothing said about them yet, and the page says exactly that.
+ */
+export const SEVERITY_LABEL: Record<string, string> = {
+  severe: "Escalating",
+  escalate: "Medium",
+  low: "Low",
+};
+
+/** Red is spent here and nowhere else on the page. */
+export const SEVERITY_TONE: Record<string, Tone> = {
+  severe: "danger",
+  escalate: "amber",
+  low: "clear",
+};
+
+export const SEVERITY_ORDER: Record<string, number> = {
+  severe: 0,
+  escalate: 1,
+  low: 2,
+};

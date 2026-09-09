@@ -36,7 +36,7 @@ import { Logo } from "@/components/Logo";
  * queue is part of Today now, and the count rides on the section that owns it.
  */
 const NAV = [
-  { label: "Overview", href: "/dashboard" },
+  { label: "Today", href: "/dashboard" },
   { label: "Patients", href: "/patients" },
 ] as const;
 

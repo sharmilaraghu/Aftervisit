@@ -1,26 +1,29 @@
 /**
- * Overview — the first thing a clinician sees, and a shift summary.
+ * Today — who needs a call back, in the order they need it.
  *
- * The reference this was built against is a conventional SaaS dashboard: stat
- * cards, a plan table, a right rail of alerts and activity. The information
- * architecture is right and is kept. The costume is not: nothing here is a
- * rounded card on a tinted background. The four numbers are one sheet of label
- * stock ruled into four cells, the way a dispensing label prints its fields,
- * and every colour arrives as a printed band with a word on it.
+ * One question, one list. The page this replaces answered four at once across
+ * seven queries, a fortnight chart and a right rail, and the cost was that the
+ * one thing a doctor opens the console for — who is worst right now — had to be
+ * assembled by reading three panels against each other.
  *
- * What a doctor gets in one screen: what is due, what happened, who needs a
- * decision, and what the agent has been doing while they were elsewhere.
+ * Every patient appears, not every escalation. A patient nobody has managed to
+ * reach has no escalation to their name, and losing them is the exact failure
+ * this product exists to catch.
  */
 
 import Link from "next/link";
 
 import { Badge, Button, Panel } from "@/components/ui";
+import { QueueActions } from "@/components/QueueActions";
 import { TickPoller } from "@/components/TickPoller";
 import { readConfig } from "@/lib/config";
-import { getDashboardStats } from "@/lib/db/calls";
-import { getLatestPhrases, getPlanProgress } from "@/lib/db/dashboard";
-import { getQueue, getRoster } from "@/lib/db/queries";
-import { HEALTH_LABEL, HEALTH_ORDER, HEALTH_TONE } from "@/lib/patients/labels";
+import { getToday, type TodayRow } from "@/lib/db/dashboard";
+import {
+  HEALTH_LABEL,
+  HEALTH_TONE,
+  SEVERITY_LABEL,
+  SEVERITY_TONE,
+} from "@/lib/patients/labels";
 import { formatStamp } from "@/lib/format";
 import { maskPhone } from "@/lib/phone/normalize";
 
@@ -54,81 +57,60 @@ function Initials({ name }: { name: string }) {
   );
 }
 
-export default async function OverviewPage() {
-  const [stats, roster, queue, progress, phrases] = await Promise.all([
-    getDashboardStats(),
-    getRoster(),
-    getQueue(),
-    getPlanProgress(),
-    getLatestPhrases(),
-  ]);
+/**
+ * The badge that decides the row's urgency.
+ *
+ * Severity when a call has been read; the plan's own state when none has. The
+ * two are not the same fact and the page never pretends otherwise — "never
+ * reached" is not a severity, it is the absence of one, and it still has to
+ * outrank a call the model cleared.
+ */
+function RowState({ row }: { row: TodayRow }) {
+  if (row.severity) {
+    return (
+      <Badge
+        tone={SEVERITY_TONE[row.severity] ?? "plain"}
+        quiet={SEVERITY_TONE[row.severity] !== "danger"}
+      >
+        {SEVERITY_LABEL[row.severity] ?? row.severity}
+      </Badge>
+    );
+  }
+  return (
+    <Badge tone={HEALTH_TONE[row.health]} quiet={HEALTH_TONE[row.health] !== "danger"}>
+      {HEALTH_LABEL[row.health]}
+    </Badge>
+  );
+}
 
-  const sorted = [...roster].sort(
-    (a, b) => HEALTH_ORDER[a.health] - HEALTH_ORDER[b.health],
+/** When we last got through, and when we ring next. Both in the patient's zone. */
+function Timing({ row }: { row: TodayRow }) {
+  const bits: string[] = [];
+  bits.push(row.lastCallAt ? `Last call ${formatStamp(row.lastCallAt, row.timezone)}` : "Never called");
+  if (row.quietFor !== null && row.quietFor >= 3) bits.push(`quiet ${row.quietFor}d`);
+  if (row.nextCallAt) bits.push(`next ${formatStamp(row.nextCallAt, row.timezone)}`);
+  else if (row.planStatus === "active") bits.push("nothing scheduled");
+
+  return (
+    <span className="mono" style={{ fontSize: 13, color: "var(--print-3)" }}>
+      {bits.join(" · ")}
+    </span>
   );
-  /*
-   * Running means running. A completed plan that never reached anyone is a real
-   * and urgent state, but it belongs on the roster under its own heading — in a
-   * table called "follow-ups running" it reads as though the agent is still
-   * trying, which is the opposite of what happened.
-   */
-  const allRunning = sorted.filter(
-    (p) => p.planStatus === "active" || p.planStatus === "paused",
-  );
-  /* Six is a glance, not a list. The count of what is hidden is stated rather
-     than silently dropped — a truncated table that does not say it is
-     truncated is a table nobody can trust. */
-  const running = allRunning.slice(0, 6);
-  const moreRunning = allRunning.length - running.length;
+}
+
+export default async function TodayPage() {
+  const rows = await getToday();
 
   /*
    * The practice's zone, taken from the patients it actually follows. There is
    * no practice record to read one from, and hardcoding London was wrong for
    * every deployment that is not in London — including this one.
    */
-  const practiceZone =
-    sorted[0]?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const practiceZone = rows[0]?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
 
+  const needsCallback = rows.filter((r) => r.escalationId !== null);
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
-
-  /* `getQueue` orders urgent first, so the head of the list is the one patient
-     this shift should be looked at before any other. */
-  const top = queue[0];
-
-  /*
-   * Four numbers, and each one is a thing a doctor does something about. The
-   * pair that used to sit here — a contact rate and the scheduler's last run —
-   * were a quarterly report and an infrastructure heartbeat, neither of which
-   * changes what happens at 9am.
-   */
-  const FIGURES: { label: string; value: string; note: string; alarm?: boolean; href?: string }[] = [
-    {
-      label: "Due today",
-      value: String(stats.dueToday),
-      note: stats.dueToday === 0 ? "nothing queued" : "calls the agent will place",
-      /* A number you can act on is a number you can click — and three of these
-         four were dead text, which teaches a reader that none of them lead
-         anywhere. */
-      href: "/patients",
-    },
-    {
-      label: "Needs review",
-      value: String(stats.openEscalations),
-      note:
-        stats.urgentEscalations > 0
-          ? `${stats.urgentEscalations} paused a plan`
-          : "waiting on a clinician",
-      alarm: stats.openEscalations > 0,
-      href: "/patients",
-    },
-    {
-      label: "In follow-up",
-      value: String(stats.activePlans),
-      note: `across ${stats.patients} ${stats.patients === 1 ? "patient" : "patients"}`,
-      href: "/patients",
-    },
-  ];
 
   return (
     <div
@@ -159,12 +141,21 @@ export default async function OverviewPage() {
             {greeting}, {readConfig().clinicianName}.
           </h1>
           <p style={{ margin: 0, color: "var(--bench-ink-2)" }}>
-            {stats.openEscalations > 0
-              ? `${stats.openEscalations} ${stats.openEscalations === 1 ? "call needs" : "calls need"} your review. Everything else is running.`
-              : "Nothing is waiting on you. Here is what the agent has been doing."}
+            {rows.length === 0
+              ? "No patients yet."
+              : needsCallback.length > 0
+                ? `${needsCallback.length} ${needsCallback.length === 1 ? "patient needs" : "patients need"} a call back.`
+                : "Nothing is waiting on you."}
           </p>
         </div>
-        <span style={{ marginLeft: "auto", display: "flex", gap: "calc(var(--cell) * 2)", alignItems: "center" }}>
+        <span
+          style={{
+            marginLeft: "auto",
+            display: "flex",
+            gap: "calc(var(--cell) * 2)",
+            alignItems: "center",
+          }}
+        >
           <span className="caps mono" style={{ color: "var(--bench-ink-3)" }}>
             {/* The practice's own clock, not a hardcoded zone. A console that
                 prints London time to a clinic in Chennai is telling them the
@@ -178,389 +169,149 @@ export default async function OverviewPage() {
         </span>
       </header>
 
-      {/*
-        The page's focal point.
-        An Operate surface does not get a marketing hero — a working screen
-        loads into a task, it does not introduce itself. What it does need is
-        one element that is unmistakably the most important thing on it, and
-        here that is the single most urgent patient, quoted. It is the same
-        printed-band grammar as everything else, at poster scale: a word on a
-        strip, then the evidence in the patient's own voice.
-      */}
-      {top ? (
-        <div
-          className="sheet"
-          style={{
-            marginBottom: "calc(var(--cell) * 3)",
-            display: "flex",
-            flexWrap: "wrap",
-            alignItems: "stretch",
-          }}
-        >
-          <div
-            style={{
-              background: top.pausedPlan ? "var(--danger)" : "var(--amber)",
-              color: top.pausedPlan ? "var(--label)" : "var(--print)",
-              padding: "calc(var(--cell) * 3) calc(var(--cell) * 2.5)",
-              display: "flex",
-              alignItems: "center",
-              flex: "0 0 auto",
-            }}
-          >
-            <span className="caps" style={{ writingMode: "horizontal-tb", lineHeight: 1.3 }}>
-              {top.pausedPlan ? "Needs you now" : "Needs review"}
-            </span>
-          </div>
-
-          <div style={{ padding: "calc(var(--cell) * 3)", flex: "1 1 320px", minWidth: 0 }}>
-            <p
-              style={{
-                margin: "0 0 calc(var(--cell) * 1.5)",
-                display: "flex",
-                flexWrap: "wrap",
-                gap: "calc(var(--cell) * 1.5)",
-                alignItems: "baseline",
-              }}
-            >
-              <Link
-                href={`/patients/${top.patientId}`}
-                style={{
-                  color: "var(--print)",
-                  fontWeight: 700,
-                  fontSize: 17,
-                  textDecoration: "underline",
-                  textUnderlineOffset: 3,
-                  textDecorationColor: "var(--rule)",
-                }}
-              >
-                {top.patientName}
-              </Link>
-              <span className="mono" style={{ fontSize: 12, color: "var(--print-3)" }}>
-                {/* The rule in words. Its slug is forensic and lives on the
-                    card in the queue, not on the thing you read first. */}
-                {top.ruleLabel} · {formatStamp(top.raisedAt, top.timezone)}
-              </span>
-            </p>
-
-            {top.utterance ? (
-              <blockquote
-                style={{
-                  margin: "0 0 calc(var(--cell) * 2)",
-                  padding: "0 0 0 calc(var(--cell) * 2)",
-                  borderLeft: "1px solid var(--rule-ink)",
-                  fontSize: 22,
-                  lineHeight: 1.4,
-                  color: "var(--print)",
-                }}
-              >
-                &ldquo;{top.utterance}&rdquo;
-              </blockquote>
-            ) : (
-              <p style={{ margin: "0 0 calc(var(--cell) * 2)", color: "var(--print-2)", fontSize: 17 }}>
-                {top.reason}
-              </p>
-            )}
-
-            <Button variant="onLabel" href={top.callId ? `/calls/${top.callId}` : `/patients/${top.patientId}`}>
-              Review it
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
-      {/* ------------------------------------------------------- the four figures */}
-      <div className="figure-row sheet" style={{ marginBottom: "calc(var(--cell) * 3)" }}>
-        {FIGURES.map((f) => {
-          const body = (
-            <>
-              <span className="caps" style={{ color: "var(--print-3)" }}>
-                {f.label}
-              </span>
-              <span
-                className="mono"
-                style={{
-                  display: "block",
-                  fontSize: 34,
-                  lineHeight: 1.1,
-                  margin: "calc(var(--cell) * 0.75) 0 2px",
-                  color: f.alarm ? "var(--danger)" : "var(--print)",
-                }}
-              >
-                {f.value}
-              </span>
-              <span style={{ color: "var(--print-3)", fontSize: 13 }}>{f.note}</span>
-            </>
-          );
-          return (
-            <div key={f.label} style={{ padding: "calc(var(--cell) * 2.5) calc(var(--cell) * 3)" }}>
-              {/* A number you can act on is a number you can click. */}
-              {f.href && Number(f.value) > 0 ? (
-                <Link href={f.href} style={{ textDecoration: "none", display: "block" }}>
-                  {body}
-                </Link>
-              ) : (
-                body
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-
-      <div className="overview-grid">
-        {/* ------------------------------------------------------------ the plans */}
-        <Panel
-          title="Follow-ups running"
-          aside={
-            <Link href="/patients" className="caps" style={{ color: "var(--print-2)" }}>
-              {moreRunning > 0 ? `${moreRunning} more · all patients` : "All patients"}
-            </Link>
-          }
-        >
-          {running.length === 0 ? (
-            <p
-              style={{
-                margin: 0,
-                padding: "calc(var(--cell) * 3)",
-                color: "var(--print-2)",
-                fontSize: 15,
-              }}
-            >
-              No plan is running yet. Add a patient and write the note from
-              their consultation.
-            </p>
-          ) : (
-            <div style={{ overflowX: "auto" }}>
-              <table
-                style={{ width: "100%", borderCollapse: "collapse", minWidth: 720, fontSize: 14 }}
-              >
-                <thead>
-                  <tr style={{ borderBottom: "1px solid var(--rule-ink)" }}>
-                    {["Patient", "Following up on", "Latest from the patient", "State"].map((h) => (
-                      <th
-                        key={h}
-                        className="caps"
-                        style={{
-                          textAlign: "left",
-                          padding: "calc(var(--cell) * 1.25) calc(var(--cell) * 2)",
-                          color: "var(--print-3)",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {running.map((p) => {
-                    const prog = p.planId ? progress.get(p.planId) : undefined;
-                    const phrase = phrases.get(p.patientId);
-                    return (
-                      <tr key={p.patientId} style={{ borderBottom: "1px solid var(--rule-2)" }}>
-                        <td style={{ padding: "calc(var(--cell) * 1.5) calc(var(--cell) * 2)" }}>
-                          <span
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "calc(var(--cell) * 1.5)",
-                            }}
-                          >
-                            <Initials name={p.name} />
-                            <span style={{ minWidth: 0 }}>
-                              <Link
-                                href={`/patients/${p.patientId}`}
-                                style={{
-                                  display: "block",
-                                  color: "var(--print)",
-                                  fontWeight: 700,
-                                  textDecoration: "underline",
-                                  textUnderlineOffset: 3,
-                                  textDecorationColor: "var(--rule)",
-                                }}
-                              >
-                                {p.name}
-                              </Link>
-                              <span
-                                className="mono"
-                                style={{ fontSize: 12, color: "var(--print-3)" }}
-                              >
-                                {p.age} · {maskPhone(p.phoneE164)}
-                              </span>
-                            </span>
-                          </span>
-                        </td>
-                        <td
-                          style={{
-                            padding: "calc(var(--cell) * 1.5) calc(var(--cell) * 2)",
-                            color: "var(--print-2)",
-                            maxWidth: 260,
-                          }}
-                        >
-                          {p.reason}
-                        </td>
-                        {/*
-                          What the patient said, verbatim. This column used to
-                          hold the next scheduled call — the machine reporting
-                          on itself. A doctor reading a roster wants the thing
-                          they would have learned by picking up the phone, and a
-                          sentence in the patient's own words is the only
-                          evidence on this page that no model wrote.
-                        */}
-                        <td
-                          style={{
-                            padding: "calc(var(--cell) * 1.5) calc(var(--cell) * 2)",
-                            maxWidth: 320,
-                          }}
-                        >
-                          {phrase ? (
-                            <>
-                              <span
-                                style={{
-                                  display: "block",
-                                  color: phrase.flagged ? "var(--print)" : "var(--print-2)",
-                                  fontSize: 14,
-                                  lineHeight: 1.4,
-                                }}
-                              >
-                                &ldquo;{phrase.text}&rdquo;
-                              </span>
-                              <span
-                                className="mono"
-                                style={{ fontSize: 11, color: "var(--print-3)" }}
-                              >
-                                {formatStamp(phrase.at, p.timezone)}
-                              </span>
-                            </>
-                          ) : (
-                            <span style={{ color: "var(--print-3)" }}>
-                              Nothing said yet
-                            </span>
-                          )}
-                        </td>
-                        <td style={{ padding: "calc(var(--cell) * 1.5) calc(var(--cell) * 2)" }}>
-                          {prog && prog.total > 0 ? (
-                            <span
-                              className="mono"
-                              style={{
-                                display: "block",
-                                marginTop: 4,
-                                fontSize: 11,
-                                color: "var(--print-3)",
-                              }}
-                            >
-                              call {Math.min(prog.done + 1, prog.total)} of {prog.total}
-                            </span>
-                          ) : null}
-                        </td>
-                        <td style={{ padding: "calc(var(--cell) * 1.5) calc(var(--cell) * 2)" }}>
-                          <Badge
-                            tone={HEALTH_TONE[p.health]}
-                            quiet={HEALTH_TONE[p.health] !== "danger"}
-                          >
-                            {HEALTH_LABEL[p.health]}
-                          </Badge>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+      {rows.length === 0 ? (
+        <Panel title="Nobody yet">
+          <p style={{ margin: 0, color: "var(--print-2)" }}>
+            Add a patient to write their consultation note and approve a follow-up plan.
+          </p>
         </Panel>
-
-        {/* -------------------------------------------------------------- the rail */}
-        <div style={{ display: "grid", gap: "calc(var(--cell) * 3)", alignContent: "start" }}>
-          <Panel
-            title="Needs review"
-            aside={
-              queue.length > 4 ? (
-                <span className="caps" style={{ color: "var(--print-2)" }}>
-                  {queue.length - 4} more
-                </span>
-              ) : undefined
-            }
-          >
-            {queue.length === 0 ? (
-              <p
+      ) : (
+        <div style={{ display: "grid", gap: "calc(var(--cell) * 1.5)" }}>
+          {rows.map((row) => {
+            const urgent = row.severity === "severe";
+            return (
+              <article
+                key={row.patientId}
                 style={{
-                  margin: 0,
-                  padding: "calc(var(--cell) * 3)",
-                  color: "var(--print-2)",
-                  fontSize: 14,
+                  border: "1px solid var(--rule-2)",
+                  /* Red is spent on escalating and nowhere else on this page, so
+                     the one row that interrupts is the one that should. */
+                  borderLeft: urgent ? "3px solid var(--danger)" : "3px solid var(--rule-2)",
+                  background: "var(--label)",
+                  padding: "calc(var(--cell) * 2)",
+                  display: "grid",
+                  gap: "calc(var(--cell) * 1.5)",
                 }}
               >
-                No rule has fired. Anything that needs a decision arrives here,
-                with the patient&rsquo;s own words attached.
-              </p>
-            ) : (
-              <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-                {queue.slice(0, 4).map((e) => (
-                  <li
-                    key={e.id}
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                    gap: "calc(var(--cell) * 1.5)",
+                  }}
+                >
+                  <Initials name={row.name} />
+                  <Link
+                    href={`/patients/${row.patientId}`}
                     style={{
-                      padding: "calc(var(--cell) * 2) calc(var(--cell) * 2.5)",
-                      borderBottom: "1px solid var(--rule-2)",
+                      color: "var(--print)",
+                      fontWeight: 700,
+                      fontSize: 17,
+                      textDecoration: "underline",
+                      textUnderlineOffset: 3,
                     }}
                   >
-                    <span
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "calc(var(--cell) * 1.5)",
-                        marginBottom: "calc(var(--cell) * 0.75)",
-                      }}
-                    >
-                      <Initials name={e.patientName} />
-                      <Link
-                        href={`/patients/${e.patientId}`}
-                        style={{
-                          color: "var(--print)",
-                          fontWeight: 700,
-                          textDecoration: "underline",
-                          textUnderlineOffset: 3,
-                          textDecorationColor: "var(--rule)",
-                        }}
-                      >
-                        {e.patientName}
-                      </Link>
-                      <span style={{ marginLeft: "auto" }}>
-                        {e.pausedPlan ? (
-                          <Badge tone="danger">Plan paused</Badge>
-                        ) : (
-                          <Badge tone="amber" quiet>
-                            Routine
-                          </Badge>
-                        )}
-                      </span>
-                    </span>
-                    {e.utterance ? (
-                      <p
-                        style={{
-                          margin: "0 0 calc(var(--cell) * 0.75)",
-                          color: "var(--print-2)",
-                          fontSize: 14,
-                          lineHeight: 1.45,
-                        }}
-                      >
-                        &ldquo;{e.utterance}&rdquo;
-                      </p>
+                    {row.name}
+                  </Link>
+                  <span className="mono" style={{ color: "var(--print-3)", fontSize: 13 }}>
+                    {row.age} · {maskPhone(row.phoneE164)}
+                  </span>
+                  <span
+                    style={{ marginLeft: "auto", display: "flex", gap: "calc(var(--cell) * 1)" }}
+                  >
+                    <RowState row={row} />
+                    {row.pausedPlan ? (
+                      <Badge tone="amber" quiet>
+                        Plan paused
+                      </Badge>
                     ) : null}
-                    <span
-                      className="mono"
-                      style={{ fontSize: 11, color: "var(--print-3)" }}
-                    >
-                      {e.ruleLabel} · {formatStamp(e.raisedAt, e.timezone)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Panel>
+                  </span>
+                </div>
 
+                <p style={{ margin: 0, color: "var(--print-2)", fontSize: 15 }}>
+                  {/* What they are being followed up for, then what the model
+                      made of the last call. Context before verdict — a summary
+                      with nothing to hang it on is a sentence about a stranger. */}
+                  <span style={{ color: "var(--print-3)" }}>{row.reason}</span>
+                  {row.severitySummary ? ` — ${row.severitySummary}` : null}
+                </p>
+
+                {row.matchedConcerns.length > 0 ? (
+                  <p style={{ margin: 0, fontSize: 14 }}>
+                    <span className="caps" style={{ color: "var(--print-3)" }}>
+                      Matched your note:{" "}
+                    </span>
+                    <span style={{ color: "var(--print)" }}>
+                      {row.matchedConcerns.join(" · ")}
+                    </span>
+                  </p>
+                ) : row.ruleLabel ? (
+                  <p style={{ margin: 0, fontSize: 14 }}>
+                    <span className="caps" style={{ color: "var(--print-3)" }}>
+                      Raised by:{" "}
+                    </span>
+                    <span style={{ color: "var(--print)" }}>{row.ruleLabel}</span>
+                  </p>
+                ) : null}
+
+                {row.quote ? (
+                  <blockquote
+                    style={{
+                      margin: 0,
+                      paddingLeft: "calc(var(--cell) * 1.5)",
+                      borderLeft: "2px solid var(--rule-2)",
+                      color: "var(--print)",
+                      fontSize: 15,
+                    }}
+                  >
+                    “{row.quote}”
+                  </blockquote>
+                ) : null}
+
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                    gap: "calc(var(--cell) * 1.5)",
+                  }}
+                >
+                  <Timing row={row} />
+                  {row.lastCallId ? (
+                    /* `ghost` is drawn for the graphite rail and vanishes on
+                       label stock; everything on this card is on label. */
+                    <Button variant="onLabel" href={`/calls/${row.lastCallId}`}>
+                      Read the transcript
+                    </Button>
+                  ) : null}
+                </div>
+
+                {/*
+                  The decision band, full-bleed to the card's edges. It carries
+                  its own rule and ground, so inset by the card's padding it
+                  reads as a stray panel rather than the foot of this row.
+                */}
+                {row.escalationId && row.planId ? (
+                  <div
+                    style={{
+                      margin: "calc(var(--cell) * 0.5) calc(var(--cell) * -2) calc(var(--cell) * -2)",
+                    }}
+                  >
+                    <QueueActions
+                      escalationId={row.escalationId}
+                      planId={row.planId}
+                      patientName={row.name}
+                      pausedPlan={row.pausedPlan}
+                      status={row.escalationStatus ?? "open"}
+                    />
+                  </div>
+                ) : null}
+              </article>
+            );
+          })}
         </div>
-      </div>
+      )}
     </div>
   );
 }
