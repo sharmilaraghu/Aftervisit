@@ -28,7 +28,7 @@ import { resumePlan } from "@/lib/schedule/store";
 import { REJECTION_TEXT, normalizePhone } from "@/lib/phone/normalize";
 import { compileNote } from "@/lib/plan/compile";
 import { applyDefaults } from "@/lib/plan/defaults";
-import { createPlanFromNote } from "@/lib/db/plans";
+import { cancelPlan, createPlanFromNote, getPlanForReview, updatePlanDraft } from "@/lib/db/plans";
 import { redFlagsFor } from "@/data/red-flags";
 import { isValidTimezone } from "@/lib/patients/timezones";
 import { isValidLanguage } from "@/lib/patients/languages";
@@ -62,10 +62,46 @@ function parse(formData: FormData): {
   const escalationNote = String(formData.get("escalationNote") ?? "").trim();
   const timeScale = String(formData.get("timeScale") ?? "1");
 
+  /*
+   * The schedule step. Every one of these may be blank, and blank means "take
+   * it from the note" — the compiler infers cadence, duration and time of day
+   * from what the doctor wrote, and a control that silently overrode that
+   * inference would make the review screen's "Defaulted" mark a lie.
+   */
+  const localTime = String(formData.get("localTime") ?? "").trim();
+  const cadence = String(formData.get("cadence") ?? "").trim();
+  const durationDays = String(formData.get("durationDays") ?? "").trim();
+
   const state: PatientFormState = {
     errors: {},
-    values: { name, age: ageRaw, phone: phoneRaw, timezone, language, consent: consentRaw, note, escalationNote, timeScale },
+    values: {
+      name,
+      age: ageRaw,
+      phone: phoneRaw,
+      timezone,
+      language,
+      consent: consentRaw,
+      note,
+      escalationNote,
+      timeScale,
+      localTime,
+      cadence,
+      durationDays,
+    },
   };
+
+  if (localTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(localTime)) {
+    state.errors.localTime = "Use a 24-hour time, like 09:30.";
+  }
+  if (cadence && !["daily", "every_other_day", "weekly"].includes(cadence)) {
+    state.errors.cadence = "Pick how often the agent should call.";
+  }
+  if (durationDays) {
+    const n = Number(durationDays);
+    if (!Number.isInteger(n) || n < 1 || n > 90) {
+      state.errors.durationDays = "Between 1 and 90 days.";
+    }
+  }
 
   /*
    * The note is optional — pure admin entry is a real case — but a couple of
@@ -123,12 +159,102 @@ function parse(formData: FormData): {
   };
 }
 
-export async function createPatientAction(
+/**
+ * Going back to steps 1 to 3 after the questions have been compiled.
+ *
+ * The patient's record and the schedule are updated in place — those are
+ * facts about who is being called and when, and nothing downstream has read
+ * them yet.
+ *
+ * The note is different. The questions on the draft were compiled *from* it,
+ * and some of them the doctor has since edited by hand. Changing the note and
+ * keeping those questions would produce a plan that claims to come from a note
+ * it no longer matches, so a changed note cancels this draft and compiles a
+ * fresh one. That is destructive and the step says so before it happens.
+ */
+export async function revisePlanAction(
   _prev: PatientFormState,
   formData: FormData,
 ): Promise<PatientFormState> {
+  const planId = String(formData.get("planId") ?? "").trim();
+  const plan = planId ? await getPlanForReview(planId) : null;
+  if (!plan || plan.status !== "awaiting_approval") {
+    return { ...parse(formData).state, errors: { form: "That draft is no longer open for editing." } };
+  }
+
   const { state, input } = parse(formData);
-  if (!input) return state;
+  if (!state.values.note) {
+    state.errors.note = "Write the note from the consultation. There is nothing to compile without it.";
+  }
+  if (!input || Object.keys(state.errors).length > 0) return state;
+
+  try {
+    await updatePatient(plan.patientId, input);
+  } catch (error) {
+    if (error instanceof DuplicatePhoneError) {
+      return {
+        ...state,
+        errors: { ...state.errors, phone: "Another active patient already has this number." },
+      };
+    }
+    throw error;
+  }
+
+  const noteChanged =
+    state.values.note.trim() !== plan.noteBody.trim() ||
+    state.values.escalationNote.trim() !== (plan.escalationNote ?? "").trim();
+
+  if (!noteChanged) {
+    await updatePlanDraft(planId, {
+      localTime: state.values.localTime || undefined,
+      cadence: (state.values.cadence || undefined) as
+        | "daily"
+        | "every_other_day"
+        | "weekly"
+        | undefined,
+      durationDays: state.values.durationDays ? Number(state.values.durationDays) : undefined,
+      timeScale: Number(state.values.timeScale) || undefined,
+    });
+    revalidatePath("/patients");
+    redirect(`/plan/new?plan=${planId}&step=4`);
+  }
+
+  /* The note moved, so the questions it produced are no longer its. */
+  await cancelPlan(planId, readConfig().clinicianName);
+  return startPlanAction(_prev, formData);
+}
+
+/**
+ * The wizard's one submit: steps 1 to 3, then compile.
+ *
+ * Three steps of a five-step flow land here together because they are one
+ * `<form>` — there is no session to keep a half-written note in between two
+ * routes, and every field stays mounted so a hidden step's value is still in
+ * the submission. What the doctor has typed only becomes rows at this point,
+ * which is also what makes going back from step 4 safe: from here on the draft
+ * is the plan, and editing it is editing the thing itself.
+ *
+ * `patientId` set means the same person is back with a new problem. Their
+ * record is corrected in place and a second plan is written against it; nothing
+ * clinical is carried across from the last one.
+ */
+export async function startPlanAction(
+  _prev: PatientFormState,
+  formData: FormData,
+): Promise<PatientFormState> {
+  const existingId = String(formData.get("patientId") ?? "").trim();
+  const { state, input } = parse(formData);
+
+  /*
+   * The wizard compiles a plan, so it needs something to compile. The old
+   * add-patient form let the note be blank and saved a bare record; there is
+   * no longer a screen that does that, and a wizard that silently produced no
+   * plan would strand the doctor on step 4 with nothing on it.
+   */
+  if (!state.values.note) {
+    state.errors.note = "Write the note from the consultation. There is nothing to compile without it.";
+  }
+  if (!input || Object.keys(state.errors).length > 0) return state;
 
   const note = state.values.note;
   const escalationNote = state.values.escalationNote;
@@ -136,7 +262,7 @@ export async function createPatientAction(
 
   let id: string;
   try {
-    id = await createPatient(input);
+    id = existingId ? ((await updatePatient(existingId, input)), existingId) : await createPatient(input);
   } catch (error) {
     if (error instanceof DuplicatePhoneError) {
       return {
@@ -152,12 +278,7 @@ export async function createPatientAction(
     throw error;
   }
 
-  /*
-   * With a note, the same submit compiles it. A refusal is not an error here —
-   * the patient is saved either way, and the doctor lands on a blank plan they
-   * can fill in rather than losing what they typed.
-   */
-  if (note) {
+  {
     const outcome = await compileNote({
       noteBody: note,
       escalationNote,
@@ -199,15 +320,23 @@ export async function createPatientAction(
       escalationNote,
     });
 
-    revalidatePath("/patients");
-    // Straight to the thing they now have to decide on.
-    redirect(`/plans/${planId}`);
-  }
+    /* Only what the doctor actually chose on step 3. A blank control leaves the
+       note's own inference — and its "Defaulted" mark — untouched. */
+    await updatePlanDraft(planId, {
+      localTime: state.values.localTime || undefined,
+      cadence: (state.values.cadence || undefined) as
+        | "daily"
+        | "every_other_day"
+        | "weekly"
+        | undefined,
+      durationDays: state.values.durationDays ? Number(state.values.durationDays) : undefined,
+    });
 
-  revalidatePath("/patients");
-  // redirect() throws to unwind, so it must sit outside the try above or the
-  // catch would swallow it and the form would silently do nothing.
-  redirect(`/patients/${id}?created=1`);
+    revalidatePath("/patients");
+    revalidatePath("/dashboard");
+    // On to step 4, with the compiled questions to look at.
+    redirect(`/plan/new?plan=${planId}`);
+  }
 }
 
 export async function updatePatientAction(

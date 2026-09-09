@@ -246,29 +246,68 @@ export async function getPlanForReview(planId: string): Promise<PlanForReview | 
 }
 
 /** Edit a plan before approval. Rejected questions can never be edited into approval by accident. */
+/**
+ * Set the schedule fields a clinician actually chose.
+ *
+ * Every field is optional and an omitted one is left exactly as the compiler
+ * wrote it — provenance included. That is not fussiness: the review screen's
+ * "Defaulted" mark is only worth anything if it still means "nobody chose
+ * this", and the wizard offers "take it from the note" on every one of these.
+ * Writing all five on every save would mark the note's own inference as the
+ * doctor's choice the moment they walked past the step.
+ *
+ * `timeScale` is the exception with no provenance key: it is a demo clock, not
+ * a clinical decision, and nothing marks it.
+ */
 export async function updatePlanDraft(
   planId: string,
   fields: {
-    durationDays: number;
-    localTime: string;
-    timeScale: number;
-    cadence: "daily" | "every_other_day" | "weekly";
-    maxAttempts: number;
+    durationDays?: number;
+    localTime?: string;
+    timeScale?: number;
+    cadence?: "daily" | "every_other_day" | "weekly";
+    maxAttempts?: number;
   },
 ): Promise<boolean> {
+  const sets = [];
+  const marks: string[] = [];
+
+  if (fields.durationDays !== undefined) {
+    sets.push(sql`duration_days = ${fields.durationDays}`);
+    marks.push("durationDays");
+  }
+  if (fields.localTime !== undefined) {
+    sets.push(sql`local_time = ${fields.localTime}`);
+    marks.push("localTime");
+  }
+  if (fields.cadence !== undefined) {
+    sets.push(sql`cadence = ${fields.cadence}`);
+    marks.push("cadence");
+  }
+  if (fields.maxAttempts !== undefined) {
+    sets.push(sql`max_attempts = ${fields.maxAttempts}`);
+    marks.push("maxAttempts");
+  }
+  if (fields.timeScale !== undefined) sets.push(sql`time_scale = ${fields.timeScale}`);
+
+  if (sets.length === 0) return true;
+
+  /* Editing a defaulted field makes it the clinician's, not ours. The review
+     screen's mark must follow who actually chose the value. */
+  if (marks.length > 0) {
+    /* `::text` on the key: bound bare, Postgres cannot infer a parameter's type
+       inside jsonb_build_object and refuses the statement outright. */
+    const pairs = sql.join(
+      marks.map((k) => sql`${k}::text, 'clinician'::text`),
+      sql`, `,
+    );
+    sets.push(sql`provenance = provenance || jsonb_build_object(${pairs})`);
+  }
+  sets.push(sql`updated_at = now()`);
+
   const result = await getDb().execute(sql`
     update follow_up_plans
-    set duration_days = ${fields.durationDays},
-        local_time = ${fields.localTime},
-        time_scale = ${fields.timeScale},
-        cadence = ${fields.cadence},
-        max_attempts = ${fields.maxAttempts},
-        -- Editing a defaulted field makes it the clinician's, not ours. The
-        -- review screen's mark must follow who actually chose the value.
-        provenance = provenance
-          || jsonb_build_object('durationDays', 'clinician', 'localTime', 'clinician',
-                                'cadence', 'clinician', 'maxAttempts', 'clinician'),
-        updated_at = now()
+    set ${sql.join(sets, sql`, `)}
     where id = ${planId} and status = 'awaiting_approval'
     returning id
   `);

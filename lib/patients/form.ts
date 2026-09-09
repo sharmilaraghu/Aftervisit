@@ -14,7 +14,21 @@ export interface PatientFormState {
    */
   saved?: boolean;
   errors: Partial<
-    Record<"name" | "age" | "phone" | "timezone" | "language" | "consent" | "note" | "escalationNote" | "form", string>
+    Record<
+      | "name"
+      | "age"
+      | "phone"
+      | "timezone"
+      | "language"
+      | "consent"
+      | "note"
+      | "escalationNote"
+      | "localTime"
+      | "cadence"
+      | "durationDays"
+      | "form",
+      string
+    >
   >;
   /** Echoed back so a rejected form does not make the clinician retype everything. */
   values: {
@@ -28,6 +42,10 @@ export interface PatientFormState {
     note: string;
     escalationNote: string;
     timeScale: string;
+    /* Blank on all three means "take it from the note". */
+    localTime: string;
+    cadence: string;
+    durationDays: string;
   };
 }
 
@@ -46,5 +64,8 @@ export const EMPTY_PATIENT_FORM: PatientFormState = {
     note: "",
     escalationNote: "",
     timeScale: "1",
+    localTime: "",
+    cadence: "",
+    durationDays: "",
   },
 };

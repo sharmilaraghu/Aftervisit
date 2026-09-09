@@ -70,11 +70,14 @@ export default async function EditPatientPage({
             timezone: patient.timezone,
             language: patient.language,
             consent: patient.aiCallConsent,
-            // Editing a patient never touches their plan, so the note fields
-            // are absent from this form entirely.
+            // Editing a patient never touches their plan, so the note and
+            // schedule fields are absent from this form entirely.
             note: "",
             escalationNote: "",
             timeScale: "1",
+            localTime: "",
+            cadence: "",
+            durationDays: "",
           },
         }}
         submitLabel="Save changes"

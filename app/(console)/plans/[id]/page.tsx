@@ -11,7 +11,7 @@
  * note when it did not.
  */
 
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { Badge, Button, Panel } from "@/components/ui";
 import { ApprovePlan, PlanDraftControls } from "@/components/PlanReview";
@@ -66,6 +66,10 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
   const { id } = await params;
   const plan = await getPlanForReview(id);
   if (!plan) notFound();
+
+  /* A draft is not a record yet — it is step 5 of the wizard, and there is one
+     approve screen rather than two that have to be kept saying the same thing. */
+  if (plan.status === "awaiting_approval") redirect(`/plan/new?plan=${plan.id}&step=5`);
 
   /*
    * Observations are not questions and must not be listed as if the agent will
