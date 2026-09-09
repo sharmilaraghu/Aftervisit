@@ -75,7 +75,14 @@ export default async function PatientsPage() {
         </span>
       </header>
 
-      {roster.length > 0 ? <RosterTable rows={roster} /> : null}
+      {/* The table prints dark ink, so it needs the label stock under it. It
+          used to get that from the group wrapper this page no longer has, and
+          without it every patient name was near-invisible on the bench. */}
+      {roster.length > 0 ? (
+        <div className="sheet">
+          <RosterTable rows={roster} />
+        </div>
+      ) : null}
     </div>
   );
 }

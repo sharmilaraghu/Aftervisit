@@ -445,7 +445,7 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
       <Panel title="The consultation note" style={{ marginBottom: "calc(var(--cell) * 3)" }}>
         <div style={{ padding: "calc(var(--cell) * 3)" }}>
           <p
-            className="mono"
+            className="mono measure"
             style={{
               margin: 0,
               whiteSpace: "pre-wrap",

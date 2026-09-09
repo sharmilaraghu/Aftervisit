@@ -332,7 +332,7 @@ export function Wizard({
               label="The consultation note"
               htmlFor="note"
               error={state.errors.note}
-              hint="What happened, and what you want followed up — your own words. Care Loop will not name a medication you did not write, and will not add a red flag you did not ask for."
+              hint="What happened, and what you want followed up. Your own words — nothing you did not write ends up in the questions."
             >
               <Textarea
                 id="note"
@@ -369,7 +369,7 @@ export function Wizard({
               label="Escalating conditions"
               htmlFor="escalationNote"
               error={state.errors.escalationNote}
-              hint="Optional, and kept in your words. Care Loop will not escalate on a term you did not write. Four rules fire without it: the patient asks for a person, emergency language, an answer nobody could map, and nobody answering at all."
+              hint="Optional, and kept verbatim. Four rules always fire without it: the patient asks for a person, emergency language, an answer nobody could map, and nobody answering at all."
             >
               <Textarea
                 id="escalationNote"
@@ -397,6 +397,7 @@ export function Wizard({
         <Panel title={WIZARD_STEPS[2]} style={{ marginBottom: "calc(var(--cell) * 2)" }}>
           <div style={{ padding: "calc(var(--cell) * 3)" }}>
             <p
+              className="measure"
               style={{
                 margin: "0 0 calc(var(--cell) * 3)",
                 color: "var(--print-2)",
@@ -404,25 +405,25 @@ export function Wizard({
                 lineHeight: 1.5,
               }}
             >
-              Leave any of these on <strong>From the note</strong> and the compiler takes
-              it from what you wrote. You can still change them on the review step.
+              Anything left on <strong>From the note</strong> is taken from what you wrote.
             </p>
 
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(calc(var(--cell) * 30), 1fr))",
-                gap: "0 calc(var(--cell) * 3)",
-              }}
-            >
+            {/*
+              Two columns, and every control fills its own.
+              The time and the day count were 140px and 120px boxes sitting in
+              half-width columns, so each ended in a hard left edge with a
+              stretch of empty stock beside it and the sheet read as unfinished.
+              A field's width is the column's, not its content's.
+            */}
+            <div className="field-grid">
               <Field
                 label="Timezone"
                 htmlFor="timezone"
                 error={state.errors.timezone}
                 hint={
                   suggestedZone
-                    ? "Taken from the country code on the number. Change it if the patient is somewhere else."
-                    : "Every call is placed at the best time to call, in this zone."
+                    ? "Taken from the country code. Change it if the patient is elsewhere."
+                    : "Calls are placed at the best time to call, in this zone."
                 }
               >
                 <Select
@@ -453,7 +454,6 @@ export function Wizard({
                   mono
                   placeholder="From the note"
                   defaultValue={v.localTime}
-                  style={{ maxWidth: 140 }}
                   invalid={Boolean(state.errors.localTime)}
                   aria-describedby={describedBy("localTime", {
                     hint: true,
@@ -461,16 +461,13 @@ export function Wizard({
                   })}
                 />
               </Field>
-            </div>
 
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(calc(var(--cell) * 30), 1fr))",
-                gap: "0 calc(var(--cell) * 3)",
-              }}
-            >
-              <Field label="How often" htmlFor="cadence" error={state.errors.cadence}>
+              <Field
+                label="How often"
+                htmlFor="cadence"
+                error={state.errors.cadence}
+                hint="How many days between calls."
+              >
                 <Select
                   id="cadence"
                   name="cadence"
@@ -478,6 +475,7 @@ export function Wizard({
                   options={CADENCE_OPTIONS}
                   invalid={Boolean(state.errors.cadence)}
                   aria-describedby={describedBy("cadence", {
+                    hint: true,
                     error: Boolean(state.errors.cadence),
                   })}
                 />
@@ -487,7 +485,7 @@ export function Wizard({
                 label="For how many days"
                 htmlFor="durationDays"
                 error={state.errors.durationDays}
-                hint="1 to 90."
+                hint="Calendar days from approval, 1 to 90."
               >
                 <TextInput
                   id="durationDays"
@@ -496,7 +494,6 @@ export function Wizard({
                   mono
                   placeholder="From the note"
                   defaultValue={v.durationDays}
-                  style={{ maxWidth: 120 }}
                   invalid={Boolean(state.errors.durationDays)}
                   aria-describedby={describedBy("durationDays", {
                     hint: true,
@@ -505,25 +502,34 @@ export function Wizard({
                 />
               </Field>
             </div>
+          </div>
 
-            {/*
-              The demo clock. A persisted number applied once at expansion, so
-              everything downstream sees real timestamps and the mechanism being
-              demonstrated at 1440x is the one that ships at 1x.
-            */}
-            <Field
-              label="Clock"
-              htmlFor="timeScale"
-              hint="Runs a clinical day faster so a week of follow-up can be watched in minutes."
-            >
-              <Select
-                id="timeScale"
-                name="timeScale"
-                defaultValue={v.timeScale}
-                options={TIME_SCALE_OPTIONS}
-                aria-describedby={describedBy("timeScale", { hint: true })}
-              />
-            </Field>
+          {/*
+            The demo clock is not a clinical setting, so it is not in the grid
+            with the four that are. Its own band says so without a sentence.
+          */}
+          <div
+            style={{
+              padding: "calc(var(--cell) * 3)",
+              borderTop: "1px solid var(--rule)",
+              background: "var(--label-2)",
+            }}
+          >
+            <div className="field-grid">
+              <Field
+                label="Clock"
+                htmlFor="timeScale"
+                hint="Runs a clinical day faster, so a week of follow-up can be watched in minutes."
+              >
+                <Select
+                  id="timeScale"
+                  name="timeScale"
+                  defaultValue={v.timeScale}
+                  options={TIME_SCALE_OPTIONS}
+                  aria-describedby={describedBy("timeScale", { hint: true })}
+                />
+              </Field>
+            </div>
           </div>
         </Panel>
       </div>

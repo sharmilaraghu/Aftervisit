@@ -456,7 +456,7 @@ export default async function PatientPage({
                 {formatDay(n.createdAt, patient.timezone)}
               </p>
               <p
-                className="mono"
+                className="mono measure"
                 style={{
                   margin: 0,
                   whiteSpace: "pre-wrap",

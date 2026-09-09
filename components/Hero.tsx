@@ -27,7 +27,7 @@ const STAGES = [
   },
   {
     title: "Approve once",
-    body: "You edit and approve in one click. Three escalation rules can never be removed — by you or the model.",
+    body: "You edit and approve in one click. Four escalation rules can never be removed — by you or the model.",
     done: true,
   },
   {
@@ -36,8 +36,15 @@ const STAGES = [
     done: false,
   },
   {
+    /*
+     * This said "a pure rule engine escalates — no model required", which was
+     * the architecture before triage and is now the opposite of the truth: a
+     * model reads the transcript and decides, and four pure rules stand under
+     * it as a floor. The floor is the claim worth making — it is what makes
+     * "an outage cannot silence a patient who asked for a person" checkable.
+     */
     title: "Drift gets caught",
-    body: "A pure rule engine escalates — no model required — with the reason and the patient's own words.",
+    body: "A model reads the transcript and decides. Four pure rules stand under it, so an outage still cannot silence a patient who asked for a person.",
     done: false,
   },
 ];

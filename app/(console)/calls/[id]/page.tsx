@@ -40,6 +40,25 @@ function slotValue(slot: {
   return "—";
 }
 
+/**
+ * Whether two sentences are saying the same thing.
+ *
+ * Word overlap, not string equality: the model writes "Nobody spoke on this
+ * call. It is not possible to assess…" as the summary and "Nobody spoke on this
+ * call, so it is not possible to assess…" as the reason, which differ by a
+ * comma and a conjunction and read as a rendering fault.
+ */
+function nearlySame(a: string, b: string | null): boolean {
+  if (!b) return false;
+  const words = (t: string) => new Set(t.toLowerCase().match(/[a-z']+/g) ?? []);
+  const x = words(a);
+  const y = words(b);
+  if (x.size === 0 || y.size === 0) return false;
+  let shared = 0;
+  for (const w of x) if (y.has(w)) shared += 1;
+  return shared / Math.min(x.size, y.size) > 0.8;
+}
+
 export default async function CallPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const [call, triage] = await Promise.all([getCall(id), getTriage(id)]);
@@ -284,9 +303,17 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
               </p>
             ) : null}
 
-            <p style={{ margin: 0, color: "var(--print-2)", fontSize: 14, lineHeight: 1.5 }}>
-              {triage.reason}
-            </p>
+            {/*
+              The reason is why it was routed, and on a call nobody answered the
+              model writes very nearly the summary again — two sentences saying
+              one thing, which reads like a bug rather than a rationale. Printed
+              only when it is actually saying something else.
+            */}
+            {triage.reason && !nearlySame(triage.reason, triage.summary) ? (
+              <p style={{ margin: 0, color: "var(--print-2)", fontSize: 14, lineHeight: 1.5 }}>
+                {triage.reason}
+              </p>
+            ) : null}
 
             {triage.matchedConcerns.length > 0 ? (
               <p
@@ -441,22 +468,46 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
         </Panel>
       ) : null}
 
+      {/*
+        Shut by default.
+        The script is twelve hundred words and it was printed in full at the
+        foot of every call, so the page ran to eight screens and the transcript
+        — the thing a clinician opens this page for — was a strip at the top of
+        a wall of prompt. It stays reachable in one click because "what was it
+        actually told to say" is a real question, just not the first one.
+      */}
       {call.task ? (
         <Panel title="Exactly what it was told to say">
-          <div style={{ padding: "calc(var(--cell) * 3)" }}>
-            <p
-              className="mono"
+          <details>
+            <summary
+              className="caps"
               style={{
-                margin: 0,
-                whiteSpace: "pre-wrap",
+                cursor: "pointer",
+                padding: "calc(var(--cell) * 2) calc(var(--cell) * 3)",
                 color: "var(--print-2)",
-                fontSize: 12,
-                lineHeight: 1.7,
               }}
             >
-              {call.task}
-            </p>
-          </div>
+              Show the script
+            </summary>
+            <div
+              style={{
+                padding: "0 calc(var(--cell) * 3) calc(var(--cell) * 3)",
+              }}
+            >
+              <p
+                className="mono"
+                style={{
+                  margin: 0,
+                  whiteSpace: "pre-wrap",
+                  color: "var(--print-2)",
+                  fontSize: 12,
+                  lineHeight: 1.7,
+                }}
+              >
+                {call.task}
+              </p>
+            </div>
+          </details>
         </Panel>
       ) : null}
     </div>

@@ -190,6 +190,32 @@ a {
 }
 
 /*
+ * Two columns of fields that both end on the same edge.
+ *
+ * The row gap is the point. A grid with only a column gap leaves the rows to be
+ * spaced by whatever margin the last hint happened to have, so two fields with
+ * different hint lengths sit at different heights and the sheet reads as
+ * drifting rather than ruled.
+ */
+.field-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: calc(var(--cell) * 1) calc(var(--cell) * 3);
+  align-items: start;
+}
+
+/*
+ * Two, and exactly two. `auto-fit` fitted three at desktop width and left the
+ * fourth field alone on its own row beside two empty cells, which reads as a
+ * mistake rather than a grid.
+ */
+@media (min-width: 720px) {
+  .field-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/*
  * A label only a screen reader reads. The arrows on the reorder buttons are the
  * whole control visually, and "↑" announced on its own says nothing about what
  * it moves or where.
