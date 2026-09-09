@@ -35,7 +35,9 @@ describe("createCallePort — the happy path", () => {
     const outcome = await port(fake).dial(request());
 
     expect(outcome.ok).toBe(true);
-    if (outcome.ok) expect(outcome.call.id).toBe("call_fake_1");
+    /* Shape, not the literal: the fake now issues a distinct id per created
+       call so a scheduler dialling several can be run against a real database. */
+    if (outcome.ok) expect(outcome.call.id).toMatch(/^call_fake_[a-z0-9]+_1$/);
   });
 
   it("passes the idempotency key through as a header", async () => {

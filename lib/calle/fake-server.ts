@@ -68,6 +68,11 @@ export function createFakeCalleFetch(options: FakeCalleOptions = {}): FakeCalleF
 
   let lastIdempotencyKey: string | null = null;
   const createdCalls: Array<Record<string, unknown>> = [];
+  let created = 0;
+  /* Per-instance, so two runs against the same database do not collide on
+     `uniq_calle_call_id`. A counter alone restarts at 1 on the second run and
+     every call it creates is refused as a duplicate. */
+  const run = Math.random().toString(36).slice(2, 8);
 
   const reached = outcome === "completed";
   /*
@@ -186,7 +191,19 @@ export function createFakeCalleFetch(options: FakeCalleOptions = {}): FakeCalleF
         // the 555-01xx range, so no literal in this repo can be someone's line.
         "+14155550100";
 
-      return json(buildCallTask("call_fake_1", String(body.task ?? ""), phone), 201);
+      /*
+       * A distinct id per created call.
+       *
+       * It was a constant, which is fine for one call and wrong for a
+       * scheduler: `uniq_calle_call_id` refuses the second row, so a tick
+       * dialling three patients offline recorded one call and refused the rest
+       * with an api_error nobody could act on.
+       */
+      created += 1;
+      return json(
+        buildCallTask(`call_fake_${run}_${created}`, String(body.task ?? ""), phone),
+        201,
+      );
     }
 
     const getCall = pathname.match(/^\/v1\/calls\/([^/]+)$/);

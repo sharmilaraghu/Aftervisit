@@ -228,7 +228,13 @@ export async function scheduleRetry(
       (id, plan_id, patient_id, occurrence, attempt, idempotency_key, scheduled_for, retry_of_call_id)
     select ${id}, p.id, p.patient_id, ${occurrence}, ${attempt},
            ${idempotencyKey(planId, occurrence, attempt)},
-           now() + make_interval(mins => p.retry_delay_minutes::float / p.time_scale),
+           -- secs, not mins: make_interval's mins parameter is an int and the
+           -- divided delay is a double, so the call matched no function at all
+           -- and every retry this scheduled failed. The tick swallows a
+           -- per-call error, so nothing surfaced and the ladder was never
+           -- climbed. secs takes a double, which also keeps the demo clock's
+           -- sub-minute retries instead of truncating them to zero.
+           now() + make_interval(secs => p.retry_delay_minutes * 60.0 / p.time_scale),
            ${retryOfCallId}
     from follow_up_plans p
     where p.id = ${planId} and p.status = 'active' and ${attempt} <= p.max_attempts
