@@ -24,13 +24,8 @@ import {
   addQuestion,
   approvePlan,
   cancelPlan,
-  amendNote,
   createPlanFromNote,
   deleteQuestion,
-  getPlanForReview,
-  mergeCompiledPlan,
-  mergeCompiledQuestions,
-  refreezeResultSchema,
   getPlanQuestionOrder,
   moveQuestion,
   updatePlanDraft,
@@ -125,7 +120,6 @@ export async function compileNoteAction(
     });
 
     revalidatePath("/patients");
-  revalidatePath("/escalations");
   revalidatePath("/dashboard");
     redirect(`/plans/${planId}`);
   }
@@ -147,8 +141,6 @@ export async function compileNoteAction(
   });
 
   revalidatePath("/patients");
-  revalidatePath("/escalations");
-  revalidatePath("/dashboard");
   redirect(`/plans/${planId}`);
 }
 
@@ -347,7 +339,6 @@ export async function updateEscalationAction(
 
   revalidatePath(`/plans/${planId}`);
   revalidatePath("/patients");
-  revalidatePath("/escalations");
   revalidatePath("/dashboard");
   return { ok };
 }
@@ -359,7 +350,6 @@ export async function approvePlanAction(
 ): Promise<{ ok: boolean; reason?: string }> {
   const result = await approvePlan(planId, readConfig().clinicianName);
   revalidatePath("/patients");
-  revalidatePath("/escalations");
   revalidatePath("/dashboard");
   revalidatePath(`/plans/${planId}`);
 
@@ -386,7 +376,6 @@ export async function approvePlanAction(
 export async function cancelPlanAction(planId: string, patientId: string): Promise<void> {
   await cancelPlan(planId, readConfig().clinicianName);
   revalidatePath("/patients");
-  revalidatePath("/escalations");
   revalidatePath("/dashboard");
   revalidatePath(`/patients/${patientId}`);
   redirect(`/patients/${patientId}`);
@@ -415,7 +404,6 @@ export async function resolveEscalationAction(
     await setResolution(escalationId, resumed ? "resumed" : "no_action");
   }
   revalidatePath("/patients");
-  revalidatePath("/escalations");
   revalidatePath("/dashboard");
 }
 
@@ -428,7 +416,6 @@ export async function closePlanAction(
   await resolveEscalation(escalationId, "closed", readConfig().clinicianName, note);
   await closePlan(planId, "clinician_closed", readConfig().clinicianName);
   revalidatePath("/patients");
-  revalidatePath("/escalations");
   revalidatePath("/dashboard");
 }
 
@@ -461,63 +448,6 @@ export async function finishTreatmentAction(
 
 export async function acknowledgeEscalationAction(escalationId: string): Promise<void> {
   await acknowledgeEscalation(escalationId);
-  revalidatePath("/escalations");
   revalidatePath("/dashboard");
 }
 
-export async function amendNoteAction(
-  planId: string,
-  addition: string,
-): Promise<{ ok: boolean; error?: string; added?: number; rewritten?: number }> {
-  const text = addition.trim();
-  if (text.length < 3) {
-    return { ok: false, error: "Write the addition first. There is nothing to add." };
-  }
-
-  const amended = await amendNote(planId, text);
-  if (!amended.ok) {
-    return {
-      ok: false,
-      error:
-        "This plan has finished, so its note cannot be changed. Start a new " +
-        "follow-up for this patient instead.",
-    };
-  }
-
-  const plan = await getPlanForReview(planId);
-  const outcome = await compileNote({
-    noteBody: amended.body,
-    escalationNote: amended.escalationNote ?? undefined,
-    patientAge: plan?.patientAge ?? undefined,
-    fallbackReason: plan?.reason ?? "Follow-up",
-  });
-
-  revalidatePath(`/plans/${planId}`);
-
-  if (!outcome.ok) {
-    return {
-      ok: false,
-      error: `Your note was saved, but it could not be re-read: ${outcome.detail}`,
-    };
-  }
-
-  const merged = await mergeCompiledQuestions(planId, outcome.plan.questions);
-  /* Plan-level values are the draft's to change. A running plan keeps the
-     cadence and the local time it was approved with — a doctor adding a new
-     symptom is not asking to move tomorrow's call. */
-  if (plan?.status === "awaiting_approval") await mergeCompiledPlan(planId, outcome.plan);
-
-  /*
-   * Re-freeze the schema, or the new questions are asked and their answers
-   * thrown away: `buildResultSchema` output is frozen onto the plan at approval
-   * and `loadContext` sends that frozen copy to CALL-E. Adding a key is
-   * additive and safe — calls already placed were extracted against the older
-   * schema and their slots are already written.
-   */
-  if (merged.added > 0) await refreezeResultSchema(planId);
-
-  revalidatePath(`/plans/${planId}`);
-  revalidatePath("/patients");
-
-  return { ok: true, ...merged };
-}

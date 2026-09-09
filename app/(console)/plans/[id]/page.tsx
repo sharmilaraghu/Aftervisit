@@ -16,10 +16,8 @@ import { notFound } from "next/navigation";
 import { Badge, Button, Panel } from "@/components/ui";
 import { ApprovePlan, PlanDraftControls } from "@/components/PlanReview";
 import { AddQuestion, QuestionRow } from "@/components/QuestionEditor";
-import { AmendNote } from "@/components/AmendNote";
 import { EscalationSetup } from "@/components/EscalationSetup";
 import { CancelPlan } from "@/components/CancelPlan";
-import { PatientCorrections } from "@/components/PatientCorrections";
 import { ANSWER_LABEL } from "@/lib/plan/clinician-question";
 import { getPlanForReview } from "@/lib/db/plans";
 import { formatStamp } from "@/lib/format";
@@ -455,19 +453,6 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
             {plan.noteBody}
           </p>
 
-          {/* Only while it is still a draft: questions cannot change under calls
-              that have already been placed against them. */}
-          {/*
-            A running plan can be amended too, and that is the returning-patient
-            case: the same person comes back with a chest infection while their
-            blood-pressure follow-up is still dialling. Adding it here means one
-            call a day that covers both, rather than two agents phoning the same
-            person — and the merge is strictly additive, so a question calls have
-            already been placed against is never rewritten underneath them.
-          */}
-          {["awaiting_approval", "active", "paused"].includes(plan.status) ? (
-            <AmendNote planId={plan.id} live={!awaiting} />
-          ) : null}
         </div>
       </Panel>
 
@@ -476,20 +461,6 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
         <ApprovePlan
           planId={plan.id}
           patientId={plan.patientId}
-          corrections={
-            <PatientCorrections
-              patientId={plan.patientId}
-              planId={plan.id}
-              name={plan.patientName}
-              age={plan.patientAge}
-              phoneE164={plan.phoneE164}
-              timezone={plan.timezone}
-              language={plan.language}
-              consent={plan.consent}
-              editable
-              compact
-            />
-          }
           canApprove={approved.length > 0}
           refusedQuestions={rejected.length}
           patientName={plan.patientName}

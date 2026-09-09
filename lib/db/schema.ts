@@ -308,6 +308,15 @@ export const followUpPlans = pgTable(
 
     closedAt: ts("closed_at"),
     closeReason: text("close_reason").$type<CloseReason>(),
+    /**
+     * What the clinician wrote when they ended this episode.
+     *
+     * The one thing a patient's history needs that nothing else records: the
+     * calls say what was asked and answered, `close_reason` says the episode
+     * ended, and neither says how it resolved. Nullable because the other three
+     * close reasons are not a clinician sitting down to write.
+     */
+    closingSummary: text("closing_summary"),
 
     createdAt: ts("created_at").notNull().defaultNow(),
     updatedAt: ts("updated_at").notNull().defaultNow(),

@@ -17,22 +17,20 @@
  * sentence true, and it appears whenever the plan is paused, carrying the
  * reason it was paused so the button explains itself.
  *
- * **Archive** and **Delete** both arm before they act, and each spells out what
- * actually happens, because "archive" and "delete" are words people assume they
- * already understand. One keeps the call history; the other does not.
+ * **Delete** arms before it acts and spells out what happens, because it takes
+ * the call history with it and there is no undo.
  */
 
 import { useState, useTransition } from "react";
 
 import { Button } from "@/components/ui";
 import {
-  archivePatientAction,
   deletePatientAction,
   resumeStoppedPlanAction,
   stopCallsAction,
 } from "@/app/(console)/patients/actions";
 
-type Armed = null | "archive" | "delete";
+type Armed = null | "delete";
 
 export function PatientControls({
   id,
@@ -54,12 +52,9 @@ export function PatientControls({
   const [stopped, setStopped] = useState<number | null>(null);
   const [pending, startTransition] = useTransition();
 
-  const explain =
-    armed === "archive"
-      ? `Archiving ${name} stops every scheduled call and closes the plan. Their calls and escalations stay in the history — nothing is deleted.`
-      : armed === "delete"
-        ? `Deleting ${name} removes the patient, their plans, every call and every transcript, permanently. There is no undo. Archive instead if you might want the record later.`
-        : null;
+  const explain = armed
+    ? `Deleting ${name} removes the patient, their plans, every call and every transcript, permanently. There is no undo.`
+    : null;
 
   if (armed) {
     return (
@@ -77,13 +72,9 @@ export function PatientControls({
         <Button
           variant="ghost"
           disabled={pending}
-          onClick={() =>
-            startTransition(() =>
-              armed === "archive" ? archivePatientAction(id) : deletePatientAction(id),
-            )
-          }
+          onClick={() => startTransition(() => deletePatientAction(id))}
         >
-          {pending ? "Working…" : armed === "archive" ? "Yes, archive" : "Yes, delete permanently"}
+          {pending ? "Working…" : "Yes, delete permanently"}
         </Button>
         <Button variant="ghost" disabled={pending} onClick={() => setArmed(null)}>
           Keep
@@ -140,9 +131,6 @@ export function PatientControls({
         </Button>
       ) : null}
 
-      <Button variant="ghost" onClick={() => setArmed("archive")}>
-        Archive
-      </Button>
       <Button variant="ghost" onClick={() => setArmed("delete")}>
         Delete
       </Button>

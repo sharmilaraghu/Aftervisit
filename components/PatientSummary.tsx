@@ -172,10 +172,10 @@ export function PatientSummary({
             })}
             <p style={{ margin: "calc(var(--cell) * 1.5) 0 0" }}>
               <Link
-                href="/escalations"
+                href="/dashboard"
                 style={{ color: "var(--print)", fontSize: 14, textUnderlineOffset: 3 }}
               >
-                Work these in the queue
+                Work these in Today
               </Link>
             </p>
           </div>

@@ -74,7 +74,7 @@ export function TreatmentControls({
       <Button variant="onLabel" href={`/plans/${planId}`}>
         See the whole plan
       </Button>
-      <Button variant="onLabel" href={`/patients/${patientId}/new-plan`}>
+      <Button variant="onLabel" href={`/plan/new?patient=${patientId}`}>
         Another follow-up
       </Button>
       <Button variant="onLabel" onClick={() => setArmed(true)}>

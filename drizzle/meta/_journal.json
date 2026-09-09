@@ -43,6 +43,13 @@
       "when": 1788673638582,
       "tag": "0005_past_sentry",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788969954534,
+      "tag": "0006_sour_shockwave",
+      "breakpoints": true
     }
   ]
 }

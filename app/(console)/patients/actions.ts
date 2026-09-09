@@ -17,12 +17,10 @@ import { readConfig } from "@/lib/config";
 import { redirect } from "next/navigation";
 
 import {
-  archivePatient,
   createPatient,
   deletePatient,
   DuplicatePhoneError,
   stopCalls,
-  unarchivePatient,
   updatePatient,
   type PatientInput,
 } from "@/lib/db/patients";
@@ -324,23 +322,9 @@ export async function resumeStoppedPlanAction(
   revalidatePath(`/patients/${patientId}`);
 }
 
-/** Permanent. Archiving is the reversible option; this is not it. */
 export async function deletePatientAction(id: string): Promise<void> {
   await deletePatient(id);
   revalidatePath("/patients");
   redirect("/patients");
 }
 
-/** Undo an archive. The record comes back; the closed plans stay closed. */
-export async function unarchivePatientAction(id: string): Promise<void> {
-  await unarchivePatient(id);
-  revalidatePath("/patients");
-  revalidatePath(`/patients/${id}`);
-}
-
-export async function archivePatientAction(id: string): Promise<void> {
-  await archivePatient(id);
-  revalidatePath("/patients");
-  revalidatePath(`/patients/${id}`);
-  redirect("/patients");
-}

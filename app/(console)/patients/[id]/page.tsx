@@ -14,14 +14,11 @@ import { notFound } from "next/navigation";
 
 import { CallLog } from "@/components/CallLog";
 import { PatientControls } from "@/components/PatientControls";
-import { UnarchivePatient } from "@/components/UnarchivePatient";
 import { TreatmentControls } from "@/components/TreatmentControls";
 import { Badge, Button, Panel } from "@/components/ui";
 import { getPatientDetail } from "@/lib/db/patients";
-import { getParameterHistory } from "@/lib/db/parameters";
 import { getPatientSummary } from "@/lib/db/summary";
 import { PatientSummary } from "@/components/PatientSummary";
-import { ParameterBand } from "@/components/ParameterBand";
 import {
   CONSENT_LABEL,
   CONSENT_TONE,
@@ -46,10 +43,7 @@ export default async function PatientPage({
   const detail = await getPatientDetail(id);
   if (!detail) notFound();
 
-  const [parameters, summary] = await Promise.all([
-    getParameterHistory(id),
-    getPatientSummary(id),
-  ]);
+  const summary = await getPatientSummary(id);
 
   const { patient, calls } = detail;
   const rate = detail.due === 0 ? null : Math.round((detail.contacted / detail.due) * 100);
@@ -193,7 +187,7 @@ export default async function PatientPage({
                 ? `That course of follow-up has ended. Nobody is calling ${patient.name} now.`
                 : `Nobody is following ${patient.name} up.`}
             </p>
-            <Button variant="primary" href={`/patients/${patient.id}/new-plan`}>
+            <Button variant="primary" href={`/plan/new?patient=${patient.id}`}>
               {detail.planId ? "Start another follow-up" : "Write the follow-up note"}
             </Button>
           </div>
@@ -230,20 +224,6 @@ export default async function PatientPage({
         week={detail.week}
         reason={detail.reason}
       />
-
-      {detail.planId ? (
-        <Panel
-          title="What they said"
-          aside={
-            <span className="caps mono" style={{ color: "var(--print-3)" }}>
-              {parameters.rows.length} questions
-            </span>
-          }
-          style={{ marginBottom: "calc(var(--cell) * 2)" }}
-        >
-          <ParameterBand rows={parameters.rows} occurrences={parameters.occurrences} />
-        </Panel>
-      ) : null}
 
       {detail.planId ? (
         <Panel
@@ -447,12 +427,8 @@ export default async function PatientPage({
             alignItems: "center",
           }}
         >
-          {/* Archiving was one-way until now, so a mistake was permanent. */}
-          <UnarchivePatient id={patient.id} />
           <span style={{ color: "var(--bench-ink-3)", fontSize: 14, maxWidth: "56ch" }}>
-            This patient is archived. Their history is kept and nothing is dialled. Putting
-            them back restores the record, not the follow-up — starting care again goes
-            through a new note.
+            Archived. History kept, nothing dialled.
           </span>
         </div>
       )}

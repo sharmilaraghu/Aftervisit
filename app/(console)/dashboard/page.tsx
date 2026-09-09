@@ -15,12 +15,10 @@
 import Link from "next/link";
 
 import { Badge, Button, Panel } from "@/components/ui";
-import { LiveWeekBand } from "@/components/LiveWeekBand";
 import { TickPoller } from "@/components/TickPoller";
 import { readConfig } from "@/lib/config";
 import { getDashboardStats } from "@/lib/db/calls";
-import { Fortnight } from "@/components/Fortnight";
-import { getFortnight, getLatestPhrases, getPlanProgress, getWeekSummary } from "@/lib/db/dashboard";
+import { getLatestPhrases, getPlanProgress } from "@/lib/db/dashboard";
 import { getQueue, getRoster } from "@/lib/db/queries";
 import { HEALTH_LABEL, HEALTH_ORDER, HEALTH_TONE } from "@/lib/patients/labels";
 import { formatStamp } from "@/lib/format";
@@ -57,14 +55,12 @@ function Initials({ name }: { name: string }) {
 }
 
 export default async function OverviewPage() {
-  const [stats, roster, queue, progress, week, phrases, fortnight] = await Promise.all([
+  const [stats, roster, queue, progress, phrases] = await Promise.all([
     getDashboardStats(),
     getRoster(),
     getQueue(),
     getPlanProgress(),
-    getWeekSummary(),
     getLatestPhrases(),
-    getFortnight(),
   ]);
 
   const sorted = [...roster].sort(
@@ -117,12 +113,6 @@ export default async function OverviewPage() {
       href: "/patients",
     },
     {
-      label: "Reached this week",
-      value: String(week.reached),
-      note: week.attempted === 0 ? "no calls yet" : `of ${week.attempted} attempted`,
-      href: "/patients",
-    },
-    {
       label: "Needs review",
       value: String(stats.openEscalations),
       note:
@@ -130,7 +120,7 @@ export default async function OverviewPage() {
           ? `${stats.urgentEscalations} paused a plan`
           : "waiting on a clinician",
       alarm: stats.openEscalations > 0,
-      href: "/escalations",
+      href: "/patients",
     },
     {
       label: "In follow-up",
@@ -182,7 +172,7 @@ export default async function OverviewPage() {
             {formatStamp(new Date(), practiceZone)}
           </span>
           <TickPoller enabled={readConfig().liveCallsEnabled} />
-          <Button variant="primary" href="/patients/new">
+          <Button variant="primary" href="/plan/new">
             Add a patient
           </Button>
         </span>
@@ -271,8 +261,8 @@ export default async function OverviewPage() {
               </p>
             )}
 
-            <Button variant="onLabel" href="/escalations">
-              {queue.length > 1 ? `Review this and ${queue.length - 1} more` : "Review it"}
+            <Button variant="onLabel" href={top.callId ? `/calls/${top.callId}` : `/patients/${top.patientId}`}>
+              Review it
             </Button>
           </div>
         </div>
@@ -316,56 +306,6 @@ export default async function OverviewPage() {
         })}
       </div>
 
-      {/*
-        The fortnight, above the two columns.
-
-        It is full width because it is the only thing on this page about the
-        practice rather than about a patient, and it is above them because
-        "is anything systemically wrong?" is the question you want answered
-        before you start reading names.
-      */}
-      <Panel
-        title="The last fortnight"
-        /* Three words with their own colour printed beside them. A legend that
-           names the tones without showing them asks the reader to guess which
-           green is which, which is the whole job of a legend. */
-        aside={
-          <span
-            style={{
-              display: "inline-flex",
-              flexWrap: "wrap",
-              gap: "calc(var(--cell) * 1.5)",
-              alignItems: "center",
-            }}
-          >
-            {[
-              ["Answered", "var(--clear)"],
-              ["Not reached", "var(--amber)"],
-              ["Flagged", "var(--danger)"],
-            ].map(([word, fill]) => (
-              <span
-                key={word}
-                className="caps"
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "calc(var(--cell) * 0.75)",
-                  color: "var(--print-3)",
-                }}
-              >
-                <span
-                  aria-hidden
-                  style={{ width: 10, height: 10, background: fill, flexShrink: 0 }}
-                />
-                {word}
-              </span>
-            ))}
-          </span>
-        }
-        style={{ marginBottom: "calc(var(--cell) * 2)" }}
-      >
-        <Fortnight days={fortnight} />
-      </Panel>
 
       <div className="overview-grid">
         {/* ------------------------------------------------------------ the plans */}
@@ -396,7 +336,7 @@ export default async function OverviewPage() {
               >
                 <thead>
                   <tr style={{ borderBottom: "1px solid var(--rule-ink)" }}>
-                    {["Patient", "Following up on", "Latest from the patient", "The week", "State"].map((h) => (
+                    {["Patient", "Following up on", "Latest from the patient", "State"].map((h) => (
                       <th
                         key={h}
                         className="caps"
@@ -499,7 +439,6 @@ export default async function OverviewPage() {
                           )}
                         </td>
                         <td style={{ padding: "calc(var(--cell) * 1.5) calc(var(--cell) * 2)" }}>
-                          <LiveWeekBand week={p.week} />
                           {prog && prog.total > 0 ? (
                             <span
                               className="mono"
@@ -536,10 +475,10 @@ export default async function OverviewPage() {
           <Panel
             title="Needs review"
             aside={
-              queue.length > 0 ? (
-                <Link href="/escalations" className="caps" style={{ color: "var(--print-2)" }}>
-                  {queue.length > 4 ? `${queue.length - 4} more · open queue` : "Open queue"}
-                </Link>
+              queue.length > 4 ? (
+                <span className="caps" style={{ color: "var(--print-2)" }}>
+                  {queue.length - 4} more
+                </span>
               ) : undefined
             }
           >
@@ -575,7 +514,7 @@ export default async function OverviewPage() {
                     >
                       <Initials name={e.patientName} />
                       <Link
-                        href="/escalations"
+                        href={`/patients/${e.patientId}`}
                         style={{
                           color: "var(--print)",
                           fontWeight: 700,

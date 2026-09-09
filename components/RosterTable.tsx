@@ -17,12 +17,9 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui";
-import { LiveWeekBand } from "@/components/LiveWeekBand";
 import type { RosterRow } from "@/lib/db/queries";
 import { HEALTH_LABEL, HEALTH_ORDER, HEALTH_TONE } from "@/lib/patients/labels";
 import { maskPhone } from "@/lib/phone/normalize";
-
-export type RosterSignals = Map<string, { questionId: string; detail: string; kind: string }>;
 
 export type SortKey = "name" | "age" | "reason" | "state" | "quiet";
 
@@ -36,15 +33,13 @@ const CELL = "calc(var(--cell) * 1.5) calc(var(--cell) * 2)";
 interface Column {
   label: string;
   className?: string;
-  /** Absent for a column no ordering makes sense of — the week is a shape. */
   sort?: SortKey;
   /** What each direction does, in a doctor's words, for the header's label. */
   ways?: [asc: string, desc: string];
 }
 
 /*
- * State sits ahead of the week because it is the column that has to survive a
- * phone; the three that drop are marked here and hidden in `globals.css`.
+ * The columns that drop on a phone are marked here and hidden in `globals.css`.
  */
 const COLUMNS: Column[] = [
   { label: "Patient", sort: "name", ways: ["A to Z", "Z to A"] },
@@ -61,9 +56,8 @@ const COLUMNS: Column[] = [
     ways: ["A to Z", "Z to A"],
   },
   { label: "State", sort: "state", ways: ["most urgent first", "least urgent first"] },
-  { label: "The week" },
   {
-    label: "What’s off",
+    label: "Silent for",
     className: "col-signal",
     sort: "quiet",
     ways: ["shortest silence first", "longest silence first"],
@@ -110,18 +104,17 @@ export function sortRoster(rows: RosterRow[], sort: Sort): RosterRow[] {
   });
 }
 
-export function RosterTable({
-  rows,
-  signals,
-  sort,
-  onSort,
-}: {
-  rows: RosterRow[];
-  signals: RosterSignals;
-  /** Null while the roster is grouped — nothing is ordered, nothing is marked. */
-  sort: Sort | null;
-  onSort: (key: SortKey) => void;
-}) {
+export function RosterTable({ rows }: { rows: RosterRow[] }) {
+  /*
+   * Null until a header is clicked. The server hands these rows over already
+   * ordered by severity, and that is the order a doctor wants first — sorting
+   * is something they ask for, not something the table does to them on arrival.
+   */
+  const [sort, setSort] = useState<Sort | null>(null);
+  const onSort = (key: SortKey) =>
+    setSort((s) => (s?.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));
+  const ordered = sort ? sortRoster(rows, sort) : rows;
+
   const scroller = useRef<HTMLDivElement>(null);
   const [scrolls, setScrolls] = useState(false);
 
@@ -217,8 +210,7 @@ export function RosterTable({
             data-fed="true"
             key={sort ? `${sort.key}:${sort.dir}` : "grouped"}
           >
-            {rows.map((p, i) => {
-              const signal = signals.get(p.patientId);
+            {ordered.map((p, i) => {
               return (
                 <tr
                   key={p.patientId}
@@ -269,16 +261,16 @@ export function RosterTable({
                     {/*
                       The badge is the shortest route to the thing it describes: a
                       plan waiting on approval links to the plan, a patient with no
-                      plan links to writing one, an escalation to the queue.
+                      plan links to writing one, an escalation to Today.
                     */}
                     <Link
                       href={
                         p.health === "needs_plan"
-                          ? `/patients/${p.patientId}/new-plan`
+                          ? `/plan/new?patient=${p.patientId}`
                           : p.health === "awaiting_approval" && p.planId
                             ? `/plans/${p.planId}`
                             : p.health === "escalated"
-                              ? "/escalations"
+                              ? "/dashboard"
                               : `/patients/${p.patientId}`
                       }
                       /* The badge is the target, so the link has to be at least
@@ -304,31 +296,8 @@ export function RosterTable({
                       </Badge>
                     </Link>
                   </td>
-                  <td style={{ padding: CELL }}>
-                    <LiveWeekBand week={p.week} />
-                  </td>
-                  {/*
-                    Silence sits in the same cell as a bad answer, because "no
-                    contact for three days" is itself a thing that is off — and a
-                    patient with neither is genuinely fine.
-                  */}
                   <td className="col-signal" style={{ padding: CELL, whiteSpace: "nowrap" }}>
-                    {signal ? (
-                      <span
-                        style={{
-                          display: "inline-flex",
-                          gap: "calc(var(--cell) * 1)",
-                          alignItems: "center",
-                        }}
-                      >
-                        <span style={{ color: "var(--print)" }}>
-                          {signal.questionId.replace(/_/g, " ")}
-                        </span>
-                        <span className="mono" style={{ color: "var(--danger)", fontSize: 13 }}>
-                          {signal.detail}
-                        </span>
-                      </span>
-                    ) : p.quietFor !== null && p.quietFor >= 3 ? (
+                    {p.quietFor !== null && p.quietFor >= 3 ? (
                       <span className="mono" style={{ color: "var(--danger)" }}>
                         quiet {p.quietFor}d
                       </span>

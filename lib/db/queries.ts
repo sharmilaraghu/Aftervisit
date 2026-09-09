@@ -302,32 +302,6 @@ function toQueueRow(r: Record<string, unknown>): QueueRow {
   };
 }
 
-/**
- * What has already been dealt with.
- *
- * Acting on a card used to delete it and all its evidence from the interface
- * permanently — `getQueue` filters to `open` and `acknowledged`, and there was
- * no other read — so "what happened with her last week?" had no answer anywhere
- * in the console. This is the same rows, after the fact, carrying what the
- * clinician wrote at the time.
- */
-export async function getResolvedQueue(limit = 20): Promise<QueueRow[]> {
-  const result = await getDb().execute(sql`
-    select e.id, e.ref, e.patient_id, pt.name as patient_name, pt.age,
-           pt.phone_e164, pt.timezone, e.plan_id, e.call_id, e.rule_id,
-           e.rule_label, e.urgent, e.severity, e.summary, e.status,
-           e.reason, e.utterance, e.raised_at, e.paused_plan, e.floor_hits,
-           e.resolved_at, e.resolved_by, e.resolution, e.resolution_note,
-           p.reason as plan_reason
-    from escalations e
-    join patients pt on pt.id = e.patient_id
-    join follow_up_plans p on p.id = e.plan_id
-    where e.status = 'resolved'
-    order by e.resolved_at desc nulls last
-    limit ${limit}
-  `);
-  return (result.rows as Record<string, unknown>[]).map(toQueueRow);
-}
 
 function emptyWeek(): DayState[] {
   return ["none", "none", "none", "none", "none", "none", "none"];

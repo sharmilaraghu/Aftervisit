@@ -29,18 +29,11 @@ import { Badge } from "@/components/ui";
 import { Logo } from "@/components/Logo";
 
 /**
- * Two sections, and DESIGN.md's One Console Home Rule is why.
+ * Two sections.
  *
- * `Escalations` used to ride here as a third sibling, which asks a doctor to
- * know that what is wrong with a patient lives somewhere other than the
- * patient. The rule already recorded that arrangement as tried and rejected;
- * it had drifted back. The roster opens ordered most-urgent-first with
- * "Waiting on your decision" as its first group, so it *is* the worklist —
- * `/escalations` survives as a destination reached from the roster, the
- * patient's own file and the overview.
- *
- * The count comes with it rather than disappearing: it is the same fact, on
- * the section that now owns it.
+ * Escalations used to ride here as a third, which asks a doctor to know that
+ * what is wrong with a patient lives somewhere other than the patient. The
+ * queue is part of Today now, and the count rides on the section that owns it.
  */
 const NAV = [
   { label: "Overview", href: "/dashboard" },
