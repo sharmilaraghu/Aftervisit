@@ -1,15 +1,17 @@
 /**
- * The decision layer.
+ * The floor.
  *
  * **Pure.** No IO, no clock, no model, no randomness. `now` is an argument.
  * Given the same call it returns the same escalations, in the same order,
- * forever. That is the whole point: "escalation is never model judgment" is a
- * claim someone can check by reading this file, and it stops being checkable
- * the moment anything here reaches outside itself.
+ * forever. That is the whole point: "no escalation depends on a model being
+ * available, or being right" is a claim someone can check by reading this file,
+ * and it stops being checkable the moment anything here reaches outside itself.
  *
- * The model's job ended before this ran. It translated speech into typed slots;
- * what those slots *mean* for the patient's care is decided here, by code a
- * clinician could read.
+ * A model runs on either side of this and neither one is load-bearing. One
+ * translated speech into typed slots before it; `lib/triage/triage.ts` reads the
+ * transcript after it and adds a severity, a summary, and the doctor's own
+ * words. Whether the call gets in front of a clinician at all is settled here,
+ * by code a clinician could read.
  *
  * Escalation is routing, never a verdict. Nothing in this file concludes
  * anything about a patient — it decides who should look.
@@ -34,33 +36,24 @@ export interface EvaluatedSlot {
 export interface EvaluationInput {
   slots: EvaluatedSlot[];
   rules: PlanRule[];
-  /** Terms the plan was told to escalate on, already lowercased by the caller. */
-  redFlagTerms: string[];
   /**
    * Whether a human actually spoke to us on this call.
    *
    * Load-bearing. When nobody answered, *every* slot comes back `missing`, and
-   * an ungated `unmappable_response` would then fire once per question and
-   * urgently pause the plan on the very first unanswered call — destroying the
-   * retry ladder before it made its second attempt. Silence is not an answer
-   * that could not be mapped; it is handled by `no_answer_exhausted`.
+   * an ungated `unmappable_response` would fire on the very first unanswered
+   * call. Silence is not an answer that could not be mapped; it is handled by
+   * `no_answer_exhausted`.
+   *
+   * The gate is only as good as the signal behind it: `someoneSpoke` once
+   * counted an *observation* as speech, so a declined call arrived here with
+   * `reached: true` and this rule fired on a conversation that never happened.
+   * The floor cannot be stronger than what it is told.
    */
   reached: boolean;
-  /** Every attempt for this occurrence ended with a no-answer failure code. */
+  /** Nobody spoke on any attempt for this occurrence. */
   noAnswerExhausted: boolean;
   /** Attempts actually made for this occurrence. */
   attemptsMade: number;
-  /** Calendar days since this patient was last heard, in their own zone. */
-  quietForDays: number | null;
-  /**
-   * CALL-E's own verdict on whether the call did what it was asked to.
-   *
-   * `false` has been seen in production meaning the agent skipped its last two
-   * questions and reported them as answered. Those two back locked rules, so an
-   * agent quietly answering them for itself defeats the guarantee entirely —
-   * which is why it is a rule rather than a log line.
-   */
-  taskCompleted: boolean | null;
   /** Injected. The engine never reads a clock. */
   now: Date;
 }
@@ -88,20 +81,6 @@ function findSlot(slots: EvaluatedSlot[], questionId: string): EvaluatedSlot | u
 /** The patient's words for a slot, when we have them. */
 function words(slot: EvaluatedSlot | undefined): string | null {
   return slot?.utterance ?? null;
-}
-
-/**
- * Which terms from the plan's list appear in what the patient said.
- *
- * Substring matching on lowercased text, deliberately. It over-matches — "fever"
- * inside "no fever" fires — and that is the correct direction for a routing
- * decision: the cost of a clinician glancing at a call that turned out fine is
- * far below the cost of missing one that did not. The rule sends a human to
- * read the sentence; it does not decide what the sentence meant.
- */
-function matchedTerms(text: string, terms: string[]): string[] {
-  const haystack = text.toLowerCase();
-  return terms.filter((term) => term.length > 0 && haystack.includes(term));
 }
 
 function evaluateRule(rule: Rule, input: EvaluationInput): RuleHit[] {
@@ -173,89 +152,11 @@ function evaluateRule(rule: Rule, input: EvaluationInput): RuleHit[] {
       ];
     }
 
-    /*
-     * One hit per distinct sentence, not per slot.
-     *
-     * A red flag is heard in something the patient said, and the same sentence
-     * is routinely attached to several slots — extraction falls back to the most
-     * informative patient turn whenever it cannot pin an answer to its question.
-     * Firing per slot therefore puts the identical quote in the clinician's queue
-     * five times over, which buries the four other things waiting for them.
-     */
-    case "red_flag_term_heard": {
-      const terms = rule.terms.length ? rule.terms.map((t) => t.toLowerCase()) : input.redFlagTerms;
-      const bySentence = new Map<string, { questionId: string; matched: string[] }>();
-
-      for (const slot of input.slots) {
-        const text = slot.utterance ?? slot.valueText ?? "";
-        if (!text || bySentence.has(text)) continue;
-        const matched = matchedTerms(text, terms);
-        if (matched.length === 0) continue;
-        bySentence.set(text, { questionId: slot.questionId, matched });
-      }
-
-      return [...bySentence].map(([text, { questionId, matched }]) =>
-        hit({
-          questionId,
-          utterance: text,
-          reason: `The plan listed ${matched
-            .map((m) => `"${m}"`)
-            .join(", ")} as a term to escalate on, and it appeared in what the patient said.`,
-        }),
-      );
-    }
-
     case "no_answer_exhausted": {
       if (!input.noAnswerExhausted || input.attemptsMade < rule.attempts) return [];
       return [
         hit({
-          reason: `${input.attemptsMade} attempts all ended with a no-answer failure code. Nobody has heard from this patient.`,
-        }),
-      ];
-    }
-
-    case "boolean_equals": {
-      const slot = findSlot(input.slots, rule.questionId);
-      if (!slot || slot.status !== "answered" || slot.valueBool !== rule.value) return [];
-      return [hit({ questionId: slot.questionId, utterance: words(slot) })];
-    }
-
-    case "scale_at_least": {
-      const slot = findSlot(input.slots, rule.questionId);
-      if (!slot || slot.status !== "answered") return [];
-      if (typeof slot.valueNumber !== "number" || slot.valueNumber < rule.threshold) return [];
-      return [
-        hit({
-          questionId: slot.questionId,
-          utterance: words(slot),
-          reason: `The answer was ${slot.valueNumber}, at or above the threshold of ${rule.threshold} the plan set.`,
-        }),
-      ];
-    }
-
-    case "enum_in": {
-      const slot = findSlot(input.slots, rule.questionId);
-      if (!slot || slot.status !== "answered" || typeof slot.valueText !== "string") return [];
-      if (!rule.values.includes(slot.valueText)) return [];
-      return [
-        hit({
-          questionId: slot.questionId,
-          utterance: words(slot),
-          reason: `The answer was "${slot.valueText}", which the plan listed as needing a clinician.`,
-        }),
-      ];
-    }
-
-    case "task_incomplete": {
-      if (input.taskCompleted !== false) return [];
-      return [hit()];
-    }
-
-    case "drift_days": {
-      if (input.quietForDays === null || input.quietForDays < rule.days) return [];
-      return [
-        hit({
-          reason: `Nobody has heard from this patient in ${input.quietForDays} days. The follow-up has stopped working.`,
+          reason: `${input.attemptsMade} attempts and nobody spoke on any of them. Nobody has heard from this patient.`,
         }),
       ];
     }

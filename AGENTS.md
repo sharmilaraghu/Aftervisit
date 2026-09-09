@@ -14,7 +14,7 @@ nobody notices for a week.**
 
 The differentiator is not "an AI that calls patients". It is that the agent owns the
 **workflow**, not just the conversation. So the code makes the workflow the visible
-artifact: a plan expands into dated rows you can see, a tick moves them, a pure rule engine
+artifact: a plan expands into dated rows you can see, a tick moves them, a pure floor
 decides, a queue collects.
 
 > **This is a hackathon prototype. It is not for use with real patient data.**
@@ -54,7 +54,9 @@ doctor's free-text note
   → tick.ts       reconcile → atomic batch claim → guard → dial → persist call id
                   → after() waiter → retry.ts schedules the next attempt if unanswered
   → extract.ts    CALL-E's structuredResult → typed slots; unmappable is a real status
-  → engine.ts     PURE rule evaluation. No model. Escalate on any hit
+  → engine.ts     PURE evaluation of four locked conditions. No model. The floor
+  → triage.ts     a model reads the transcript on top: severity, summary, the doctor's
+                  own escalating conditions. Fails closed; never speaks to a patient
   → queue         a clinician sees the rule, the reason, and the patient's own words
 ```
 
@@ -63,10 +65,17 @@ doctor's free-text note
 1. **The port is the only door.** `lib/calle/port.ts` is the only file that may import
    `@call-e/calle`. Guard re-inspection, E.164 validation and the dial allowlist all live
    inside `dial()`, so no call site can skip them.
-2. **The scheduler dials autonomously — so the allowlist is not optional.**
-   `CARELOOP_CALL_ALLOWLIST` is what replaces the human "press to call" gate that a manual
-   tool would have. A scheduled call to a number not on the list is refused with a visible
-   reason. Never silently skipped, never quietly simulated.
+2. **The scheduler dials autonomously — so consent is the gate.** A doctor enrols a
+   patient, records that they agreed to automated follow-up, and approves a plan; that is
+   the human "press to call" a manual tool would have, moved earlier. `dial()` refuses any
+   patient whose consent is not an explicit `granted`, with a visible reason — never
+   silently skipped, never quietly simulated. `consentGranted` is a **required** field on
+   `DialRequest` precisely so a new call site fails to compile rather than defaulting to
+   dialling someone who never agreed.
+   `CARELOOP_CALL_ALLOWLIST` survives as an **optional deployment lock**, answering a
+   different question: may this instance reach the outside world at all. Unset it narrows
+   nothing. **Set it on any deployment that is publicly reachable without a login**, where
+   anyone who can load the console can enrol a patient and cause a dial.
 3. **Never weaken the guard, the AI disclosure, the emergency stop, or the emergency
    handoff** to make a demo smoother. If they get in the way, that *is* the demo.
    *Consent moved off the call deliberately* — it is a condition of enrolment recorded on
@@ -80,9 +89,23 @@ doctor's free-text note
 4. **Care Loop never gives clinical advice and never diagnoses anyone.** There is no code
    path that makes a clinical decision. An uncertain call becomes a human's problem via an
    escalation. Escalation is routing, never a verdict.
-5. **The model translates; the rule engine decides.** `lib/rules/engine.ts` is pure — no IO,
-   no clock (`now` is injected), no model, no randomness. Keep it that way; it is what makes
-   "escalation is never model judgment" a checkable claim rather than a slogan.
+5. **The model reads the call; four rules stand under it as a floor.**
+   `lib/triage/triage.ts` reads the transcript and decides: the severity, the one-sentence
+   summary a clinician reads first, and the match against the doctor's own escalating
+   conditions. It replaced ten rule kinds that matched on typed slots — a substring matcher
+   that fired inside a negation, threshold and enum comparisons no doctor ever authored —
+   because deciding what a patient *meant* is not a thing a DSL does well. A real call
+   settled it: the rules reported "answer could not be mapped" for a line that declined,
+   and the model said "the call ended immediately with no speech from the patient."
+   What remains in `lib/rules/engine.ts` is a **floor, not a language**: the patient asked
+   for a person, emergency language, an answer nobody could map, nobody answered at all.
+   It is still pure — no IO, no clock (`now` is injected), no model, no randomness — and
+   keeping it that way is what makes "an outage cannot silence a patient who asked for a
+   person" checkable rather than a slogan. Only two of the four pause a plan; unmappable
+   escalates and keeps dialling, because pausing on attempt 1 of 3 disabled the retry
+   ladder for the commonest reason a call is useless. Triage fails **closed** — an outage,
+   a timeout or an unparseable answer all queue the call for review, never silence it —
+   and a clinician overrides both.
 6. **Defaults are applied by code, never by the model.** Every defaultable field is nullable
    in the compiler's output schema and filled deterministically afterwards. That is the only
    thing that makes the "Defaulted" marking in the review UI trustworthy.
@@ -109,11 +132,11 @@ doctor's free-text note
 Care Loop/
   AGENTS.md               ← this file: the shared rules, for every tool
   CLAUDE.md               ← imports this, then adds the Claude-only tables
-  DESIGN.md               ← written by impeccable from the shipped code
   app/
     page.tsx              landing — the pitch
     (console)/            patients, plans, calls, queue
     api/tick/             the scheduler door for an external cron
+    api/calle/webhook/    CALL-E's callback — takes a call id, re-fetches, never trusts
   lib/
     calle/port.ts         the ONLY place that talks to CALL-E
     calle/fake-server.ts  offline stand-in so the suite runs with no API key
@@ -121,6 +144,7 @@ Care Loop/
     script/build.ts       assembleTask (pure, tested) — all safety language lives here
     script/guard.ts       the three-phase clinical guard
     rules/                the closed rule DSL, the catalog, the pure evaluator
+    triage/               the model's reading of a finished call — fails closed
     schedule/             expand · retry · select (pure) + tick · dispatch · reconcile (IO)
     patients/kpi.ts       contact rate, adherence, drift — pure
     phone/normalize.ts    E.164, or an explicit refusal — never a guess

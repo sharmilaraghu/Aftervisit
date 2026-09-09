@@ -70,8 +70,23 @@ export function createFakeCalleFetch(options: FakeCalleOptions = {}): FakeCalleF
   const createdCalls: Array<Record<string, unknown>> = [];
 
   const reached = outcome === "completed";
-  const failureCode =
-    outcome === "no_answer" ? "no_answer" : outcome === "failed" ? "call_failed" : null;
+  /*
+   * A deliberately unhelpful vocabulary.
+   *
+   * This used to return the literal `"no_answer"`, and production code branched
+   * its retry ladder on that exact string — so the suite proved the fake agreed
+   * with the code and nothing else. The one real call came back `"603"`, a raw
+   * SIP decline, and the ladder never fired. CALL-E publishes no enum for this
+   * field and its docs say not to branch on it, so the fake now says so out
+   * loud: anything reading these strings for a decision will be wrong.
+   */
+  const failureCode = outcome === "no_answer" ? "603" : outcome === "failed" ? "486" : null;
+  const failureMessage =
+    outcome === "no_answer"
+      ? "calling task status=DECLINED (Hangup by: user)"
+      : outcome === "failed"
+        ? "calling task status=BUSY"
+        : null;
 
   const buildCallTask = (id: string, task: string, phone: string) => ({
     id,
@@ -85,10 +100,14 @@ export function createFakeCalleFetch(options: FakeCalleOptions = {}): FakeCalleF
         locale: null,
         region: null,
         status: reached ? "completed" : "failed",
-        // An unanswered call has no structured result. That null is meaningful:
-        // Care Loop treats it as "one unmappable slot per question", not as a
-        // call that asked nothing.
-        structured_result: reached ? structuredResult : null,
+        /*
+         * The per-recipient result: who or what picked up.
+         *
+         * This is what `recipientResultSchema` produces, and it is the only
+         * documented way to tell a person from an answerphone — CALL-E exposes
+         * no built-in answered-by field.
+         */
+        structured_result: { answered_by: reached ? "human" : "unknown" },
         summary: reached ? "Fake recipient summary." : null,
         attempts: [
           {
@@ -101,24 +120,39 @@ export function createFakeCalleFetch(options: FakeCalleOptions = {}): FakeCalleF
             transcript_turns: reached ? transcriptTurns : [],
             provider_call_id: "provider_fake_1",
             failure_code: failureCode,
-            failure_message:
-              outcome === "no_answer"
-                ? "The recipient did not answer."
-                : outcome === "failed"
-                  ? "The call could not be completed."
-                  : null,
+            failure_message: failureMessage,
           },
         ],
       },
     ],
-    structured_result: reached ? structuredResult : null,
+    /*
+     * A call nobody answered still comes back with a result object.
+     *
+     * The real declined call returned every key `unknown` except
+     * `requests_clinician`, which the agent honestly recorded as `no` — and
+     * that single answered slot was enough to make a silent call read as
+     * reached. The fake reproduces that shape so nothing can quietly go back to
+     * assuming silence means a null result. `failed` still yields a true null,
+     * which is the separate case of CALL-E producing no schema-valid result.
+     */
+    structured_result: reached
+      ? structuredResult
+      : outcome === "failed"
+        ? null
+        : {
+            reached_patient: "unknown",
+            consent_given: "unknown",
+            requests_clinician: "no",
+            emergency_language_heard: "unknown",
+            call_recap: "unknown",
+          },
     summary: reached ? "Fake call summary." : null,
     task_completed: reached,
     completion_confidence: reached ? confidence : null,
     evidence: reached ? ["The patient confirmed they are taking the medication."] : [],
     metadata: {},
     failure_code: failureCode,
-    failure_message: null,
+    failure_message: failureMessage,
     created_at: "2026-08-16T10:00:00Z",
     completed_at: "2026-08-16T10:02:00Z",
   });

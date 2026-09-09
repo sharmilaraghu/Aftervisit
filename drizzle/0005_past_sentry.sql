@@ -1,0 +1,1 @@
+ALTER TABLE "tick_runs" ADD COLUMN "retired" integer DEFAULT 0 NOT NULL;

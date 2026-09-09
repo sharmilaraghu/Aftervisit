@@ -19,6 +19,7 @@ export type IdPrefix =
   | "sc"
   | "slot"
   | "esc"
+  | "tri"
   | "tick";
 
 export function newId(prefix: IdPrefix): string {

@@ -28,9 +28,15 @@ to own the calendar, and has to persist every `call_id` the instant it is
 created, or the result is unrecoverable. A neighbouring product on the same SDK
 cannot truthfully claim otherwise without also building the calendar.
 
-The second checkable claim: **the model translates, the rule engine decides.**
-`lib/rules/engine.ts` is pure — no IO, no clock, no model, no randomness. You can
-read it in one sitting and verify that no escalation is ever model judgment.
+The second checkable claim: **the model reads the call, and a small floor
+stands under it.** `lib/triage/triage.ts` reads the transcript and sets the
+severity, the summary a clinician reads first, and the match against the
+doctor's own escalating conditions. Underneath it, `lib/rules/engine.ts` is four
+rules and nothing else — the patient asked for a person, emergency language, an
+answer nobody could map, nobody answered at all. It is pure: no IO, no clock, no
+model, no randomness. You can read it in one sitting and verify that a provider
+outage degrades the product to *unjudged but still escalated*, rather than to
+silence.
 
 ## Running it
 
@@ -48,9 +54,11 @@ optional and the product degrades honestly without each one:
 |---|---|
 | `DATABASE_URL` | The console throws a named error rather than rendering an empty practice. |
 | `GEMINI_API_KEY` / `OPENAI_API_KEY` | Compiling is **refused** and you get a blank, hand-editable plan. It never invents a generic follow-up. |
-| `CALLE_API_KEY` | Nothing can be dialled. The top bar says so on every page. |
-| `CARELOOP_CALL_ALLOWLIST` | Treated as empty, never as permission. Every call is refused with a visible reason. |
+| `CALLE_API_KEY` | Nothing can be dialled. The approval screen says so, beside the button that would have caused it. |
+| `CARELOOP_CALL_ALLOWLIST` | **No list restricts this instance** — consent alone decides. Set it wherever the console is publicly reachable. |
 | `CARELOOP_TICK_TOKEN` | `POST /api/tick` returns 503 — the door is shut, not open. |
+| `CRON_SECRET` | `GET /api/cron/tick` returns 503. Nothing but the console's own poller drives the scheduler. |
+| `CARELOOP_WEBHOOK_TOKEN` / `CARELOOP_PUBLIC_URL` | No `webhookUrl` is sent to CALL-E; the reconciler finishes calls on a later tick instead. |
 
 **Calls are live whenever `CALLE_API_KEY` is set.** They cost money and they
 reach people.
@@ -68,7 +76,9 @@ doctor's free-text note
   → tick.ts       reconcile → atomic batch claim → guard → dial → persist call id
                   → retry.ts schedules the next attempt if unanswered
   → extract.ts    CALL-E's structuredResult → typed slots; unmappable is a real status
-  → engine.ts     PURE rule evaluation. No model. Escalate on any hit
+  → engine.ts     PURE evaluation of four locked conditions. No model. The floor
+  → triage.ts     a model reads the transcript on top: severity, summary, the doctor's
+                  own escalating conditions. Fails closed; never speaks to a patient
   → queue         a clinician sees the rule, the reason, and the patient's own words
 ```
 
@@ -80,9 +90,19 @@ This is the differentiator, not the overhead.
 import `@call-e/calle`. Guard re-inspection, E.164 validation and the dial
 allowlist all live *inside* `dial()`, so no call site can skip them.
 
-**The allowlist is not optional.** The scheduler dials with nobody pressing a
-button, so `CARELOOP_CALL_ALLOWLIST` *is* the human gate, moved into code. An
-absent allowlist is empty, never permission.
+**Consent is what authorises a call.** The scheduler dials with nobody pressing a
+button, so the human gate is moved earlier rather than removed: a doctor enrols a
+patient, records that they agreed to automated follow-up, and approves their plan.
+`dial()` refuses any patient whose consent is not an explicit `granted` — `unknown`
+is not agreement — and the approval screen blocks approval and names the reason,
+rather than expanding a week of calls that will every one be refused.
+
+**The allowlist is a separate, optional deployment lock.** `CARELOOP_CALL_ALLOWLIST`
+answers a different question from consent: may this instance reach the outside world
+at all. **Leaving it unset narrows nothing.** Set it on any deployment that is
+publicly reachable without a login — there is no auth, so anyone who can load the
+console can enrol a patient and cause a dial, and consent cannot answer that for you
+because a stranger can record consent too.
 
 **The guard is bidirectional and three-phase.** It rejects advice, diagnosis,
 dosage changes, prognosis, false reassurance and anything attributed to the

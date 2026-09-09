@@ -7,8 +7,14 @@
  */
 
 export interface PatientFormState {
+  /**
+   * Set once a save actually landed. Only the inline corrections drawer on the
+   * approval screen reads it: the full-page form redirects on success, so it
+   * never needs to report one, but a drawer that stays put does.
+   */
+  saved?: boolean;
   errors: Partial<
-    Record<"name" | "age" | "phone" | "timezone" | "language" | "consent" | "note" | "form", string>
+    Record<"name" | "age" | "phone" | "timezone" | "language" | "consent" | "note" | "escalationNote" | "form", string>
   >;
   /** Echoed back so a rejected form does not make the clinician retype everything. */
   values: {
@@ -20,6 +26,7 @@ export interface PatientFormState {
     consent: string;
     /** Written in the same step as the patient, because that is when it exists. */
     note: string;
+    escalationNote: string;
     timeScale: string;
   };
 }
@@ -30,10 +37,14 @@ export const EMPTY_PATIENT_FORM: PatientFormState = {
     name: "",
     age: "",
     phone: "",
-    timezone: "Europe/London",
+    /* No zone until the number says one, or the doctor picks. A pre-selected
+       default is a choice nobody made, and a wrong zone means every call for
+       the life of the plan lands at the wrong hour. */
+    timezone: "",
     language: "en-US",
     consent: "unknown",
     note: "",
+    escalationNote: "",
     timeScale: "1",
   },
 };

@@ -10,8 +10,18 @@
  * `lib/db/schema.ts` stores rules as jsonb and must not import anything that
  * touches IO.
  *
- * AGENTS.md rule 5: the model translates, the rule engine decides. Nothing in
- * this file may ever grow a free-text predicate.
+ * AGENTS.md rule 5: the rule engine sets the floor. Nothing in this file may
+ * ever grow a free-text predicate — a model's reading belongs on top of the
+ * engine, in `lib/triage/`, never inside its DSL.
+ *
+ * **Four kinds, and that is the whole DSL.** It used to carry ten, including
+ * threshold and enum matchers and a substring red-flag matcher. A doctor
+ * authored none of them — `baseRules` was `[]` at every call site, so every
+ * rule on every plan came from `lockedRules()` + `defaultRules()` — and the
+ * model now reads the transcript and sets severity far better than a substring
+ * match ever did. What survives is a floor, not a language: the three things
+ * that must reach a person even when no model is available, plus exhausted
+ * attempts. Nobody sees these, nobody edits them, and that is the point.
  */
 
 /** Rules that cannot be removed from any plan, by compiler or clinician. */
@@ -26,30 +36,21 @@ export type LockedRuleKind = (typeof LOCKED_RULE_KINDS)[number];
 export type Rule =
   /** The patient asked for a human. Always urgent, never removable. */
   | { kind: "patient_requests_clinician"; urgent: true }
-  /** An answer did not map to any offered value. Uncertainty routes to a human. */
-  | { kind: "unmappable_response"; urgent: true }
+  /**
+   * An answer did not map to any offered value. Uncertainty routes to a human.
+   *
+   * **Not urgent, deliberately.** It used to be, and pausing on this was wrong:
+   * the commonest reason a call is useless is that it did not go well, and the
+   * retry ladder exists for exactly that. Pausing on attempt 1 of 3 meant the
+   * ladder could never run for its own primary case — a real declined call lost
+   * both its remaining attempts to it. PRODUCT.md's locked behaviour says
+   * unmappable answers *escalate* by default; it never said stop dialling.
+   */
+  | { kind: "unmappable_response"; urgent: false }
   /** Emergency language heard. Always urgent, never removable. */
   | { kind: "emergency_language"; urgent: true }
-  /** A term from the plan's red-flag list appeared in the patient's own words. */
-  | { kind: "red_flag_term_heard"; terms: string[]; urgent: boolean }
-  /** Every attempt for an occurrence ended with a no-answer failure code. */
-  | { kind: "no_answer_exhausted"; attempts: number; urgent: boolean }
-  /** A yes/no answer came back with the escalating value. */
-  | { kind: "boolean_equals"; questionId: string; value: boolean; urgent: boolean }
-  /** A 0–10 answer reached or passed a threshold. */
-  | { kind: "scale_at_least"; questionId: string; threshold: number; urgent: boolean }
-  /** An enum answer landed in a set that needs a clinician. */
-  | { kind: "enum_in"; questionId: string; values: string[]; urgent: boolean }
-  /** Silence: nobody has heard from this patient in N days. */
-  | { kind: "drift_days"; days: number; urgent: boolean }
-  /**
-   * CALL-E reported the call did not complete the task it was given.
-   *
-   * Not a duplicate of `unmappable_response`. That one fires when an answer
-   * could not be mapped; this fires when the agent never asked at all and
-   * reported an answer anyway — which is worse, because the slot looks answered.
-   */
-  | { kind: "task_incomplete"; urgent: boolean };
+  /** Every attempt for an occurrence went unanswered. */
+  | { kind: "no_answer_exhausted"; attempts: number; urgent: boolean };
 
 export type RuleKind = Rule["kind"];
 

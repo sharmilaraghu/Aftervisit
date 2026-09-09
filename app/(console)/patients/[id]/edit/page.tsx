@@ -8,6 +8,8 @@
 
 import { notFound } from "next/navigation";
 
+import { Button } from "@/components/ui";
+
 import { PatientForm } from "@/components/PatientForm";
 import { updatePatientAction } from "@/app/(console)/patients/actions";
 import { getPatient } from "@/lib/db/patients";
@@ -34,6 +36,13 @@ export default async function EditPatientPage({
       }}
     >
       <header style={{ marginBottom: "calc(var(--cell) * 4)" }}>
+        {/* The same way out, in the same place, on every screen under a
+            patient. This one only had Cancel at the foot of a form. */}
+        <p style={{ margin: "0 0 calc(var(--cell) * 1)" }}>
+          <Button variant="ghost" href={`/patients/${id}`}>
+            Back to {patient.name}
+          </Button>
+        </p>
         <h1
           className="display"
           style={{
@@ -45,8 +54,8 @@ export default async function EditPatientPage({
           Edit {patient.name}.
         </h1>
         <p className="measure" style={{ margin: 0, color: "var(--bench-ink-2)" }}>
-          Changing the number changes who Care Loop dials next. A new number
-          still has to be on the allowlist before any call reaches it.
+          Changing the number changes who Care Loop dials next. Consent is what
+          authorises that call, and it stays as it is recorded here.
         </p>
       </header>
 
@@ -64,6 +73,7 @@ export default async function EditPatientPage({
             // Editing a patient never touches their plan, so the note fields
             // are absent from this form entirely.
             note: "",
+            escalationNote: "",
             timeScale: "1",
           },
         }}

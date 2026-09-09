@@ -25,6 +25,18 @@
 
 import type { JsonObject } from "@call-e/calle";
 import type { AnswerType } from "@/lib/db/enums";
+import { UNSPOKEN_RESULT_KEYS } from "@/lib/plan/universal-questions";
+
+/**
+ * The keys the locked rules read. They are in every plan's schema whatever the
+ * doctor edits, because a locked rule with no key to read is a disarmed rule.
+ */
+const LOCKED_RESULT_KEYS = new Set([
+  "reached_patient",
+  "consent_given",
+  "requests_clinician",
+  "emergency_language_heard",
+]);
 
 export interface SchemaQuestion {
   questionId: string;
@@ -162,7 +174,24 @@ function propertyFor(q: SchemaQuestion): JsonObject {
  * asked for is a schema violation rather than a silent extra slot.
  */
 export function buildResultSchema(questions: SchemaQuestion[]): JsonObject {
-  const properties: Record<string, unknown> = { ...UNIVERSAL_RESULT_KEYS };
+  const asked = new Set(questions.map((q) => q.questionId));
+
+  /*
+   * Only demand what something actually asks for.
+   *
+   * The four locked keys and the two unspoken ones are always present — the
+   * locked rules read the first set, and the second set is the agent's own
+   * notes on the call. The three default universals are not: they are ordinary
+   * question rows a doctor is allowed to delete, and this used to spread them
+   * unconditionally, so deleting one left the schema requiring a key nothing
+   * would ever ask. That is the shape of bug the contract test now catches.
+   */
+  const properties: Record<string, unknown> = {};
+  for (const [key, property] of Object.entries(UNIVERSAL_RESULT_KEYS)) {
+    const alwaysPresent =
+      LOCKED_RESULT_KEYS.has(key) || (UNSPOKEN_RESULT_KEYS as readonly string[]).includes(key);
+    if (alwaysPresent || asked.has(key)) properties[key] = property;
+  }
 
   for (const q of questions) {
     // A question may not shadow a universal key: the locked rules read those,
@@ -186,3 +215,30 @@ export function schemaKeys(schema: JsonObject): string[] {
   if (!properties || typeof properties !== "object") return [];
   return Object.keys(properties as Record<string, unknown>);
 }
+
+/**
+ * Who or what actually picked up.
+ *
+ * CALL-E returns no built-in answered-by or AMD disposition; its documentation
+ * is explicit that you define the classification yourself with a per-recipient
+ * structured result. Without it a voicemail greeting and a patient are the same
+ * row, and the retry ladder cannot tell "nobody was there" from "an answerphone
+ * was there" — which are different clinical facts and want different handling.
+ *
+ * One key, deliberately. This is a routing fact, not a second survey.
+ */
+export const RECIPIENT_RESULT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["answered_by"],
+  properties: {
+    answered_by: {
+      type: "string",
+      enum: ["human", "ivr", "voicemail", "unknown"],
+      description:
+        "Classify what answered the call. Use human if a person spoke at any point, " +
+        "including when an IVR transferred the call to one. Use voicemail if the call " +
+        "reached an answerphone greeting. Use unknown if the evidence does not say.",
+    },
+  },
+} as const satisfies JsonObject;

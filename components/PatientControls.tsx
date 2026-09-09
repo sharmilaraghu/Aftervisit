@@ -1,14 +1,21 @@
 "use client";
 
 /**
- * The three things a clinician can do to a patient record, in order of how much
- * they destroy.
+ * The things a clinician can do to a patient record, in order of how much they
+ * destroy.
  *
  * **Stop calls** is the emergency brake and is deliberately the easiest to
  * reach: one click, no confirmation. When someone realises the agent is about
  * to phone a person it should not, asking them "are you sure?" is the wrong
  * response — stopping is always safe and always reversible, because the plan
  * can be resumed.
+ *
+ * That last clause was, for a while, false. `stopCalls` pauses without raising
+ * an escalation, and the only resume path in the app hung off an escalation
+ * card — so the brake was a one-way door and this comment was the argument for
+ * why it needed no confirmation. **Resume the follow-up** is what makes the
+ * sentence true, and it appears whenever the plan is paused, carrying the
+ * reason it was paused so the button explains itself.
  *
  * **Archive** and **Delete** both arm before they act, and each spells out what
  * actually happens, because "archive" and "delete" are words people assume they
@@ -21,6 +28,7 @@ import { Button } from "@/components/ui";
 import {
   archivePatientAction,
   deletePatientAction,
+  resumeStoppedPlanAction,
   stopCallsAction,
 } from "@/app/(console)/patients/actions";
 
@@ -30,10 +38,17 @@ export function PatientControls({
   id,
   name,
   hasPendingCalls,
+  planId,
+  paused,
+  pausedReason,
 }: {
   id: string;
   name: string;
   hasPendingCalls: boolean;
+  /** Null when this patient has no plan at all — then there is nothing to resume. */
+  planId: string | null;
+  paused: boolean;
+  pausedReason: string | null;
 }) {
   const [armed, setArmed] = useState<Armed>(null);
   const [stopped, setStopped] = useState<number | null>(null);
@@ -86,6 +101,26 @@ export function PatientControls({
         alignItems: "center",
       }}
     >
+      {paused && planId ? (
+        <>
+          <Button
+            variant="ghost"
+            disabled={pending}
+            onClick={() =>
+              startTransition(() => resumeStoppedPlanAction(id, planId))
+            }
+          >
+            {pending ? "Resuming…" : "Resume the follow-up"}
+          </Button>
+          <span style={{ fontSize: 14, color: "var(--bench-ink-2)", maxWidth: 460 }}>
+            {/* The reason is written at pause time and was rendered nowhere, so
+                "why did this stop?" had no answer on any screen. */}
+            {pausedReason ? `Paused: ${pausedReason.toLowerCase()}. ` : "Paused. "}
+            Calls missed while it was paused are skipped, not dialled at once.
+          </span>
+        </>
+      ) : null}
+
       <Button variant="ghost" href={`/patients/${id}/edit`}>
         Edit patient
       </Button>

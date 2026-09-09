@@ -8,15 +8,25 @@
  * The rules, in order:
  *   1. the assembled script passes the clinical guard
  *   2. the number is E.164
- *   3. the number is on the dial allowlist
- *   4. there is an API key
+ *   3. this patient consented to automated calls
+ *   4. the number passes the deployment lock, when one is configured
+ *   5. there is an API key
  *
- * Rule 3 deserves a note. OpenLine, the sibling project, gates every call behind
- * a human pressing a button per candidate. Care Loop cannot have that gate —
- * its whole premise is that nobody has to press anything — so the allowlist IS
- * that gate, moved into code. A number that is not on it is refused with a
- * reason the UI prints. It is never silently skipped, and it is never quietly
- * turned into a no-op that looks like success.
+ * Rule 3 is the one that authorises a call. OpenLine, the sibling project, gates
+ * every call behind a human pressing a button per candidate. Care Loop cannot
+ * have that gate — its whole premise is that nobody has to press anything — so
+ * the human act moved earlier: a clinician records that this patient agreed, and
+ * approves their plan. Consent is checked here rather than at the call sites so
+ * no future code path can dial a patient who never agreed.
+ *
+ * Rule 4 used to be rule 3 and used to be mandatory. It answers a different
+ * question — not "did this patient agree?" but "may this instance reach the
+ * outside world at all?" — and it is the right answer for a console on a public
+ * URL with no login. Unset, it does not narrow anything.
+ *
+ * A refusal is always printed on the call row with its reason. It is never
+ * silently skipped, and never quietly turned into a no-op that looks like
+ * success.
  *
  * `dial()` returns a tagged outcome and never throws: one unreachable patient
  * must not stop the scheduler working through the rest of the queue.
@@ -25,14 +35,15 @@
 import { CalleClient, type Call, type JsonObject } from "@call-e/calle";
 import { inspectTask, type GuardFinding } from "@/lib/script/guard";
 import { readConfig } from "@/lib/config";
+import { RECIPIENT_RESULT_SCHEMA } from "@/lib/plan/result-schema";
 
 export interface CallePortConfig {
   apiKey: string;
   locale?: string;
   baseUrl?: string;
-  /** The only numbers this port may dial. Empty means: dial nobody. */
+  /** An optional deployment lock. When non-empty, only these numbers are dialled. */
   allowlist?: string[];
-  /** `CARELOOP_CALL_ALLOWLIST=*`: any number on an approved plan may be dialled. */
+  /** True when no list restricts this instance — the default. */
   allowlistOpen?: boolean;
   /** Injectable so the whole suite can run against the fake server. */
   fetch?: (input: Request) => Promise<Response>;
@@ -54,11 +65,29 @@ export interface DialRequest {
   clinicianStatements?: string[];
   /** Per-patient BCP 47 locale. Falls back to the port's global locale. */
   locale?: string;
+  /**
+   * Whether this patient agreed to be called by an automated agent.
+   *
+   * Required, and deliberately not optional-with-a-default: a call site that
+   * forgets to pass it fails to compile rather than dialling someone who never
+   * agreed. This is the gate the dial allowlist used to stand in for.
+   */
+  consentGranted: boolean;
+  /**
+   * Where CALL-E should post when this call ends.
+   *
+   * Optional because it is often absent: on a laptop there is no public URL to
+   * give, and the reconciler finishes the call on the next tick instead. It is
+   * a prompt, never a guarantee — the delivery is unsigned and at-least-once,
+   * so the receiver re-fetches through the API before trusting a word of it.
+   */
+  webhookUrl?: string;
 }
 
 export type RefusalReason =
   | "guard_violation"
   | "invalid_phone"
+  | "no_consent"
   | "not_allowlisted"
   | "missing_api_key"
   | "api_error";
@@ -79,8 +108,10 @@ const E164 = /^\+[1-9]\d{6,14}$/;
 export const REFUSAL_TEXT: Record<RefusalReason, string> = {
   guard_violation: "The script did not pass the clinical guard, so nothing was dialled.",
   invalid_phone: "The number is not in E.164 form. Care Loop will not guess one.",
+  no_consent:
+    "This patient has not agreed to automated follow-up calls. Care Loop dials without anyone pressing a button, so consent recorded at enrolment is what authorises the call.",
   not_allowlisted:
-    "This number is not on the dial allowlist. Care Loop's scheduler dials without anyone pressing a button, so it only calls numbers that were explicitly armed.",
+    "This number is not on this instance's dial allowlist. The allowlist is set, so the scheduler will only call numbers on it.",
   missing_api_key: "No CALL-E API key is configured, so nothing can be dialled.",
   api_error: "CALL-E rejected the request.",
 };
@@ -121,11 +152,23 @@ export function createCallePort(config: CallePortConfig): CallePort {
       }
 
       /*
-       * 3. The allowlist — the gate that replaces the missing human.
+       * 3. Consent — what actually authorises this call.
        *
-       * `allowlistOpen` is an explicit opt-out, never a default: an absent or
-       * empty list still refuses everything, so forgetting to configure the
-       * allowlist can only ever fail closed.
+       * Checked before the deployment lock because it is the clinical gate: a
+       * patient who never agreed must not be dialled even from a machine whose
+       * allowlist would happily permit it.
+       */
+      if (!request.consentGranted) {
+        return {
+          ok: false,
+          refusal: "no_consent",
+          detail: REFUSAL_TEXT.no_consent,
+        };
+      }
+
+      /*
+       * 4. The deployment lock, when one is configured. Unset it narrows
+       *    nothing; set, it is absolute for this instance.
        */
       const allowlist = config.allowlist ?? [];
       if (!config.allowlistOpen && !allowlist.includes(request.phone)) {
@@ -158,7 +201,11 @@ export function createCallePort(config: CallePortConfig): CallePort {
               },
             ],
             resultSchema: request.resultSchema,
+            /* Who picked up. CALL-E has no built-in answered-by field; the
+               documented way to get one is exactly this. */
+            recipientResultSchema: RECIPIENT_RESULT_SCHEMA,
             ...(request.metadata ? { metadata: request.metadata } : {}),
+            ...(request.webhookUrl ? { webhookUrl: request.webhookUrl } : {}),
           },
           { idempotencyKey: request.idempotencyKey },
         );

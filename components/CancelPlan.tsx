@@ -13,14 +13,23 @@ import { useState, useTransition } from "react";
 import { Button } from "@/components/ui";
 import { cancelPlanAction } from "@/app/(console)/plans/actions";
 
-export function CancelPlan({ planId, patientId }: { planId: string; patientId: string }) {
+export function CancelPlan({
+  planId,
+  patientId,
+  /** A draft was never approved, so nothing has been dialled and the words change. */
+  draft = false,
+}: {
+  planId: string;
+  patientId: string;
+  draft?: boolean;
+}) {
   const [armed, setArmed] = useState(false);
   const [pending, startTransition] = useTransition();
 
   if (!armed) {
     return (
-      <Button variant="onLabel" onClick={() => setArmed(true)}>
-        Cancel this plan
+      <Button variant={draft ? "ghost" : "onLabel"} onClick={() => setArmed(true)}>
+        {draft ? "Discard this draft" : "Cancel this plan"}
       </Button>
     );
   }
@@ -34,19 +43,30 @@ export function CancelPlan({ planId, patientId }: { planId: string; patientId: s
         alignItems: "center",
       }}
     >
-      <span style={{ fontSize: 14, color: "var(--print-2)", maxWidth: 460 }}>
-        No further calls will be placed. The calls already made, and anything
-        they raised, stay in the record.
+      <span
+        style={{
+          fontSize: 14,
+          color: draft ? "var(--bench-ink-2)" : "var(--print-2)",
+          maxWidth: 460,
+        }}
+      >
+        {draft
+          ? "Nothing was ever dialled from this draft, so nothing is lost. The note stays on the patient's record."
+          : "No further calls will be placed. The calls already made, and anything they raised, stay in the record."}
       </span>
       <Button
-        variant="onLabel"
+        variant={draft ? "ghost" : "onLabel"}
         disabled={pending}
         onClick={() => startTransition(() => cancelPlanAction(planId, patientId))}
       >
-        {pending ? "Cancelling…" : "Yes, cancel it"}
+        {pending ? "Discarding…" : draft ? "Yes, discard it" : "Yes, cancel it"}
       </Button>
-      <Button variant="onLabel" disabled={pending} onClick={() => setArmed(false)}>
-        Keep it running
+      <Button
+        variant={draft ? "ghost" : "onLabel"}
+        disabled={pending}
+        onClick={() => setArmed(false)}
+      >
+        {draft ? "Keep it" : "Keep it running"}
       </Button>
     </span>
   );

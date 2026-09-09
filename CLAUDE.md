@@ -7,13 +7,15 @@ and Codex read exactly the same rules Claude does. Only Claude-specific wiring i
 
 ## UI/UX workflow
 
-Treat every visible change as design work, not markup. Read **DESIGN.md** first — once
-`impeccable` has written it, it is the standard, and `app/globals.css` is the source of
-truth it documents.
+Treat every visible change as design work, not markup. `app/globals.css` is the source of
+truth for the design system — its tokens are the standard.
 
 1. **`impeccable`** owns the design direction. The console's visitor mode is `Operate`; the
    landing page is `Persuade`, and it is a separate surface with its own brief.
-2. **`/design-review`** after any visible change — desktop *and* narrow framings.
+2. **Inspect after any visible change** — desktop *and* narrow framings, in one batched
+   round rather than a loop. There is no `design-review` skill installed; drive headless
+   Chrome over CDP at 1500px and 390px, fix everything the round shows in one batch, and
+   confirm with at most one more.
 3. Stay inside the tokens in `app/globals.css`. Reuse the existing `Badge`, `Button`,
    `Panel`, `TopBar`. A new one-off button is a bug.
 4. Red means danger only — escalations, guard violations, live dialing. One accent per view.
@@ -43,4 +45,4 @@ truth it documents.
 | Skill | Purpose |
 |---|---|
 | `start-app` | Boot the dev server via `./start.sh` (frees the port, shows the dial banner) |
-| `design-review` | Designer's-eye audit of the console against DESIGN.md |
+| ~~`design-review`~~ | **Not installed.** `.claude/skills/` contains `impeccable` only; the design pass runs through `/impeccable` and a batched CDP sweep at 1500px and 390px |

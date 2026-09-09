@@ -168,17 +168,26 @@ export function extractSlots(input: ExtractInput): ExtractedValue[] {
 }
 
 /**
- * Did a human actually speak to us on this call?
+ * Whether a human actually spoke to us on this call.
  *
- * Deliberately broader than the `reached_patient` slot. That slot answers a
- * narrower question — *did the agent confirm it was speaking to the patient* —
- * and CALL-E returns `unknown` for it whenever identity was never explicitly
- * established, which happens on plenty of calls a person clearly answered.
+ * Broader than the `reached_patient` slot — that asks whether the agent
+ * confirmed *identity*, and a call can plainly be answered without it.
+ * Conflating the two once folded a 39-turn conversation into `no_answer`.
  *
- * Conflating the two was a real bug: a call with thirty-nine transcript turns,
- * consent given and a full set of answers was folded to `no_answer`, which then
- * fed the retry ladder and the "never reached" state. Identity is one fact;
- * somebody picking up the phone is another.
+ * **It no longer accepts "some slot came back answered" as evidence**, and that
+ * narrowing is the whole point. CALL-E returns a result object even for a call
+ * nobody picked up, and a careful model fills the safety questions in
+ * defensively: two real declined calls came back with an empty transcript and
+ * `emergency_language_heard: "no"`, `requests_clinician: "no"` — honest answers,
+ * and not a conversation. Each one made a silent call read as reached, which
+ * suppressed the retry and fired `unmappable_response` on a call that never
+ * happened.
+ *
+ * A negative answer to a question nobody was asked is an absence, not a voice.
+ * What counts now is a positive identity or consent, or a patient turn with
+ * words in it — and when none of those exist, treating the call as unreached is
+ * also the safe direction: it schedules another attempt rather than silently
+ * spending the patient's remaining ones.
  */
 export function someoneSpoke(input: {
   slots: ExtractedValue[];
@@ -190,9 +199,12 @@ export function someoneSpoke(input: {
   const consent = input.slots.find((s) => s.questionId === "consent_given");
   if (consent?.valueBool === true) return true;
 
-  // Any question actually answered means a voice was on the line.
-  if (input.slots.some((s) => s.status === "answered")) return true;
-
+  /*
+   * A patient turn with words in it. This is the strong signal and the reason
+   * the rule is broader than `reached_patient`: a call can plainly be answered
+   * without the agent confirming identity, and conflating the two once folded
+   * a 39-turn conversation into `no_answer`.
+   */
   const isAgent = (speaker: string) =>
     ["agent", "assistant", "bot", "ai"].includes(speaker.toLowerCase());
   return (input.transcript ?? []).some((t) => !isAgent(t.speaker) && t.text.trim() !== "");
@@ -207,7 +219,6 @@ export function someoneSpoke(input: {
  */
 export function foldOutcome(input: {
   reached: boolean;
-  failureCode: string | null;
   hasUrgentHit: boolean;
   hasAnyHit: boolean;
   anyUnmappable: boolean;

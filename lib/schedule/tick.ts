@@ -27,9 +27,12 @@ import { assembleTask } from "@/lib/script/build";
 import { spokenLanguageName } from "@/lib/patients/languages";
 import { extractSlots, foldOutcome, someoneSpoke } from "@/lib/plan/extract";
 import { evaluate } from "@/lib/rules/engine";
+import { triageCall } from "@/lib/triage/triage";
+import { saveTriage } from "@/lib/db/triage";
 import { inspectTranscript } from "@/lib/script/guard";
 import { calendarDaysBetween } from "@/lib/time/clock";
 import { newId } from "@/lib/db/ids";
+import { readConfig } from "@/lib/config";
 import {
   beginTick,
   claimDueCalls,
@@ -44,6 +47,7 @@ import {
   recordRefusal,
   recordTask,
   scheduleRetry,
+  skipStaleCalls,
   type DueCall,
   type TickCounters,
 } from "@/lib/schedule/store";
@@ -61,6 +65,7 @@ export interface TickResult extends TickCounters {
 }
 
 const EMPTY: TickCounters = {
+  retired: 0,
   expanded: 0,
   claimed: 0,
   dialed: 0,
@@ -77,6 +82,11 @@ interface CallContext extends DueCall {
   /** BCP 47; the per-recipient locale hint and the script's speak-language input. */
   language: string;
   consent: string;
+  /** The doctor's own escalation wording, handed to the triage model verbatim. */
+  escalationNote: string | null;
+  /** Age only. The triage prompt never receives the patient's name. */
+  patientAge: number | null;
+  reason: string;
   maxAttempts: number;
   rules: PlanRule[];
   redFlagTerms: RedFlagTerm[];
@@ -92,11 +102,33 @@ interface CallContext extends DueCall {
   }[];
 }
 
-async function loadContext(call: DueCall): Promise<CallContext | null> {
+/**
+ * Where CALL-E should post when a call ends, or null when there is nowhere.
+ *
+ * Both halves are required: a public URL with no token would be an open
+ * endpoint, and a token with no public URL has nothing to guard. Built per dial
+ * rather than at module load so a deployment can set them without a restart.
+ */
+function webhookUrl(): string | null {
+  const config = readConfig();
+  if (!config.publicUrl || !config.webhookToken) return null;
+  return `${config.publicUrl}/api/calle/webhook?t=${encodeURIComponent(config.webhookToken)}`;
+}
+
+/**
+ * Everything one call needs, loaded from its plan.
+ *
+ * Exported for the webhook receiver, which arrives with a call id and has to
+ * rebuild the same context the tick would have had. Extracting it into its own
+ * module would have been the tidier-looking move and the wrong one: exactly one
+ * function finishes a call, and it should stay next to the loop that calls it.
+ */
+export async function loadContext(call: DueCall): Promise<CallContext | null> {
   const db = getDb();
   const rows = await db.execute(sql`
-    select pt.name, pt.phone_e164, pt.timezone, pt.language, pt.ai_call_consent,
-           p.max_attempts, p.rules, p.red_flag_terms, p.result_schema, n.body as note_body
+    select pt.name, pt.age, pt.phone_e164, pt.timezone, pt.language, pt.ai_call_consent,
+           p.max_attempts, p.reason, p.rules, p.red_flag_terms, p.result_schema,
+           n.body as note_body, n.escalation_note
     from follow_up_plans p
     join patients pt on pt.id = p.patient_id
     join consultation_notes n on n.id = p.note_id
@@ -107,7 +139,7 @@ async function loadContext(call: DueCall): Promise<CallContext | null> {
 
   const qs = await db.execute(sql`
     select question_id, prompt, answer_type, enum_values, required, guard_status
-    from plan_questions where plan_id = ${call.planId} order by ordinal
+    from plan_questions where plan_id = ${call.planId} order by ordinal, question_id
   `);
 
   return {
@@ -117,6 +149,9 @@ async function loadContext(call: DueCall): Promise<CallContext | null> {
     timezone: String(row.timezone),
     language: String(row.language ?? "en-US"),
     consent: String(row.ai_call_consent),
+    escalationNote: row.escalation_note ? String(row.escalation_note) : null,
+    patientAge: row.age === null || row.age === undefined ? null : Number(row.age),
+    reason: String(row.reason ?? "Follow-up"),
     maxAttempts: Number(row.max_attempts),
     rules: (row.rules ?? []) as PlanRule[],
     redFlagTerms: (row.red_flag_terms ?? []) as RedFlagTerm[],
@@ -142,6 +177,20 @@ async function loadContext(call: DueCall): Promise<CallContext | null> {
  * spelling. Mixing the two up compiles fine as `any` and silently produces a
  * transcript where every turn is at second zero.
  */
+/**
+ * What CALL-E's per-recipient result says picked up.
+ *
+ * Null when the request predates `recipientResultSchema`, when CALL-E could not
+ * produce a schema-valid recipient result, or when it genuinely could not tell.
+ * Recorded, never branched on: it is context for a clinician reading the row,
+ * and the retry decision stays on transcript evidence.
+ */
+function answeredBy(call: Call): string | null {
+  const raw = call.recipients?.[0]?.structuredResult as Record<string, unknown> | null | undefined;
+  const value = raw?.answered_by;
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
 function flattenTranscript(call: Call): StoredTurn[] {
   const turns: StoredTurn[] = [];
   for (const recipient of call.recipients ?? []) {
@@ -172,7 +221,13 @@ function isTerminal(call: Call): boolean {
   return ["completed", "failed", "canceled"].includes(String(call.status));
 }
 
-/** The terminal attempt's failure code — what drives the retry ladder. */
+/**
+ * The terminal attempt's failure code, kept for support and shown on the row.
+ *
+ * Diagnostic only. Nothing branches on it: CALL-E publishes no enum for these,
+ * and the docs are explicit that retry, reporting and analytics must not read a
+ * particular string. Ours came back `"603"` the one time it mattered.
+ */
 function terminalFailure(call: Call): { code: string | null; message: string | null } {
   const attempts = call.recipients?.[0]?.attempts ?? [];
   const last = attempts.at(-1);
@@ -188,7 +243,7 @@ function terminalFailure(call: Call): { code: string | null; message: string | n
  * Guarded by `finishCall` returning false: the waiter and the reconciler both
  * land here routinely, and only one may extract, evaluate and retry.
  */
-async function completeCall(
+export async function completeCall(
   ctx: CallContext,
   call: Call,
   counters: TickCounters,
@@ -229,23 +284,33 @@ async function completeCall(
   const evaluation = evaluate({
     slots,
     rules: ctx.rules,
-    redFlagTerms: ctx.redFlagTerms.map((t) => t.term.toLowerCase()),
     // Without this, an unanswered call's `missing` slots would fire the
-    // unmappable rule once per question and urgently pause the plan before the
-    // retry ladder had made its second attempt.
+    // unmappable rule on every question of a call nobody picked up.
     reached,
     noAnswerExhausted: allNoAnswer && attemptsMade >= ctx.maxAttempts,
     attemptsMade,
-    quietForDays,
-    // CALL-E's own verdict. `false` means it did not do what it was asked —
-    // including reporting answers to questions it never put to the patient.
-    taskCompleted: call.taskCompleted ?? null,
     now: new Date(),
   });
 
+  /*
+   * Decided here, before anything can pause the plan.
+   *
+   * `scheduleRetry` only inserts while the plan is `active`, and the escalation
+   * loop below pauses on an urgent hit — so deciding the retry after it meant an
+   * urgent escalation silently voided the remaining attempts of an occurrence
+   * already in flight. That is not a policy anyone chose; it was statement
+   * order. A real declined call lost both its retries to it.
+   *
+   * The trigger is evidence, never a failure string. CALL-E's `failure_code`
+   * has no published enum — the one real call came back `"603"` while this code
+   * looked for `"no_answer"` — and the docs say plainly not to branch retry
+   * logic on it. "Nobody spoke" is a fact we derive from the transcript and the
+   * answered slots, and it is the actual condition a retry is for.
+   */
+  const shouldRetry = !reached && ctx.attempt < ctx.maxAttempts;
+
   const outcome = foldOutcome({
     reached,
-    failureCode: failure.code,
     hasUrgentHit: evaluation.shouldPause,
     hasAnyHit: evaluation.hits.length > 0,
     anyUnmappable,
@@ -263,6 +328,7 @@ async function completeCall(
     failureMessage: failure.message,
     resultStatus: structured === null ? "null_result" : "present",
     structuredResult: structured,
+    answeredBy: answeredBy(call),
     summary: call.summary ?? null,
     taskCompleted: call.taskCompleted ?? null,
     completionConfidence: call.completionConfidence ?? null,
@@ -315,32 +381,128 @@ async function completeCall(
     `);
   }
 
-  for (const hit of evaluation.hits) {
+  /*
+   * The model's read of the call. This is the reading a clinician gets.
+   *
+   * It runs here, after `finishCall` returned `won`, and that placement is the
+   * whole concurrency story: the latch already guarantees exactly one worker
+   * gets this far per call, so triage happens at most once with no new locking
+   * and no double model spend. It also runs after the slots are written, so the
+   * prompt can carry the typed answers and the escalation can point at a slot.
+   *
+   * Never throws — `triageCall` returns a fail-closed verdict instead, because
+   * one unreadable call must not abandon the rest of the queue.
+   */
+  const triage = await triageCall({
+    escalationNote: ctx.escalationNote,
+    noteBody: ctx.noteBody,
+    patientAge: ctx.patientAge,
+    reason: ctx.reason,
+    transcript,
+    slots: slots.map((s) => ({
+      questionId: s.questionId,
+      status: s.status,
+      value: s.valueText ?? (s.valueBool === null ? null : String(s.valueBool)),
+    })),
+    platform: {
+      summary: call.summary ?? null,
+      taskCompleted: call.taskCompleted ?? null,
+      confidence: (call.completionConfidence ?? null) as never,
+      evidence: (call.evidence ?? null) as string[] | null,
+    },
+    ruleHits: evaluation.hits.map((h) => ({ ruleLabel: h.ruleLabel, urgent: h.urgent })),
+    /* The doctor's own vocabulary, read in context rather than substring-matched. */
+    redFlagTerms: ctx.redFlagTerms.map((t) => t.term),
+    quietForDays,
+  });
+
+  const stored = await saveTriage({
+    callId: ctx.id,
+    patientId: ctx.patientId,
+    planId: ctx.planId,
+    outcome: triage,
+  });
+
+  /*
+   * One call, one row.
+   *
+   * A call used to raise one escalation per rule hit *and* one for triage: the
+   * real declined call of 5 September produced three, two of which said the
+   * same thing in worse words, and the pause reason a clinician read
+   * ("Answer could not be mapped") described a conversation that never
+   * happened. A clinician takes one action per call, so a call is one row and
+   * everything it tripped is listed on it.
+   *
+   * Nothing is raised for a call where the floor found nothing and the model
+   * read it as `low` — a queue entry recording that a call was fine is how a
+   * queue stops being read.
+   */
+  const floorHits = evaluation.hits.map((h) => ({
+    ruleId: h.ruleId,
+    label: h.ruleLabel,
+    urgent: h.urgent,
+  }));
+  const triageSpoke = triage.status === "ok" && triage.answer.verdict !== "low";
+  const severe = triage.status === "ok" && triage.answer.verdict === "severe";
+
+  if (stored.fresh && (floorHits.length > 0 || triage.answer.verdict !== "low")) {
+    /*
+     * The headline is what a doctor reads first, so it is the most concrete
+     * thing available. A floor hit names an actual condition — "Patient asked
+     * for a clinician", "Every attempt went unanswered" — which beats "Read by
+     * the assistant" every time; the model's severity and its summary are
+     * already on the row beside it. The assistant only takes the headline when
+     * the floor found nothing and the model alone thought this was worth a
+     * clinician's time.
+     */
+    const headline = evaluation.hits.find((h) => h.urgent) ?? evaluation.hits[0] ?? null;
+
+    const ruleId = headline?.ruleId ?? (triage.status === "ok" ? "llm_triage" : "triage_unavailable");
+    const ruleLabel =
+      headline?.ruleLabel ?? (triage.status === "ok" ? "Read by the assistant" : "Could not be read");
+
     const escalationId = await raiseEscalation({
       patientId: ctx.patientId,
       planId: ctx.planId,
       callId: ctx.id,
-      slotId: hit.questionId ? (slotIds.get(hit.questionId) ?? null) : null,
-      ruleId: hit.ruleId,
-      ruleLabel: hit.ruleLabel,
-      urgent: hit.urgent,
-      reason: hit.reason,
-      utterance: hit.utterance,
-      dedupeKey: `${ctx.planId}:${hit.ruleId}:${ctx.id}:${hit.questionId ?? ""}`,
+      /* Points at the answer that caused it, when one did — which is what
+         makes `slot_id` a deep link rather than a column nothing writes. */
+      slotId: headline?.questionId ? (slotIds.get(headline.questionId) ?? null) : null,
+      ruleId,
+      ruleLabel,
+      /*
+       * Only a `severe` verdict from a model that actually ran may pause a
+       * plan, and so may an urgent floor hit. A provider outage escalating as
+       * urgent would pause every plan on the roster — an outage of the workflow
+       * the product exists to run, caused by the mechanism meant to protect it.
+       */
+      urgent: evaluation.shouldPause || severe,
+      /* The model's prose when it ran; the rule's sentence when it did not. */
+      reason: triageSpoke ? triage.answer.reason : (headline?.reason ?? triage.answer.reason),
+      utterance: triage.answer.quote || headline?.utterance || null,
+      dedupeKey: `${ctx.planId}:call:${ctx.id}`,
+      severity: triage.answer.verdict,
+      summary: triage.answer.summary || null,
+      triageId: stored.id,
+      floorHits,
     });
-    if (!escalationId) continue;
-    counters.escalated += 1;
 
-    // Only urgent pauses. A routine escalation is still a clinician's problem,
-    // but the plan keeps running while they get to it.
-    if (hit.urgent) await pausePlan(ctx.planId, hit.ruleLabel, escalationId);
+    if (escalationId) {
+      counters.escalated += 1;
+      if (evaluation.shouldPause || severe) {
+        await pausePlan(ctx.planId, ruleLabel, escalationId);
+      }
+      /* The week band showed this day as answered; a flagged day is the truth. */
+      await db.execute(sql`
+        update scheduled_calls set outcome = 'flagged', updated_at = now()
+        where id = ${ctx.id} and outcome not in ('flagged', 'refused', 'no_answer')
+      `);
+    }
   }
 
-  /*
-   * Retry only on a genuine no-answer from CALL-E — a real failure code, never
-   * an inference. A call that was answered is finished, whatever it contained.
-   */
-  if (failure.code === "no_answer" && ctx.attempt < ctx.maxAttempts) {
+  // Decided above, before the escalation loop could pause the plan out from
+  // under it. A call somebody answered is finished, whatever it contained.
+  if (shouldRetry) {
     await scheduleRetry(ctx.planId, ctx.occurrence, ctx.attempt + 1, ctx.id);
   }
 }
@@ -360,10 +522,10 @@ async function dialOne(
 
   const script = assembleTask({
     patientName: ctx.patientName,
-    practiceName: "Bridgeview Family Practice",
-    clinicianName: "Dr Rao",
+    /* Spoken to the patient. Configurable, with the fixtures as defaults. */
+    practiceName: readConfig().practiceName,
+    clinicianName: readConfig().clinicianName,
     questions: ctx.questions,
-    consentAlreadyGranted: ctx.consent === "granted",
     speakLanguage: spokenLanguageName(ctx.language),
     attempt: ctx.attempt,
     maxAttempts: ctx.maxAttempts,
@@ -388,6 +550,12 @@ async function dialOne(
     approvedQuestions: script.approvedQuestions,
     clinicianStatements: script.clinicianStatements,
     locale: ctx.language,
+    /* Enrolment consent is what authorises the call. `unknown` is not
+       agreement — the port refuses anything that is not an explicit grant. */
+    consentGranted: ctx.consent === "granted",
+    /* Only when this instance actually has a public address. Sent as a prompt,
+       not a dependency: the reconciler finishes the call either way. */
+    ...(webhookUrl() ? { webhookUrl: webhookUrl() as string } : {}),
   });
 
   if (!outcome.ok) {
@@ -455,6 +623,10 @@ export async function tick(
     }
 
     await closeElapsedPlans();
+
+    /* Before claiming, never after: a call too late to place must be retired
+       rather than dialled at whatever hour this tick happened to run. */
+    counters.retired = await skipStaleCalls();
 
     const due = await claimDueCalls(tickId, options.limit ?? 5);
     counters.claimed = due.length;

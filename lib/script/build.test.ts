@@ -19,7 +19,6 @@ function input(overrides: Partial<TaskInput> = {}): TaskInput {
     practiceName: "Bridgeview Family Practice",
     clinicianName: "Dr Rao",
     questions: [question()],
-    consentAlreadyGranted: true,
     attempt: 1,
     maxAttempts: 3,
     ...overrides,

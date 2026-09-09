@@ -7,12 +7,12 @@
  */
 
 export interface CompileFormState {
-  values: { note: string; timeScale: string };
+  values: { note: string; escalationNote: string; timeScale: string };
   error?: string;
 }
 
 export const EMPTY_COMPILE_FORM: CompileFormState = {
-  values: { note: "", timeScale: "1" },
+  values: { note: "", escalationNote: "", timeScale: "1" },
 };
 
 /**

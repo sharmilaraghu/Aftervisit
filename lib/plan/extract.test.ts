@@ -237,11 +237,35 @@ describe("someoneSpoke", () => {
     ).toBe(true);
   });
 
-  it("counts any answered question as somebody speaking", () => {
+  /*
+   * The narrowing that two real declined calls forced.
+   *
+   * CALL-E returns a result object even when nobody picks up, and a careful
+   * model fills the safety questions in defensively — `emergency_language_heard:
+   * "no"` on a call with an empty transcript is an honest answer and not a
+   * conversation. Accepting it as speech suppressed the retry and fired
+   * `unmappable_response` on a call that never happened.
+   */
+  it("does not count a defensive answer on a silent call as speech", () => {
+    expect(
+      someoneSpoke({
+        slots: [
+          slot("emergency_language_heard", { status: "answered", valueBool: false }),
+          slot("requests_clinician", { status: "answered", valueBool: false }),
+          slot("pain", { status: "unmappable" }),
+        ],
+        transcript: [],
+      }),
+    ).toBe(false);
+  });
+
+  it("still counts a real answer when the patient is in the transcript", () => {
     expect(
       someoneSpoke({
         slots: [slot("pain", { status: "answered", valueNumber: 3 })],
-        transcript: null,
+        transcript: [
+          { attemptId: "a", offsetSeconds: 4, speaker: "user", text: "About a three." },
+        ],
       }),
     ).toBe(true);
   });
@@ -274,7 +298,7 @@ describe("foldOutcome", () => {
     expect(
       foldOutcome({
         reached: false,
-        failureCode: "no_answer",
+        
         hasUrgentHit: false,
         hasAnyHit: false,
         anyUnmappable: true,
@@ -284,19 +308,19 @@ describe("foldOutcome", () => {
 
   it("flags a call that fired any rule", () => {
     expect(
-      foldOutcome({ reached: true, failureCode: null, hasUrgentHit: false, hasAnyHit: true, anyUnmappable: false }),
+      foldOutcome({ reached: true, hasUrgentHit: false, hasAnyHit: true, anyUnmappable: false }),
     ).toBe("flagged");
   });
 
   it("marks an unmappable call that fired nothing", () => {
     expect(
-      foldOutcome({ reached: true, failureCode: null, hasUrgentHit: false, hasAnyHit: false, anyUnmappable: true }),
+      foldOutcome({ reached: true, hasUrgentHit: false, hasAnyHit: false, anyUnmappable: true }),
     ).toBe("unmappable");
   });
 
   it("calls a clean, reached call answered", () => {
     expect(
-      foldOutcome({ reached: true, failureCode: null, hasUrgentHit: false, hasAnyHit: false, anyUnmappable: false }),
+      foldOutcome({ reached: true, hasUrgentHit: false, hasAnyHit: false, anyUnmappable: false }),
     ).toBe("answered");
   });
 });

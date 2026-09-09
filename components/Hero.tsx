@@ -37,7 +37,7 @@ const STAGES = [
   },
   {
     title: "Drift gets caught",
-    body: "A pure rule engine, never model judgment, escalates with the reason and the patient's own words.",
+    body: "A pure rule engine escalates — no model required — with the reason and the patient's own words.",
     done: false,
   },
 ];

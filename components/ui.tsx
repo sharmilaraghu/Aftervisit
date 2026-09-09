@@ -10,7 +10,6 @@
 import Link from "next/link";
 import type { ComponentProps, CSSProperties, ReactNode } from "react";
 
-import { ConsoleNav } from "@/components/ConsoleNav";
 import { Logo } from "@/components/Logo";
 
 /* Strip tones. Red is danger and is never used for anything else. */
@@ -134,7 +133,17 @@ const DAY_TITLE: Record<string, string> = {
   none: "Not scheduled yet",
 };
 
-export function WeekBand({ week }: { week: readonly string[] }) {
+export function WeekBand({
+  week,
+  animate,
+}: {
+  week: readonly string[];
+  /**
+   * Indices that just changed state, marked so the cell can announce itself.
+   * Empty on a server render: a page load is not an event.
+   */
+  animate?: readonly number[];
+}) {
   return (
     <span
       role="img"
@@ -150,6 +159,11 @@ export function WeekBand({ week }: { week: readonly string[] }) {
             width: "calc(var(--cell) * 1.75)",
             height: "calc(var(--cell) * 2.5)",
             ...DAY_FILL[day],
+            /* The cell is already in its final state; the strip is applied over
+               the top of it, so a missed animation costs nothing. */
+            ...(animate?.includes(i)
+              ? { animation: "strip-in 420ms cubic-bezier(0.16,1,0.3,1) both" }
+              : {}),
           }}
         />
       ))}
@@ -292,9 +306,14 @@ export function Masthead() {
         {/* The page's only door, and its one amber-filled button. The wrapper
             carries the `auto` margin so it can be dropped once the band wraps:
             stacked, the button lands under the name rather than floating alone
-            against the right edge. */}
+            against the right edge.
+
+            It lands on the overview, not the roster. `TickPoller` mounts only
+            on `/dashboard`, so sending a first-time visitor to `/patients`
+            meant the one thing that drives the scheduler in a browser never
+            started — the console looked alive and nothing was moving. */}
         <span className="masthead-cta">
-          <Button href="/patients" variant="primary">
+          <Button href="/dashboard" variant="primary">
             Open the console
           </Button>
         </span>
@@ -303,95 +322,6 @@ export function Masthead() {
   );
 }
 
-/**
- * The console chrome. It states the two things the demo must never imply
- * otherwise: who is notionally signed in (nobody — there is no auth), and
- * whether this build can actually dial a telephone.
- */
-export function TopBar({
-  live,
-  armed,
-}: {
-  live: boolean;
-  armed: number;
-}) {
-  return (
-    <header
-      style={{
-        borderBottom: "1px solid var(--bench-line)",
-        background: "var(--bench-2)",
-        position: "sticky",
-        top: 0,
-        zIndex: 20,
-      }}
-    >
-      <div
-        className="topbar"
-        style={{
-          maxWidth: "var(--maxw)",
-          margin: "0 auto",
-          padding: "calc(var(--cell) * 1.5) calc(var(--cell) * 3)",
-          display: "flex",
-          alignItems: "center",
-          gap: "calc(var(--cell) * 2) calc(var(--cell) * 4)",
-          flexWrap: "wrap",
-        }}
-      >
-        <Link
-          href="/"
-          className="display"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "calc(var(--cell) * 1.25)",
-            fontSize: 19,
-            letterSpacing: "-0.02em",
-            textDecoration: "none",
-            color: "var(--bench-ink)",
-          }}
-        >
-          <Logo size={22} title={null} />
-          Care&nbsp;Loop
-        </Link>
-
-        <ConsoleNav />
-
-        <div
-          className="topbar-status"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "calc(var(--cell) * 1.5)",
-            flexWrap: "wrap",
-          }}
-        >
-          {/* Never imply a login that does not exist. */}
-          <span className="caps" style={{ color: "var(--bench-ink-3)", whiteSpace: "nowrap" }}>
-            Dr Rao · demo, no auth
-          </span>
-          {live ? (
-            <Badge tone="danger">
-              Calls live · {armed} armed
-            </Badge>
-          ) : (
-            <Badge tone="plain" quiet>
-              Calls off · nothing can dial
-            </Badge>
-          )}
-        </div>
-      </div>
-    </header>
-  );
-}
-
-/**
- * A labelled control.
- *
- * The label is a field label, so it is tracked caps — that is what caps are for
- * in this system. `hint` explains the format *before* someone gets it wrong;
- * `error` replaces it afterwards and is wired to the input by `aria-describedby`
- * so a screen reader reads the reason, not just "invalid".
- */
 export function Field({
   label,
   htmlFor,

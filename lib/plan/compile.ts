@@ -115,7 +115,9 @@ Rules you must follow exactly:
 2. Never name a medication that is not written in the note.
 3. Never invent a red-flag term. Only include wording the note actually uses.
 4. Every question must be phrased as a question to the patient. Never write a statement, advice, reassurance, a diagnosis, or anything attributed to the doctor. Questions that give advice are rejected and thrown away.
-5. Ask only about what the note asks about. Do not add questions because they seem clinically sensible.`;
+5. Ask only about what the note asks about. Do not add questions because they seem clinically sensible.
+6. The note may be followed by a block headed WHAT TO ESCALATE ON. That is the doctor's own list of what they want to hear about. Take its wording for redFlagTerms exactly as they wrote it. Never generalise it into a broader category, and never add a condition they did not name.
+7. The patient's age may be given. Use it only to pitch the wording of a question; never to decide what to ask, and never repeat it back to the patient.`;
 
 export type CompileOutcome =
   | {
@@ -151,10 +153,40 @@ function toDraft(raw: unknown): CompiledDraft {
 
 export interface CompileInput {
   noteBody: string;
+  /**
+   * The doctor's own list of what to escalate on, verbatim.
+   *
+   * Compiled into `redFlagTerms` in their wording, and kept whole on the note
+   * so the triage model can be handed it later as the reference standard.
+   */
+  escalationNote?: string;
+  /**
+   * Age only — never the name.
+   *
+   * It lets the model pitch a question ("are you managing the stairs?" reads
+   * differently at 34 and 84), and it is the one identifying detail worth the
+   * trade. A name buys nothing for compilation, so it is not sent.
+   */
+  patientAge?: number;
   /** Fallback `reason` when the note does not make one clear. */
   fallbackReason?: string;
   baseRules?: PlanRule[];
   env?: NodeJS.ProcessEnv;
+}
+
+/**
+ * What the model reads.
+ *
+ * The escalation block is labelled rather than concatenated silently, so rule 6
+ * has something to point at and the doctor's wording stays attributable in the
+ * raw request we persist.
+ */
+export function compilePrompt(input: CompileInput): string {
+  const parts = [input.noteBody.trim()];
+  if (input.patientAge !== undefined) parts.push(`PATIENT AGE\n\n${input.patientAge}`);
+  const escalation = input.escalationNote?.trim();
+  if (escalation) parts.push(`WHAT TO ESCALATE ON\n\n${escalation}`);
+  return parts.join("\n\n");
 }
 
 export async function compileNote(input: CompileInput): Promise<CompileOutcome> {
@@ -171,7 +203,7 @@ export async function compileNote(input: CompileInput): Promise<CompileOutcome> 
   let result;
   try {
     result = await complete(
-      { system: SYSTEM, user: input.noteBody, schema: COMPILE_SCHEMA },
+      { system: SYSTEM, user: compilePrompt(input), schema: COMPILE_SCHEMA },
       env,
     );
   } catch (error) {
@@ -191,8 +223,12 @@ export async function compileNote(input: CompileInput): Promise<CompileOutcome> 
    * Grounding, before anything else is done with the draft. Medications come
    * first because that is the one that reaches a patient's ear.
    */
+  /*
+     A term the doctor wrote in the escalation box is grounded — it is their
+     wording, and refusing it would reject exactly the input we just asked for.
+  */
   const grounding = assertGrounded({
-    noteBody: input.noteBody,
+    noteBody: `${input.noteBody}\n${input.escalationNote ?? ""}`,
     medications: draft.medications ?? [],
     compilerAddedTerms: draft.redFlagTerms ?? [],
   });

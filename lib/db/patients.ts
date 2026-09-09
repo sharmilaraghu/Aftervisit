@@ -37,6 +37,18 @@ export interface PatientDetail {
   patient: Patient;
   planId: string | null;
   planStatus: string | null;
+  /** Why a paused plan is paused. Written at pause time and, until now, never read. */
+  pausedReason: string | null;
+  /** Every earlier plan for this patient, newest first. A treatment record,
+      rather than one mutable plan that forgets what it used to be about. */
+  priorPlans: {
+    id: string;
+    reason: string;
+    status: string;
+    closeReason: string | null;
+    startsAt: Date | null;
+    closedAt: Date | null;
+  }[];
   reason: string | null;
   condition: string | null;
   localTime: string | null;
@@ -113,7 +125,7 @@ export async function getPatientDetail(id: string): Promise<PatientDetail | null
 
   const planRows = await db.execute(sql`
     select p.id, p.status, p.reason, p.condition, p.local_time, p.duration_days,
-           p.max_attempts, p.starts_at, p.ends_at, n.body as note_body,
+           p.max_attempts, p.starts_at, p.ends_at, p.paused_reason, n.body as note_body,
       count(c.*) filter (
         where c.attempt = 1 and c.scheduled_for <= now() and c.status <> 'skipped'
       ) as due,
@@ -138,11 +150,38 @@ export async function getPatientDetail(id: string): Promise<PatientDetail | null
 
   const plan = (planRows.rows as Record<string, unknown>[])[0];
 
+  /*
+   * Every plan except the one on screen.
+   *
+   * The detail page used to select a single plan and stop, so a superseded
+   * plan's calls vanished from the console entirely — the rows were retained
+   * and the result schema was frozen at approval precisely so they would stay
+   * readable, and nothing ever read them. A course of treatment is a sequence,
+   * and this is the only place it can be seen as one.
+   */
+  const priorRows = await db.execute(sql`
+    select id, reason, status, close_reason, starts_at, closed_at
+    from follow_up_plans
+    where patient_id = ${id} and status <> 'cancelled'
+      and id <> ${plan ? String(plan.id) : ""}
+    order by created_at desc
+  `);
+  const priorPlans = (priorRows.rows as Record<string, unknown>[]).map((r) => ({
+    id: String(r.id),
+    reason: String(r.reason ?? "Follow-up"),
+    status: String(r.status),
+    closeReason: r.close_reason ? String(r.close_reason) : null,
+    startsAt: r.starts_at ? new Date(String(r.starts_at)) : null,
+    closedAt: r.closed_at ? new Date(String(r.closed_at)) : null,
+  }));
+
   if (!plan) {
     return {
       patient,
+      priorPlans,
       planId: null,
       planStatus: null,
+      pausedReason: null,
       reason: null,
       condition: null,
       localTime: null,
@@ -213,7 +252,9 @@ export async function getPatientDetail(id: string): Promise<PatientDetail | null
   return {
     patient,
     planId,
+    priorPlans,
     planStatus: String(plan.status),
+    pausedReason: plan.paused_reason ? String(plan.paused_reason) : null,
     reason: String(plan.reason),
     condition: plan.condition ? String(plan.condition) : null,
     localTime: String(plan.local_time),
@@ -441,6 +482,26 @@ export interface ArchiveResult {
  * The rows themselves stay. They record phone calls that actually happened to a
  * person, and a console that can delete its own audit trail is not one.
  */
+/**
+ * Put an archived patient back on the roster.
+ *
+ * Archiving was one-way: nothing anywhere set `archived_at` back to null, so a
+ * patient archived by mistake was gone from every list and their edit page
+ * returned a 404. It stops the dialer with one column, and so does undoing it.
+ *
+ * Their old plans stay closed. Un-archiving restores the record, not the
+ * follow-up — restarting care is a clinical decision and it goes through a new
+ * note like any other.
+ */
+export async function unarchivePatient(id: string): Promise<boolean> {
+  const result = await getDb().execute(sql`
+    update patients set archived_at = null, updated_at = now()
+    where id = ${id} and archived_at is not null
+    returning id
+  `);
+  return result.rows.length > 0;
+}
+
 export async function archivePatient(id: string): Promise<ArchiveResult> {
   const db = getDb();
 

@@ -15,6 +15,7 @@ import { notFound } from "next/navigation";
 
 import { Badge, Button, Panel } from "@/components/ui";
 import { getCall } from "@/lib/db/calls";
+import { getTriage } from "@/lib/db/triage";
 import { escalationRef, formatStamp } from "@/lib/format";
 import { maskPhone } from "@/lib/phone/normalize";
 import type { Tone } from "@/components/ui";
@@ -41,7 +42,7 @@ function slotValue(slot: {
 
 export default async function CallPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const call = await getCall(id);
+  const [call, triage] = await Promise.all([getCall(id), getTriage(id)]);
   if (!call) notFound();
 
   const isAgent = (speaker: string) =>
@@ -58,7 +59,7 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
       <header style={{ marginBottom: "calc(var(--cell) * 4)" }}>
         <p style={{ margin: "0 0 calc(var(--cell) * 1)" }}>
           <Button variant="ghost" href={`/patients/${call.patientId}`}>
-            {call.patientName}
+            Back to {call.patientName}
           </Button>
         </p>
         <h1
@@ -208,6 +209,191 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
           </div>
         )}
       </Panel>
+
+      {/*
+        The calling platform's own read of the call, written to these columns on
+        every call since the port was built and rendered nowhere — `summary`
+        was selected and dropped, `evidence` and `completion_confidence` were
+        never even read back.
+        It is shown as evidence and labelled as the platform's, not ours: no
+        rule reads it, and a clinician should know which sentences came from a
+        model rather than from the patient.
+      */}
+      {/*
+        The assistant's reading, which until now was written to `call_triage` on
+        every finished call and shown nowhere — `getTriage` existed with no
+        callers at all. Only severity, summary and quote ever escaped, copied
+        onto the escalation, so `matchedConcerns` (which of the doctor's *own*
+        conditions this call touched) and `keyTerms` were read by nothing.
+
+        Above the platform's own summary, because this is the one a clinician
+        acts on. Attributed in the title, never spoken in the product's voice.
+      */}
+      {triage ? (
+        <Panel
+          title="What the assistant made of it"
+          aside={
+            <Badge
+              tone={
+                triage.verdict === "severe"
+                  ? "danger"
+                  : triage.verdict === "escalate"
+                    ? "amber"
+                    : "clear"
+              }
+              quiet={triage.verdict === "low"}
+            >
+              {triage.verdict === "severe"
+                ? "Severe"
+                : triage.verdict === "escalate"
+                  ? "Needs review"
+                  : "Routine"}
+            </Badge>
+          }
+          style={{ marginBottom: "calc(var(--cell) * 2)" }}
+        >
+          <div style={{ padding: "calc(var(--cell) * 3)" }}>
+            {triage.status === "ok" ? null : (
+              <p
+                style={{
+                  margin: "0 0 calc(var(--cell) * 2)",
+                  padding: "calc(var(--cell) * 2)",
+                  background: "var(--amber-wash)",
+                  boxShadow: "inset 0 0 0 1px var(--amber)",
+                  color: "var(--print)",
+                  fontSize: 14,
+                  lineHeight: 1.5,
+                }}
+              >
+                This call could not be read automatically, so it was queued
+                unjudged rather than passed over. The locked conditions that run
+                without a model still applied.
+              </p>
+            )}
+
+            {triage.summary ? (
+              <p
+                style={{
+                  margin: "0 0 calc(var(--cell) * 2)",
+                  color: "var(--print)",
+                  fontSize: 15,
+                  lineHeight: 1.55,
+                }}
+              >
+                {triage.summary}
+              </p>
+            ) : null}
+
+            <p style={{ margin: 0, color: "var(--print-2)", fontSize: 14, lineHeight: 1.5 }}>
+              {triage.reason}
+            </p>
+
+            {triage.matchedConcerns.length > 0 ? (
+              <p
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "calc(var(--cell) * 1)",
+                  alignItems: "baseline",
+                  margin: "calc(var(--cell) * 2) 0 0",
+                }}
+              >
+                <span className="caps" style={{ color: "var(--print-3)" }}>
+                  Touched what you asked about
+                </span>
+                {triage.matchedConcerns.map((c) => (
+                  <Badge key={c} tone="amber" quiet>
+                    {c}
+                  </Badge>
+                ))}
+              </p>
+            ) : null}
+
+            {triage.keyTerms.length > 0 ? (
+              <p
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "calc(var(--cell) * 1)",
+                  alignItems: "baseline",
+                  margin: "calc(var(--cell) * 1.5) 0 0",
+                }}
+              >
+                <span className="caps" style={{ color: "var(--print-3)" }}>
+                  Words it picked out
+                </span>
+                {triage.keyTerms.map((t) => (
+                  <Badge key={t} tone="plain" quiet>
+                    {t}
+                  </Badge>
+                ))}
+              </p>
+            ) : null}
+          </div>
+        </Panel>
+      ) : null}
+
+      {call.summary || call.evidence?.length || call.completionConfidence ? (
+        <Panel
+          title="What the call platform reported"
+          aside={
+            call.taskCompleted === null ? undefined : (
+              <Badge tone={call.taskCompleted ? "clear" : "amber"} quiet>
+                {call.taskCompleted ? "Reached an end state" : "Did not finish"}
+              </Badge>
+            )
+          }
+          style={{ marginBottom: "calc(var(--cell) * 2)" }}
+        >
+          <div style={{ padding: "calc(var(--cell) * 3)" }}>
+            {call.summary ? (
+              <p style={{ margin: 0, color: "var(--print)", fontSize: 15, lineHeight: 1.55 }}>
+                {call.summary}
+              </p>
+            ) : null}
+
+            {call.evidence?.length ? (
+              <>
+                <p
+                  className="caps"
+                  style={{
+                    color: "var(--print-3)",
+                    margin: "calc(var(--cell) * 2.5) 0 calc(var(--cell) * 1)",
+                  }}
+                >
+                  What it based that on
+                </p>
+                <ul style={{ margin: 0, paddingLeft: "calc(var(--cell) * 2.5)" }}>
+                  {call.evidence.map((item, i) => (
+                    <li
+                      key={i}
+                      style={{ color: "var(--print-2)", fontSize: 14, lineHeight: 1.5 }}
+                    >
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
+
+            {call.completionConfidence ? (
+              <p
+                className="mono"
+                style={{
+                  margin: "calc(var(--cell) * 2.5) 0 0",
+                  paddingTop: "calc(var(--cell) * 1.5)",
+                  borderTop: "1px solid var(--rule-2)",
+                  color: "var(--print-3)",
+                  fontSize: 11,
+                }}
+              >
+                confidence {call.completionConfidence.label} ·{" "}
+                {Math.round(call.completionConfidence.score * 100)}%
+              </p>
+            ) : null}
+          </div>
+        </Panel>
+      ) : null}
 
       {call.transcript && call.transcript.length > 0 ? (
         <Panel title="The whole call" style={{ marginBottom: "calc(var(--cell) * 2)" }}>

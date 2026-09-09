@@ -37,9 +37,37 @@ function propertyOf(id: string) {
 }
 
 describe("buildResultSchema", () => {
-  it("always carries the universal keys", () => {
+  /*
+   * The locked keys and the agent's own notes are unconditional; the three
+   * default universals are not. They are ordinary question rows a doctor may
+   * delete, and requiring a key that nothing asks is what produced a schema
+   * demanding answers the script forbade the agent to record.
+   */
+  it("always carries the locked keys and the agent's own notes", () => {
     const keys = schemaKeys(buildResultSchema([]));
-    expect(keys).toEqual(Object.keys(UNIVERSAL_RESULT_KEYS));
+    expect(keys).toEqual([
+      "reached_patient",
+      "consent_given",
+      "requests_clinician",
+      "emergency_language_heard",
+      "what_else",
+      "call_recap",
+    ]);
+  });
+
+  it("carries a default universal only while its question still exists", () => {
+    const withIt = schemaKeys(
+      buildResultSchema([
+        {
+          questionId: "symptom_change",
+          prompt: "Compared with the last time we spoke, are things better, the same, or worse?",
+          answerType: "enum",
+          enumValues: ["better", "worse"],
+        },
+      ]),
+    );
+    expect(withIt).toContain("symptom_change");
+    expect(schemaKeys(buildResultSchema([]))).not.toContain("symptom_change");
   });
 
   /*

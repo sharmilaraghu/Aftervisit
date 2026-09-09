@@ -22,6 +22,21 @@ export function formatStamp(date: Date, timeZone: string): string {
   return `${day} · ${time}`;
 }
 
+/**
+ * "19 Aug 2026", in the given zone.
+ *
+ * For things that happened weeks ago, where the hour is noise and the year is
+ * the fact you actually need.
+ */
+export function formatDay(date: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(date);
+}
+
 /** `ESC-0031`. A clinician reads a number, not a uuid. */
 export function escalationRef(ref: number): string {
   return `ESC-${String(ref).padStart(4, "0")}`;

@@ -15,13 +15,20 @@ import { notFound } from "next/navigation";
 
 import { Badge, Button, Panel } from "@/components/ui";
 import { ApprovePlan, PlanDraftControls } from "@/components/PlanReview";
-import { RuleEditor } from "@/components/RuleEditor";
+import { AddQuestion, QuestionRow } from "@/components/QuestionEditor";
+import { AmendNote } from "@/components/AmendNote";
+import { EscalationSetup } from "@/components/EscalationSetup";
 import { CancelPlan } from "@/components/CancelPlan";
+import { PatientCorrections } from "@/components/PatientCorrections";
+import { ANSWER_LABEL } from "@/lib/plan/clinician-question";
 import { getPlanForReview } from "@/lib/db/plans";
 import { formatStamp } from "@/lib/format";
 import { maskPhone } from "@/lib/phone/normalize";
 import { readConfig } from "@/lib/config";
+import { REFUSAL_TEXT } from "@/lib/calle/port";
+import { OBSERVED_QUESTION_IDS } from "@/lib/plan/universal-questions";
 import { LANGUAGE_OPTIONS } from "@/lib/patients/languages";
+import { CONSENT_LABEL } from "@/lib/patients/labels";
 import { expandPlan } from "@/lib/schedule/expand";
 import type { Provenance } from "@/lib/db/enums";
 
@@ -44,17 +51,17 @@ function ProvenanceMark({ source }: { source: Provenance | undefined }) {
   );
 }
 
+/*
+ * What each consent state means for dialling, in one sentence.
+ *
+ * The label itself comes from `CONSENT_LABEL` — there were four wordings for
+ * this one field across four screens, and a safety label that reads differently
+ * depending on where you are standing is a label nobody can rely on.
+ */
 const CONSENT_SENTENCE: Record<string, string> = {
-  granted: "Already agreed",
-  declined: "Declined — will not be called",
-  unknown: "Not asked — the first call opens with the consent gate",
-};
-
-const ANSWER_LABEL: Record<string, string> = {
-  boolean: "yes / no",
-  scale_0_10: "0–10",
-  enum: "one of",
-  text: "their own words",
+  granted: CONSENT_LABEL.granted,
+  declined: CONSENT_LABEL.declined,
+  unknown: "Not recorded — nothing will be dialled until it is",
 };
 
 export default async function PlanPage({ params }: { params: Promise<{ id: string }> }) {
@@ -62,15 +69,21 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
   const plan = await getPlanForReview(id);
   if (!plan) notFound();
 
-  const approved = plan.questions.filter((q) => q.guardStatus === "approved");
+  /*
+   * Observations are not questions and must not be listed as if the agent will
+   * read them out. `requests_clinician` sat at number three in "What it will
+   * ask" — a leading yes/no in the middle of a clinical survey — and a doctor
+   * reading that list was being told the agent would ask it. It does not; it
+   * records whether the patient asked for a person, whenever they did.
+   */
+  const approved = plan.questions.filter(
+    (q) => q.guardStatus === "approved" && !OBSERVED_QUESTION_IDS.has(q.questionId),
+  );
+  const observed = plan.questions.filter(
+    (q) => q.guardStatus === "approved" && OBSERVED_QUESTION_IDS.has(q.questionId),
+  );
   const rejected = plan.questions.filter((q) => q.guardStatus !== "approved");
   const awaiting = plan.status === "awaiting_approval";
-  /* A rule's checkboxes offer exactly what its question can actually answer. */
-  const questionEnums = Object.fromEntries(
-    plan.questions
-      .filter((q) => q.enumValues?.length)
-      .map((q) => [q.questionId, q.enumValues as string[]]),
-  );
 
   /*
    * The same expansion the approve action will run, previewed. A doctor should
@@ -97,15 +110,17 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
   return (
     <div
       style={{
-        maxWidth: 940,
+        maxWidth: 944,
         margin: "0 auto",
         padding: "calc(var(--cell) * 5) calc(var(--cell) * 3) calc(var(--cell) * 10)",
       }}
     >
       <header style={{ marginBottom: "calc(var(--cell) * 4)" }}>
         <p style={{ margin: "0 0 calc(var(--cell) * 1)" }}>
+          {/* Where it goes, not just what it is. A patient's name alone in a
+              box is a label; a doctor scanning for the way out reads a verb. */}
           <Button variant="ghost" href={`/patients/${plan.patientId}`}>
-            {plan.patientName}
+            Back to {plan.patientName}
           </Button>
         </p>
         <h1
@@ -118,12 +133,29 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
         >
           {awaiting ? "Approve this plan?" : plan.reason}
         </h1>
-        <p className="mono" style={{ margin: 0, color: "var(--bench-ink-2)", fontSize: 14 }}>
-          {maskPhone(plan.phoneE164)} · {plan.timezone}
-          {plan.compileProvider ? ` · compiled by ${plan.compileProvider} (${plan.compileModel})` : ""}
-        </p>
+        {/*
+          Nothing about the machinery.
+
+          This line read "compiled by gemini (gemini-2.5-flash)". A doctor
+          deciding whether to phone a patient does not need the name of a model,
+          and putting one on the screen invites them to weigh it — which is
+          exactly the judgement this product says it never asks them to make.
+          The provider and model are still persisted on the note, so "compiled
+          by one model with another as a fallback" stays checkable in the data;
+          it is simply not a thing a clinician is shown.
+        */}
       </header>
 
+      {/*
+        No patient panel here.
+
+        It printed name, age, number, timezone and language above a plan whose
+        approve block restates every one of them at the moment they matter —
+        "Care Loop will call X on Y, first call at Z" — so the page said the
+        same six facts twice, four screens apart. The corrections drawer moved
+        down there with them: the reason to check a number is that you are about
+        to authorise calls to it.
+      */}
       {plan.compileStatus === "refused" ? (
         <Panel title="The compiler refused" style={{ marginBottom: "calc(var(--cell) * 2)" }}>
           <div style={{ padding: "calc(var(--cell) * 3)" }}>
@@ -161,12 +193,29 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
               margin: "0 0 calc(var(--cell) * 3)",
             }}
           >
-            {[
-              ["Following up on", plan.reason, "reason"],
-              ["Cadence", `${plan.cadence.replace(/_/g, " ")} · ${plan.durationDays} days`, "durationDays"],
-              ["Local time", `${plan.localTime} ${plan.timezone}`, "localTime"],
-              ["Attempts", `up to ${plan.maxAttempts}, ${plan.retryDelayMinutes} min apart`, "maxAttempts"],
-            ].map(([label, value, field]) => (
+            {/*
+              The last value says whether a clinician compares this to another
+              instance of itself. A cadence, a time and an attempt count are all
+              compared by eye and were set as language; the thing being followed
+              up on is language and was set the same way. The rule was simply
+              not being applied here.
+            */}
+            {([
+              ["Following up on", plan.reason, "reason", false],
+              [
+                "Cadence",
+                `${plan.cadence.replace(/_/g, " ")} · ${plan.durationDays} days`,
+                "durationDays",
+                true,
+              ],
+              ["Best time to call", `${plan.localTime} ${plan.timezone}`, "localTime", true],
+              [
+                "Attempts",
+                `up to ${plan.maxAttempts}, ${plan.retryDelayMinutes} min apart`,
+                "maxAttempts",
+                true,
+              ],
+            ] as [string, string, string, boolean][]).map(([label, value, field, mono]) => (
               <div key={label}>
                 <dt
                   className="caps"
@@ -181,7 +230,10 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
                   {label}
                   <ProvenanceMark source={plan.provenance[field]} />
                 </dt>
-                <dd style={{ margin: 0, fontSize: 15, color: "var(--print)", lineHeight: 1.4 }}>
+                <dd
+                  className={mono ? "mono" : undefined}
+                  style={{ margin: 0, fontSize: 15, color: "var(--print)", lineHeight: 1.4 }}
+                >
                   {value}
                 </dd>
               </div>
@@ -199,12 +251,19 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
             may land after the end date; a new day&rsquo;s call may not.
           </p>
 
-          {awaiting ? <PlanDraftControls planId={plan.id} durationDays={plan.durationDays} localTime={plan.localTime} timeScale={plan.timeScale} /> : null}
+          {awaiting ? <PlanDraftControls
+              planId={plan.id}
+              durationDays={plan.durationDays}
+              localTime={plan.localTime}
+              timeScale={plan.timeScale}
+              cadence={plan.cadence}
+              maxAttempts={plan.maxAttempts}
+            /> : null}
         </div>
       </Panel>
 
       <Panel
-        title="What it will ask"
+        title="The questions"
         aside={
           <span className="caps mono" style={{ color: "var(--print-3)" }}>
             {approved.length} questions
@@ -221,44 +280,122 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
             <ol style={{ margin: 0, paddingLeft: "calc(var(--cell) * 3)" }}>
               {approved.map((q) => (
                 <li key={q.id} style={{ marginBottom: "calc(var(--cell) * 2)" }}>
-                  <span style={{ display: "block", color: "var(--print)", fontSize: 15 }}>
-                    {q.prompt}
-                  </span>
-                  <span className="mono" style={{ fontSize: 12, color: "var(--print-3)" }}>
-                    {ANSWER_LABEL[q.answerType]}
-                    {q.enumValues ? `: ${q.enumValues.join(", ")}` : ""} · {q.questionId}
-                  </span>
+                  <QuestionRow
+                    planId={plan.id}
+                    questionId={q.id}
+                    prompt={q.prompt}
+                    /* A locked question backs a rule that can never be removed. */
+                    editable={awaiting && q.source !== "locked"}
+                    reorderable={awaiting && q.source !== "locked"}
+                    meta={
+                      <span className="mono" style={{ fontSize: 13, color: "var(--print-3)" }}>
+                        {ANSWER_LABEL[q.answerType]}
+                        {q.enumValues ? `: ${q.enumValues.join(", ")}` : ""} · {q.questionId}
+                        {q.source === "locked" ? " · locked" : ""}
+                      </span>
+                    }
+                  />
                 </li>
               ))}
             </ol>
           )}
+
+          {awaiting ? <AddQuestion planId={plan.id} /> : null}
+
+          {/*
+            Said plainly, because "why is the agent not asking this?" is the
+            question a doctor would otherwise take to the transcript.
+          */}
+          {observed.length > 0 ? (
+            <div
+              style={{
+                marginTop: "calc(var(--cell) * 3)",
+                paddingTop: "calc(var(--cell) * 2.5)",
+                borderTop: "1px solid var(--rule)",
+              }}
+            >
+              <p className="caps" style={{ margin: "0 0 calc(var(--cell) * 1)", color: "var(--print-3)" }}>
+                Recorded from the call, never asked
+              </p>
+              <ul style={{ margin: 0, paddingLeft: "calc(var(--cell) * 3)" }}>
+                {observed.map((q) => (
+                  <li key={q.id} style={{ color: "var(--print-2)", fontSize: 14, marginBottom: 4 }}>
+                    {q.prompt}{" "}
+                    <span className="mono" style={{ fontSize: 13, color: "var(--print-3)" }}>
+                      · {q.questionId} · locked
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p
+                className="measure"
+                style={{ margin: "calc(var(--cell) * 1.5) 0 0", color: "var(--print-3)", fontSize: 13 }}
+              >
+                The agent listens for these rather than putting them to the patient.
+                Asking someone whether they would like a callback invites a polite
+                yes; noticing that they asked for one is the thing the rule is for.
+              </p>
+            </div>
+          ) : null}
         </div>
       </Panel>
 
       {rejected.length > 0 ? (
         <Panel
-          title="Refused by the clinical guard"
+          title="The refused questions"
           aside={<Badge tone="danger">{rejected.length} refused</Badge>}
           style={{ marginBottom: "calc(var(--cell) * 2)" }}
         >
           <div style={{ padding: "calc(var(--cell) * 3)" }}>
             <p style={{ margin: "0 0 calc(var(--cell) * 2)", color: "var(--print-2)", fontSize: 14 }}>
-              These were produced but will never be asked. They are shown rather
-              than deleted, because a model attempting to give advice is
-              something you should see.
+              These will never be asked. They are shown rather than deleted,
+              because a model attempting to give advice is something you should
+              see. Rewriting one puts it back through the guard; nothing here can
+              be approved any other way.
+            </p>
+            <p style={{ margin: "0 0 calc(var(--cell) * 2)", color: "var(--print-2)", fontSize: 14 }}>
+              {/*
+                Not a nicety: `assembleTask` refuses to build a script while any
+                question on the plan is unapproved, so this plan dials nothing
+                until each one is rewritten or removed.
+              */}
+              <strong>A plan with a refused question does not dial at all.</strong> Rewrite
+              each one or remove it before you approve.
             </p>
             {rejected.map((q) => (
               <div key={q.id} style={{ marginBottom: "calc(var(--cell) * 2)" }}>
-                <p style={{ margin: "0 0 calc(var(--cell) * 0.5)", color: "var(--print)" }}>
-                  &ldquo;{q.prompt}&rdquo;
-                </p>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "calc(var(--cell) * 0.75)" }}>
-                  {(q.guardFindings ?? []).map((f, i) => (
-                    <Badge key={i} tone="danger" quiet>
-                      {f.category.replace(/_/g, " ")}
-                    </Badge>
+                <QuestionRow
+                  planId={plan.id}
+                  questionId={q.id}
+                  prompt={q.prompt}
+                  quoted
+                  editable={awaiting && q.source !== "locked"}
+                  /*
+                    The reason, not just the category. An edit that the guard
+                    refuses lands the row here, so this is where the doctor
+                    reads why — the inline message they were shown is gone the
+                    moment the row moves panels.
+                  */
+                  meta={(q.guardFindings ?? []).map((f, i) => (
+                    <span
+                      key={i}
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: "calc(var(--cell) * 1)",
+                        alignItems: "baseline",
+                        marginTop: "calc(var(--cell) * 0.75)",
+                      }}
+                    >
+                      <Badge tone="danger" quiet>
+                        {f.category.replace(/_/g, " ")}
+                      </Badge>
+                      <span style={{ fontSize: 13, color: "var(--print-2)", lineHeight: 1.45 }}>
+                        <span className="mono">&ldquo;{f.match}&rdquo;</span> — {f.reason}
+                      </span>
+                    </span>
                   ))}
-                </div>
+                />
               </div>
             ))}
           </div>
@@ -266,10 +403,15 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
       ) : null}
 
       <Panel
-        title="What escalates"
+        title="The escalation rules"
         aside={
           <Badge tone="plain" quiet>
-            {plan.rules.length} rules
+            {/* Distinct: two lists can carry the same word, and the panel shows it once. */}
+            <span className="mono">
+              {new Set(plan.redFlagTerms.map((t) => t.term.toLowerCase())).size}
+            </span>{" "}
+            words ·{" "}
+            <span className="mono">{plan.rules.length}</span> rules
           </Badge>
         }
         style={{ marginBottom: "calc(var(--cell) * 2)" }}
@@ -289,16 +431,16 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
             </p>
           </div>
         ) : (
-          <RuleEditor
+          <EscalationSetup
             planId={plan.id}
-            initial={plan.rules}
-            questionEnums={questionEnums}
+            escalationNote={plan.escalationNote}
+            terms={plan.redFlagTerms}
             live={plan.status !== "awaiting_approval"}
           />
         )}
       </Panel>
 
-      <Panel title="Your note" style={{ marginBottom: "calc(var(--cell) * 3)" }}>
+      <Panel title="The consultation note" style={{ marginBottom: "calc(var(--cell) * 3)" }}>
         <div style={{ padding: "calc(var(--cell) * 3)" }}>
           <p
             className="mono"
@@ -312,13 +454,44 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
           >
             {plan.noteBody}
           </p>
+
+          {/* Only while it is still a draft: questions cannot change under calls
+              that have already been placed against them. */}
+          {/*
+            A running plan can be amended too, and that is the returning-patient
+            case: the same person comes back with a chest infection while their
+            blood-pressure follow-up is still dialling. Adding it here means one
+            call a day that covers both, rather than two agents phoning the same
+            person — and the merge is strictly additive, so a question calls have
+            already been placed against is never rewritten underneath them.
+          */}
+          {["awaiting_approval", "active", "paused"].includes(plan.status) ? (
+            <AmendNote planId={plan.id} live={!awaiting} />
+          ) : null}
         </div>
       </Panel>
 
       {awaiting ? (
+        <>
         <ApprovePlan
           planId={plan.id}
+          patientId={plan.patientId}
+          corrections={
+            <PatientCorrections
+              patientId={plan.patientId}
+              planId={plan.id}
+              name={plan.patientName}
+              age={plan.patientAge}
+              phoneE164={plan.phoneE164}
+              timezone={plan.timezone}
+              language={plan.language}
+              consent={plan.consent}
+              editable
+              compact
+            />
+          }
           canApprove={approved.length > 0}
+          refusedQuestions={rejected.length}
           patientName={plan.patientName}
           maskedPhone={maskPhone(plan.phoneE164)}
           {...preview}
@@ -328,16 +501,75 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
           language={
             LANGUAGE_OPTIONS.find((o) => o.value === plan.language)?.label ?? plan.language
           }
-          allowlisted={
-            readConfig().allowlistOpen || readConfig().callAllowlist.includes(plan.phoneE164)
-          }
-          allowlistOpen={readConfig().allowlistOpen}
+          {...(() => {
+            /*
+             * The console no longer carries a standing "calls live" badge, so
+             * this screen is the only place the fact appears — and it is the
+             * right place: it is the moment it changes a decision. Both causes
+             * are checked, because "no key configured" and "number outside the
+             * list" produce the same silence and need different fixes.
+             */
+            const config = readConfig();
+            const armed =
+              config.allowlistOpen || config.callAllowlist.includes(plan.phoneE164);
+            /*
+             * Consent first, because consent is the gate — `dial()` refuses
+             * anything but `granted`, and the enrolment form defaults an
+             * unticked box to `unknown`. Without this check the commonest
+             * mistake in the product produced a live "start the follow-up"
+             * button, seven dated rows, and every one of them refused: the
+             * exact silent failure Care Loop exists to catch, aimed at itself.
+             */
+            if (plan.consent !== "granted") {
+              return {
+                willRing: false,
+                blockedReason: REFUSAL_TEXT.no_consent,
+              };
+            }
+            if (!config.liveCallsEnabled) {
+              return {
+                willRing: false,
+                blockedReason:
+                  "This instance is not configured to place calls, so nothing will " +
+                  "ring. The plan will run and every call will be refused with a " +
+                  "reason on the record.",
+              };
+            }
+            if (!armed) {
+              return {
+                willRing: false,
+                /* Name the setting. "Outside the list" describes a cause
+                   nobody on this screen can locate: the list is an env var, and
+                   an operator reading this needs to know which one and that
+                   clearing it opens the instance back up. */
+                blockedReason:
+                  "CARELOOP_CALL_ALLOWLIST is set on this deployment, and this " +
+                  "number is not on it. Clear that variable to let consent be " +
+                  "the only gate.",
+              };
+            }
+            return { willRing: true, blockedReason: null };
+          })()}
         />
+        {/*
+          A draft you do not want had no exit. `cancelPlan` accepts an
+          `awaiting_approval` plan in SQL and always did; only the button was
+          gated on active-or-paused, so a note compiled twice by mistake left a
+          permanent "Waiting on your decision" row on the roster.
+        */}
+        <p style={{ margin: "calc(var(--cell) * 2) 0 0" }}>
+          <CancelPlan planId={plan.id} patientId={plan.patientId} draft />
+        </p>
+        </>
       ) : (
         <div style={{ display: "flex", flexWrap: "wrap", gap: "calc(var(--cell) * 1.5)", alignItems: "center" }}>
-          <Button variant="ghost" href={`/patients/${plan.patientId}`}>
-            See the calendar
-          </Button>
+          {/*
+            The "See the calendar" button that stood here was the second link to
+            `/patients/[id]` on this page — the patient's own name at the top is
+            the first — and it named a view that does not exist: there is no
+            calendar, there is a week band and a call log. It also sat beside
+            Cancel, which put navigation and a destructive act in one row.
+          */}
           {plan.status === "active" || plan.status === "paused" ? (
             <CancelPlan planId={plan.id} patientId={plan.patientId} />
           ) : null}

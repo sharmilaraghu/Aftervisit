@@ -15,6 +15,7 @@
 import { sql } from "drizzle-orm";
 
 import { getDb } from "@/lib/db/client";
+import { readConfig } from "@/lib/config";
 import { newId, idempotencyKey } from "@/lib/db/ids";
 import type { CallOutcome, ResultStatus, TickTrigger } from "@/lib/db/enums";
 import type { StoredTurn } from "@/lib/db/schema";
@@ -42,6 +43,36 @@ export interface DueCall {
  * archiving a patient makes rows fail this query, neither action needs to write
  * to `scheduled_calls` at all. One column flips and the dialer stops.
  */
+/**
+ * How late a call may be and still be worth placing.
+ *
+ * A call is never early; it can be arbitrarily late, because it is dialled
+ * whenever a tick next finds it due. With a console tab open that is seconds.
+ * With nothing running it is however long the gap was — and without this bound,
+ * the first tick after a six-hour silence phones every patient in the backlog
+ * at two in the morning. Ninety minutes covers a missed cron and a retry delay
+ * without ever reaching a different part of someone's day.
+ */
+export const MAX_CALL_DELAY_MINUTES = 90;
+
+/**
+ * Retire calls that are past the point where placing them would be rude.
+ *
+ * Run before claiming, so a stale row is marked rather than dialled. It is a
+ * visible refusal with a reason on the record, never a silent drop — the same
+ * stance every other gate in this product takes.
+ */
+export async function skipStaleCalls(): Promise<number> {
+  const result = await getDb().execute(sql`
+    update scheduled_calls
+    set status = 'skipped', skip_reason = 'too_late', updated_at = now()
+    where status = 'scheduled'
+      and scheduled_for < now() - make_interval(mins => ${MAX_CALL_DELAY_MINUTES}::int)
+    returning id
+  `);
+  return result.rows.length;
+}
+
 export async function claimDueCalls(tickId: string, limit = 5): Promise<DueCall[]> {
   const result = await getDb().execute(sql`
     update scheduled_calls sc
@@ -53,6 +84,9 @@ export async function claimDueCalls(tickId: string, limit = 5): Promise<DueCall[
       join patients pt on pt.id = c.patient_id
       where c.status = 'scheduled'
         and c.scheduled_for <= now()
+        -- Belt and braces with skipStaleCalls: even if the sweep has not run,
+        -- a call this late is never placed.
+        and c.scheduled_for >= now() - make_interval(mins => ${MAX_CALL_DELAY_MINUTES}::int)
         and p.status = 'active'
         and pt.archived_at is null
       order by c.scheduled_for
@@ -121,6 +155,8 @@ export interface FinishInput {
   failureMessage: string | null;
   resultStatus: ResultStatus;
   structuredResult: unknown;
+  /** human | ivr | voicemail | unknown, from the per-recipient result. */
+  answeredBy: string | null;
   summary: string | null;
   taskCompleted: boolean | null;
   completionConfidence: unknown;
@@ -151,6 +187,7 @@ export async function finishCall(input: FinishInput): Promise<boolean> {
         calle_failure_message = ${input.failureMessage},
         result_status = ${input.resultStatus},
         structured_result = ${input.structuredResult === null ? null : JSON.stringify(input.structuredResult)}::jsonb,
+        answered_by = ${input.answeredBy},
         summary = ${input.summary},
         task_completed = ${input.taskCompleted},
         completion_confidence = ${input.completionConfidence === null ? null : JSON.stringify(input.completionConfidence)}::jsonb,
@@ -201,7 +238,7 @@ export async function scheduleRetry(
   return result.rows.length > 0 ? id : null;
 }
 
-/** How many attempts this occurrence has had, and whether every one went unanswered. */
+/** How many attempts this occurrence has had, and whether nobody spoke on any of them. */
 export async function occurrenceAttempts(
   planId: string,
   occurrence: number,
@@ -209,7 +246,11 @@ export async function occurrenceAttempts(
   const result = await getDb().execute(sql`
     select
       count(c.*) filter (where c.finished_at is not null)                    as made,
-      count(c.*) filter (where c.calle_failure_code = 'no_answer')           as no_answer,
+      -- Evidence, not a failure string. outcome is folded from whether anyone
+      -- actually spoke; calle_failure_code is an unpublished third-party
+      -- vocabulary that came back 603 the one time it mattered, so counting
+      -- it here meant no_answer_exhausted could never fire in production.
+      count(c.*) filter (where c.outcome = 'no_answer')                      as no_answer,
       max(p.max_attempts)                                                    as max_attempts
     from scheduled_calls c
     join follow_up_plans p on p.id = c.plan_id
@@ -245,18 +286,53 @@ export async function raiseEscalation(input: {
   reason: string;
   utterance: string | null;
   dedupeKey: string;
+  /** Set only by the triage pass. Null on a pure-engine row — a rule has no
+      opinion about degree, it only knows that it matched. */
+  severity?: string | null;
+  summary?: string | null;
+  triageId?: string | null;
+  /** What the floor caught, listed on the row rather than raised beside it. */
+  floorHits?: { ruleId: string; label: string; urgent: boolean }[];
 }): Promise<string | null> {
   const id = newId("esc");
+  const hits = input.floorHits ?? [];
   const result = await getDb().execute(sql`
     insert into escalations
-      (id, patient_id, plan_id, call_id, slot_id, rule_id, rule_label, urgent, reason, utterance, dedupe_key)
+      (id, patient_id, plan_id, call_id, slot_id, rule_id, rule_label, urgent, reason,
+       utterance, dedupe_key, severity, summary, triage_id, floor_hits)
     values (${id}, ${input.patientId}, ${input.planId}, ${input.callId}, ${input.slotId},
             ${input.ruleId}, ${input.ruleLabel}, ${input.urgent}, ${input.reason},
-            ${input.utterance}, ${input.dedupeKey})
+            ${input.utterance}, ${input.dedupeKey}, ${input.severity ?? null},
+            ${input.summary ?? null}, ${input.triageId ?? null},
+            ${hits.length > 0 ? JSON.stringify(hits) : null}::jsonb)
     on conflict (dedupe_key) do nothing
     returning id
   `);
   return result.rows.length > 0 ? id : null;
+}
+
+/**
+ * A clinician has read this one.
+ *
+ * `acknowledged` has been in the schema and in every read predicate since the
+ * queue was built, and nothing ever wrote it. It is the human-in-the-loop step
+ * the product needed: `open` means nobody has looked, `acknowledged` means
+ * somebody has, and `resolved` still means somebody acted.
+ *
+ * Conditional on `open` so two clinicians opening the same escalation cannot
+ * both claim to have been first.
+ */
+export async function acknowledgeEscalation(
+  escalationId: string,
+  by = readConfig().clinicianName,
+): Promise<boolean> {
+  const result = await getDb().execute(sql`
+    update escalations
+    set status = 'acknowledged', acknowledged_at = now(), acknowledged_by = ${by}
+    where id = ${escalationId} and status = 'open'
+    returning id
+  `);
+  return result.rows.length > 0;
 }
 
 /**
@@ -318,7 +394,24 @@ export async function resumePlan(planId: string, by: string): Promise<boolean> {
 }
 
 export async function closePlan(planId: string, reason: string, by: string): Promise<boolean> {
-  const result = await getDb().execute(sql`
+  const db = getDb();
+
+  /*
+   * Skip the backlog first, exactly as `cancelPlan` does.
+   *
+   * This did not, and the gap was real: a plan closed at 09:00 with three days
+   * of scheduled rows still `scheduled` left them claimable, so the next tick
+   * could dial a patient whose follow-up a clinician had just ended. Skipping
+   * before the flip means the window between the two statements can only ever
+   * skip too much, never dial too much.
+   */
+  await db.execute(sql`
+    update scheduled_calls
+    set status = 'skipped', skip_reason = 'plan_closed', updated_at = now()
+    where plan_id = ${planId} and status in ('scheduled', 'claimed')
+  `);
+
+  const result = await db.execute(sql`
     update follow_up_plans
     set status = 'completed', closed_at = now(), close_reason = ${reason},
         resumed_by = ${by}, updated_at = now()
@@ -330,17 +423,43 @@ export async function closePlan(planId: string, reason: string, by: string): Pro
 
 export async function resolveEscalation(
   escalationId: string,
-  resolution: string,
+  /**
+   * Null when the caller cannot know yet — resolving is what reveals whether
+   * this escalation had paused the plan, and `setResolution` writes the answer
+   * once the resume has been attempted. The column is nullable; a placeholder
+   * would violate `esc_resolution`.
+   */
+  resolution: string | null,
   by: string,
+  /** What the clinician actually did. Optional, and kept verbatim. */
+  note?: string | null,
 ): Promise<{ planId: string; pausedPlan: boolean } | null> {
+  const trimmed = note?.trim() || null;
   const result = await getDb().execute(sql`
     update escalations
-    set status = 'resolved', resolved_at = now(), resolved_by = ${by}, resolution = ${resolution}
+    set status = 'resolved', resolved_at = now(), resolved_by = ${by},
+        resolution = ${resolution}, resolution_note = ${trimmed}
     where id = ${escalationId} and status in ('open', 'acknowledged')
     returning plan_id, paused_plan
   `);
   const row = (result.rows as Record<string, unknown>[])[0];
   return row ? { planId: String(row.plan_id), pausedPlan: Boolean(row.paused_plan) } : null;
+}
+
+/**
+ * Record what resolving actually did to the plan.
+ *
+ * A second statement because the answer is not known until the resume has been
+ * attempted: an escalation that paused a plan resolves as `resumed`, one raised
+ * while the plan kept running resolves as `no_action`. Writing `resumed` for
+ * both was how the audit trail came to claim a plan had been restarted that
+ * nobody had stopped.
+ */
+export async function setResolution(escalationId: string, resolution: string): Promise<void> {
+  await getDb().execute(sql`
+    update escalations set resolution = ${resolution}
+    where id = ${escalationId} and status = 'resolved'
+  `);
 }
 
 /**
@@ -394,11 +513,41 @@ export async function findAbandonedCalls(olderThanSeconds = 45): Promise<
   }));
 }
 
+/**
+ * The row behind one of CALL-E's call ids.
+ *
+ * The webhook body carries a call id and nothing else we are willing to trust,
+ * so this is the whole of the lookup. `uniq_calle_call_id` makes it at most one
+ * row; an unknown id is a call that was never ours, and the caller answers 200
+ * anyway rather than teaching an at-least-once sender to retry.
+ */
+export async function findCallByCalleId(calleCallId: string): Promise<
+  { id: string; calleCallId: string; planId: string; patientId: string; occurrence: number; attempt: number } | null
+> {
+  const result = await getDb().execute(sql`
+    select id, calle_call_id, plan_id, patient_id, occurrence, attempt
+    from scheduled_calls where calle_call_id = ${calleCallId} limit 1
+  `);
+  const r = (result.rows as Record<string, unknown>[])[0];
+  if (!r) return null;
+  return {
+    id: String(r.id),
+    calleCallId: String(r.calle_call_id),
+    planId: String(r.plan_id),
+    patientId: String(r.patient_id),
+    occurrence: Number(r.occurrence),
+    attempt: Number(r.attempt),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // The tick's own bookkeeping
 // ---------------------------------------------------------------------------
 
 export interface TickCounters {
+  /** Calls retired for being too late to place. Distinct from `TickResult.skipped`,
+      which means another tick already held the lease. */
+  retired: number;
   claimed: number;
   dialed: number;
   refused: number;
@@ -440,7 +589,8 @@ export async function endTick(
 ): Promise<void> {
   await getDb().execute(sql`
     update tick_runs
-    set finished_at = now(), expanded = ${counters.expanded}, claimed = ${counters.claimed},
+    set finished_at = now(), expanded = ${counters.expanded}, retired = ${counters.retired},
+        claimed = ${counters.claimed},
         dialed = ${counters.dialed}, refused = ${counters.refused},
         finished = ${counters.finished}, escalated = ${counters.escalated},
         error = ${error ?? null}

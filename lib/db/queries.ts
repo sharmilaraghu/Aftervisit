@@ -219,7 +219,10 @@ export interface QueueRow {
   ref: number;
   patientId: string;
   patientName: string;
+  age: number;
   phoneE164: string;
+  /** What the plan is following up on — the clinical context for the quote. */
+  planReason: string;
   /** Timestamps are shown in the patient's zone, not the server's. */
   timezone: string;
   planId: string;
@@ -227,30 +230,56 @@ export interface QueueRow {
   ruleId: string;
   ruleLabel: string;
   urgent: boolean;
+  /** The model's verdict, when one ran. Null on a pure-engine row. */
+  severity: string | null;
+  /** The model's account of the call, for a clinician who was not on it. */
+  summary: string | null;
+  /** Set once a clinician has opened it. `open` means nobody has looked yet. */
+  status: string;
   reason: string;
   utterance: string | null;
   raisedAt: Date;
   pausedPlan: boolean;
+  /** What the floor caught on the same call, listed rather than raised beside it. */
+  floorHits: { ruleId: string; label: string; urgent: boolean }[] | null;
+  /** Set only on a resolved row. */
+  resolvedAt: Date | null;
+  resolvedBy: string | null;
+  resolution: string | null;
+  resolutionNote: string | null;
 }
 
 /** The queue's only query, ordered exactly as it renders so `idx_queue` serves it. */
 export async function getQueue(): Promise<QueueRow[]> {
   const db = getDb();
   const result = await db.execute(sql`
-    select e.id, e.ref, e.patient_id, pt.name as patient_name, pt.phone_e164,
-           pt.timezone, e.plan_id, e.call_id, e.rule_id, e.rule_label, e.urgent,
-           e.reason, e.utterance, e.raised_at, e.paused_plan
+    select e.id, e.ref, e.patient_id, pt.name as patient_name, pt.age,
+           pt.phone_e164, pt.timezone, e.plan_id, e.call_id, e.rule_id,
+           e.rule_label, e.urgent, e.severity, e.summary, e.status,
+           e.reason, e.utterance, e.raised_at, e.paused_plan, e.floor_hits,
+           e.resolved_at, e.resolved_by, e.resolution, e.resolution_note,
+           -- What this patient is being followed up for. Without it the card
+           -- names a person and quotes them with no clinical context at all.
+           p.reason as plan_reason
     from escalations e
     join patients pt on pt.id = e.patient_id
+    join follow_up_plans p on p.id = e.plan_id
     where e.status in ('open','acknowledged')
     order by e.urgent desc, e.raised_at desc
   `);
 
-  return (result.rows as Record<string, unknown>[]).map((r) => ({
+  return (result.rows as Record<string, unknown>[]).map(toQueueRow);
+}
+
+/** One shared mapper, so the open and resolved reads cannot drift apart. */
+function toQueueRow(r: Record<string, unknown>): QueueRow {
+  return {
     id: String(r.id),
     ref: Number(r.ref),
     patientId: String(r.patient_id),
     patientName: String(r.patient_name),
+    age: Number(r.age),
+    planReason: String(r.plan_reason ?? ""),
     phoneE164: String(r.phone_e164),
     timezone: String(r.timezone),
     planId: String(r.plan_id),
@@ -258,11 +287,46 @@ export async function getQueue(): Promise<QueueRow[]> {
     ruleId: String(r.rule_id),
     ruleLabel: String(r.rule_label),
     urgent: Boolean(r.urgent),
+    severity: r.severity ? String(r.severity) : null,
+    summary: r.summary ? String(r.summary) : null,
+    status: String(r.status),
     reason: String(r.reason),
     utterance: r.utterance ? String(r.utterance) : null,
     raisedAt: new Date(String(r.raised_at)),
     pausedPlan: Boolean(r.paused_plan),
-  }));
+    floorHits: (r.floor_hits ?? null) as QueueRow["floorHits"],
+    resolvedAt: r.resolved_at ? new Date(String(r.resolved_at)) : null,
+    resolvedBy: r.resolved_by ? String(r.resolved_by) : null,
+    resolution: r.resolution ? String(r.resolution) : null,
+    resolutionNote: r.resolution_note ? String(r.resolution_note) : null,
+  };
+}
+
+/**
+ * What has already been dealt with.
+ *
+ * Acting on a card used to delete it and all its evidence from the interface
+ * permanently — `getQueue` filters to `open` and `acknowledged`, and there was
+ * no other read — so "what happened with her last week?" had no answer anywhere
+ * in the console. This is the same rows, after the fact, carrying what the
+ * clinician wrote at the time.
+ */
+export async function getResolvedQueue(limit = 20): Promise<QueueRow[]> {
+  const result = await getDb().execute(sql`
+    select e.id, e.ref, e.patient_id, pt.name as patient_name, pt.age,
+           pt.phone_e164, pt.timezone, e.plan_id, e.call_id, e.rule_id,
+           e.rule_label, e.urgent, e.severity, e.summary, e.status,
+           e.reason, e.utterance, e.raised_at, e.paused_plan, e.floor_hits,
+           e.resolved_at, e.resolved_by, e.resolution, e.resolution_note,
+           p.reason as plan_reason
+    from escalations e
+    join patients pt on pt.id = e.patient_id
+    join follow_up_plans p on p.id = e.plan_id
+    where e.status = 'resolved'
+    order by e.resolved_at desc nulls last
+    limit ${limit}
+  `);
+  return (result.rows as Record<string, unknown>[]).map(toQueueRow);
 }
 
 function emptyWeek(): DayState[] {

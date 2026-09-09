@@ -45,9 +45,54 @@ export interface SeedPatient {
    * actually said: the queue's entire claim is that the rule, the reason and
    * the words are the same story, and a red-flag label over a vague answer
    * quietly breaks it.
+   *
+   * `moderate_symptoms` is the only routine one. It raises a queue entry and
+   * leaves the plan running, which is what separates "waiting on you" from
+   * "needs you now" — and it still carries the patient's words, because a rule
+   * fired on something they actually said.
    */
-  flagRule?: "red_flag_term_heard" | "unmappable_response";
+  flagRule?: "red_flag_term_heard" | "unmappable_response" | "moderate_symptoms";
   week: SeedDay[];
+  /**
+   * A course of treatment that ended before the current one.
+   *
+   * Real patients are followed up more than once, and until the console could
+   * show that, "what were we treating them for in the summer" was a question it
+   * could not answer. One `clinician_closed` and one `superseded` between them
+   * cover both ways a plan ends by a decision rather than by running out of
+   * calendar.
+   */
+  priorPlan?: SeedPriorPlan;
+}
+
+export interface SeedPriorPlan {
+  condition: string;
+  reason: string;
+  note: string;
+  /** How it ended. `superseded` also stamps the successor's `version`. */
+  closeReason: "clinician_closed" | "superseded";
+  /** How long ago it started and ended, in days. */
+  startedDaysAgo: number;
+  closedDaysAgo: number;
+  /** How many of its calls were answered. The rest are never seeded. */
+  answered: number;
+}
+
+/**
+ * A patient nobody has written a plan for.
+ *
+ * Their own list rather than a variant of `SeedPatient`, because none of the
+ * plan fields above mean anything here: there is no note, no condition, no
+ * cadence and no week. `needs_plan` is derived from the *absent* plan row, so
+ * seeding that state means seeding a patient and stopping.
+ */
+export interface SeedUnplannedPatient {
+  slug: string;
+  name: string;
+  age: number;
+  timezone: string;
+  phone: string;
+  consent: "granted" | "unknown" | "declined";
 }
 
 export const SEED_PATIENTS: SeedPatient[] = [
@@ -88,106 +133,40 @@ export const SEED_PATIENTS: SeedPatient[] = [
       "he does not ring us when things slip, so I want to know if he goes quiet.",
     planStatus: "active",
     week: ["answered", "answered", "missed", "missed", "missed", "scheduled", "scheduled"],
+    priorPlan: {
+      condition: "chest_infection",
+      reason: "Chest infection · antibiotic course",
+      note:
+        "Marcus B, 72. Community-acquired chest infection, five days of " +
+        "amoxicillin. Daily check while he is on it — cough, fever, breathing.",
+      closeReason: "clinician_closed",
+      startedDaysAgo: 38,
+      closedDaysAgo: 31,
+      answered: 5,
+    },
   },
+];
+
+export const SEED_UNPLANNED: SeedUnplannedPatient[] = [
   {
-    slug: "owen-h",
-    name: "Owen H",
-    age: 61,
+    slug: "victor-l",
+    name: "Victor L",
+    age: 46,
     timezone: "Europe/London",
-    phone: "+14155550142",
-    consent: "granted",
-    condition: "statin_tolerance",
-    reason: "Statin tolerance · muscle pain check",
-    note:
-      "Owen H, 61. Second attempt at a statin after stopping the last one for " +
-      "muscle aches. Daily for a week — ask about muscle pain and weakness. If " +
-      "he reports dark urine, that is same-day.",
-    planStatus: "paused",
-    flagRule: "unmappable_response",
-    week: ["answered", "answered", "answered", "flagged", "held", "scheduled", "scheduled"],
-  },
-  {
-    slug: "daniel-o",
-    name: "Daniel O",
-    age: 67,
-    timezone: "Europe/London",
-    phone: "+14155550108",
-    consent: "granted",
-    condition: "post_op_wound",
-    reason: "Post-op wound · signs of infection",
-    note:
-      "Daniel O, 67. Day 2 post inguinal hernia repair. Wound clean and dry on " +
-      "discharge. Daily wound check for a week — redness, discharge, fever.",
-    planStatus: "active",
-    week: ["answered", "answered", "answered", "answered", "scheduled", "scheduled", "scheduled"],
-  },
-  {
-    slug: "priya-n",
-    name: "Priya N",
-    age: 41,
-    timezone: "Asia/Kolkata",
-    phone: "+14155550123",
-    consent: "granted",
-    condition: "asthma",
-    reason: "Asthma · inhaler technique and reliever use",
-    note:
-      "Priya N, 41. Asthma review — reliever use had crept up to most days. " +
-      "Retaught inhaler technique and started a preventer. Daily for a week: " +
-      "how many times she has needed the reliever, and night symptoms.",
-    planStatus: "active",
-    week: ["answered", "answered", "answered", "scheduled", "scheduled", "scheduled", "scheduled"],
-  },
-  {
-    slug: "nadia-f",
-    name: "Nadia F",
-    age: 35,
-    timezone: "Europe/London",
-    phone: "+14155550166",
-    consent: "granted",
-    condition: "post_discharge",
-    reason: "Post-discharge · pain and mobility",
-    note:
-      "Nadia F, 35. Discharged yesterday after a fall. No fracture. Daily for a " +
-      "week — pain control and whether she is managing to move about at home.",
-    planStatus: "active",
-    week: ["answered", "answered", "scheduled", "scheduled", "scheduled", "scheduled", "scheduled"],
-  },
-  {
-    slug: "tomas-r",
-    name: "Tomas R",
-    age: 58,
-    timezone: "Europe/London",
-    phone: "+14155550171",
+    phone: "+14155550193",
+    // Nobody has asked him about automated calls, because nobody has got as far
+    // as writing his plan.
     consent: "unknown",
-    condition: "blood_pressure",
-    reason: "Blood pressure recheck · new amlodipine",
-    note:
-      "Tomas R, 58. Started amlodipine 5mg today. Recheck over the next week — " +
-      "ankle swelling, dizziness, and whether he is actually taking it.",
-    // Seeded unapproved on purpose: the roster needs one plan waiting on the
-    // doctor, and consent is still `unknown` because nobody has asked him yet.
-    planStatus: "awaiting_approval",
-    week: ["none", "none", "none", "none", "none", "none", "none"],
-  },
-  {
-    slug: "leah-s",
-    name: "Leah S",
-    age: 29,
-    timezone: "Europe/London",
-    phone: "+14155550188",
-    consent: "granted",
-    condition: "thyroid",
-    reason: "Thyroid recheck · symptom review",
-    note:
-      "Leah S, 29. Levothyroxine dose changed six weeks ago. A week of daily " +
-      "symptom checks before her bloods: energy, palpitations, sleep.",
-    planStatus: "completed",
-    week: ["answered", "answered", "answered", "missed", "answered", "answered", "answered"],
   },
 ];
 
 /** What a reached call actually said, per condition. Real sentences, not lorem. */
 export const DEMO_UTTERANCES: Record<string, string[]> = {
+  chest_infection: [
+    "Cough's still there but it's loosened up a lot since the tablets.",
+    "No fever last night, first night I've slept through.",
+    "Breathing's back to normal walking round the flat.",
+  ],
   new_metformin: [
     "Yes, one in the morning and one at night, with food like you said.",
     "A bit of an upset stomach yesterday but it settled down.",
@@ -217,6 +196,10 @@ export const DEMO_UTTERANCES: Record<string, string[]> = {
   post_discharge: [
     "Pain's about a four. I'm getting to the kitchen and back.",
     "Managing alright, my sister's been over.",
+    // Last, because the seeded `flagged` day always takes the last sentence.
+    // It has to be an answer that genuinely reads as moderate — the rule that
+    // fires on it is `symptom_severity in ("moderate")`.
+    "It's got a fair bit sorer since yesterday and I've stopped going upstairs.",
   ],
   thyroid: [
     "Energy's better than it was.",

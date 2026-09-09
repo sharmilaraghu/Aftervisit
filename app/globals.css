@@ -189,6 +189,23 @@ a {
   max-width: 68ch;
 }
 
+/*
+ * A label only a screen reader reads. The arrows on the reorder buttons are the
+ * whole control visually, and "↑" announced on its own says nothing about what
+ * it moves or where.
+ */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* Label stock ------------------------------------------------------------- */
 
 .sheet {
@@ -257,6 +274,549 @@ a {
 @media (min-width: 560px) {
   .stage-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/*
+ * The console shell.
+ *
+ * A rail down the left, the way a dispensing sleeve is indexed by tabs on its
+ * edge. Below 900px the rail becomes a band across the top: a fixed 232px
+ * column on a laptop-in-a-consulting-room is right, and on a phone it is a
+ * third of the screen spent on navigation.
+ */
+.console-shell {
+  min-height: 100dvh;
+  display: grid;
+  /* The rail publishes its own width so the shell's column follows it. */
+  grid-template-columns: minmax(0, 1fr);
+  background: var(--bench);
+}
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--cell) * 1);
+  padding: calc(var(--cell) * 2) calc(var(--cell) * 3);
+  background: var(--bench-2);
+  border-bottom: 1px solid var(--bench-line);
+}
+
+.rail ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+.rail-head {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--cell) * 1);
+  padding-bottom: calc(var(--cell) * 2);
+}
+
+.rail-brand,
+.rail-link {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--cell) * 1.25);
+  text-decoration: none;
+}
+
+.rail-brand {
+  min-width: 0;
+  padding: calc(var(--cell) * 1) 0;
+  font-family: var(--brand);
+  font-weight: 700;
+  font-size: 21px;
+  letter-spacing: -0.015em;
+  color: var(--bench-ink);
+}
+
+.rail-link {
+  gap: calc(var(--cell) * 1.5);
+  padding: calc(var(--cell) * 1.25) calc(var(--cell) * 1.5);
+  color: var(--bench-ink-2);
+  transition: background 140ms ease-out, color 140ms ease-out;
+}
+
+.rail-link[data-current] {
+  color: var(--print);
+  background: var(--bench-ink);
+}
+
+.rail-count {
+  margin-left: auto;
+}
+
+/*
+ * The collapse control. Ink, never amber — the view's one amber belongs to the
+ * work, not to a preference about chrome width.
+ */
+.rail-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  /* 32px: a real target for a control that lives in the chrome. */
+  width: calc(var(--cell) * 4);
+  height: calc(var(--cell) * 4);
+  margin-left: auto;
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--bench-ink-2);
+  cursor: pointer;
+}
+
+.rail-toggle:hover {
+  color: var(--bench-ink);
+}
+
+/* Drawn from two borders, like the roster group's marker: this world has no
+   icon set, and one chevron must not become the exception that starts one. */
+.rail-chevron {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-left: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform 140ms ease-out;
+}
+
+.rail[data-collapsed] .rail-chevron {
+  transform: rotate(-135deg);
+}
+
+/* Stacked, the practice block and the collapse control are chrome nobody needs
+   above the work — there is no width to reclaim in a horizontal band. */
+.rail-foot {
+  display: none;
+}
+
+@media (min-width: 900px) {
+  .console-shell {
+    grid-template-columns: 232px minmax(0, 1fr);
+  }
+
+  /*
+   * Collapsed, the rail is a column of edge tabs — the same `writing-mode`
+   * device the compile tab uses. Nothing is hidden behind a tooltip and every
+   * section keeps its name, which is what makes this legitimate in a world
+   * with no icon set to collapse to.
+   */
+  .console-shell:has(.rail[data-collapsed]) {
+    grid-template-columns: calc(var(--cell) * 7) minmax(0, 1fr);
+  }
+
+  .rail {
+    position: sticky;
+    top: 0;
+    height: 100dvh;
+    border-bottom: none;
+    border-right: 1px solid var(--bench-line);
+  }
+
+  .rail ul {
+    display: grid;
+  }
+
+  .rail-foot {
+    display: block;
+    margin-top: calc(var(--cell) * 3);
+    padding-top: calc(var(--cell) * 2);
+    border-top: 1px solid var(--bench-line);
+  }
+
+  .rail-toggle {
+    display: flex;
+  }
+
+  .rail[data-collapsed] {
+    padding-left: calc(var(--cell) * 1);
+    padding-right: calc(var(--cell) * 1);
+    align-items: center;
+  }
+
+  .rail[data-collapsed] .rail-label,
+  .rail[data-collapsed] .rail-foot {
+    display: none;
+  }
+
+  .rail[data-collapsed] .rail-head {
+    flex-direction: column;
+    gap: calc(var(--cell) * 1.5);
+  }
+
+  .rail[data-collapsed] .rail-toggle {
+    margin-left: 0;
+  }
+
+  .rail[data-collapsed] .rail-link {
+    flex-direction: column;
+    gap: calc(var(--cell) * 1);
+    padding: calc(var(--cell) * 2) calc(var(--cell) * 0.75);
+  }
+
+  .rail[data-collapsed] .rail-tab {
+    writing-mode: vertical-rl;
+    letter-spacing: 0.2em;
+  }
+
+  .rail[data-collapsed] .rail-count {
+    margin-left: 0;
+  }
+
+}
+
+/*
+ * A roster group.
+ *
+ * The summary is a printed index tab on the bench, not a control panel: the
+ * heading, its count, and one line saying what is inside. The marker is drawn
+ * as a rotating chevron from the same ink as the text — this world has no icon
+ * set, and the browser's default triangle is the one glyph it would smuggle in.
+ */
+.roster-group {
+  margin-bottom: calc(var(--cell) * 3);
+}
+
+/*
+ * One index tab, shared by the roster and the queue.
+ *
+ * The queue used to be five identical sheets with the ranking carried by an
+ * 11px strip in a corner, so a clinician had to read all five to rediscover an
+ * order the query had already established. Its bands take this heading rather
+ * than a second treatment of their own: the roster and the queue are the same
+ * bench, and one of them inventing its own group heading is how two surfaces
+ * stop reading as one system.
+ */
+.roster-group > summary,
+.roster-flat-head,
+.queue-group > h2 {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--cell) * 1.5);
+  padding: calc(var(--cell) * 1.25) 0;
+  border-bottom: 1px solid var(--bench-line);
+  margin-bottom: calc(var(--cell) * 1.5);
+}
+
+.roster-group > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.roster-group > summary::-webkit-details-marker {
+  display: none;
+}
+
+.roster-group > summary::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-right: 1.5px solid var(--bench-ink-2);
+  border-bottom: 1.5px solid var(--bench-ink-2);
+  transform: rotate(-45deg);
+  transition: transform 140ms ease-out;
+}
+
+.roster-group[open] > summary::before {
+  transform: rotate(45deg);
+}
+
+.roster-group > summary:hover::before {
+  border-color: var(--bench-ink);
+}
+
+/*
+ * The flat head has no marker to indent past, so it takes the marker's width
+ * back as padding and the two heads still start on the same vertical line.
+ */
+.roster-flat-head {
+  padding-left: calc(7px + var(--cell) * 1.5);
+  /* On a phone the line is too short for the sentence and the way out at once.
+     It wraps rather than squeezing both into two-word columns. */
+  flex-wrap: wrap;
+}
+
+/*
+ * A sortable column header.
+ *
+ * A real button, because a click handler on a `<th>` is unreachable by keyboard
+ * and unannounced by anything. It carries `.caps` too, so it prints as the
+ * field label it replaced rather than as a control dropped into a table head.
+ *
+ * The direction mark is drawn from two borders, like the roster group's
+ * chevron: this world has no icon set, and an arrow glyph would be the first
+ * one. It holds its space when inactive so a header never changes width as the
+ * sort moves between columns — a row of jumping labels reads as a broken table.
+ */
+/*
+ * The whole header cell is the control.
+ *
+ * With `padding: 0` the button was 13px tall inside a cell with 12px of padding
+ * above and below it — a target you have to aim at on a phone, sitting inside
+ * an area that looks like it should work. Filling the cell costs nothing and
+ * makes the visible thing and the clickable thing the same shape.
+ */
+.sort-head {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: calc(var(--cell) * 0.75);
+  padding: calc(var(--cell) * 1.25) 0;
+  margin: calc(var(--cell) * -1.25) 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  transition: color 140ms ease-out;
+}
+
+.sort-head::after {
+  content: "";
+  width: 5px;
+  height: 5px;
+  flex-shrink: 0;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg) translate(-1px, -1px);
+  opacity: 0;
+  transition: opacity 140ms ease-out;
+}
+
+/* Sortable, but not sorting: the mark appears on approach rather than sitting
+   in every header at once, which would claim five active sorts. */
+.sort-head:hover,
+.sort-head:focus-visible {
+  color: var(--print);
+}
+
+.sort-head:hover::after,
+.sort-head:focus-visible::after {
+  opacity: 0.45;
+}
+
+.sort-head[data-dir] {
+  color: var(--print);
+}
+
+.sort-head[data-dir]::after {
+  opacity: 1;
+}
+
+.sort-head[data-dir="asc"]::after {
+  transform: rotate(-135deg) translate(-1px, -1px);
+}
+
+/* The first thing to go when the row runs out of room. */
+.roster-group-blurb {
+  display: none;
+  color: var(--bench-ink-3);
+  font-size: 13px;
+}
+
+@media (min-width: 760px) {
+  .roster-group-blurb {
+    display: inline;
+  }
+}
+
+/*
+ * A queue band. Not a <details>: a roster group can be shut because nothing in
+ * it is waiting, and an escalation you can collapse is one you can miss.
+ */
+.queue-group {
+  margin-bottom: calc(var(--cell) * 3);
+}
+
+.queue-group > h2 {
+  margin-top: 0;
+  /* `.caps` inside carries the type; this only sets the flex line. */
+  font-size: 11px;
+}
+
+/*
+ * The filter hides rows, so a band can end up a heading with a count over an
+ * empty stretch of bench, which reads as a broken page rather than as a filter
+ * doing its job. A band with nothing left to show takes itself off.
+ */
+.queue-group:not(:has([data-row-id]:not([hidden]))) {
+  display: none;
+}
+
+/*
+ * A table that outruns its sheet.
+ *
+ * The wrapper is focusable because scrolling it was keyboard-unreachable —
+ * a 2.1.1 failure, and the roster's State column lived past the fold on a
+ * phone. `group` rather than `region`: the roster renders one of these per
+ * band, and four identically-named region landmarks trade one audit failure
+ * for another.
+ */
+.scroller {
+  overflow-x: auto;
+}
+
+/* At the global 2px offset the ring lands outside the sheet, on the bench that
+   swallows it. Cut it inside instead. */
+.scroller:focus-visible {
+  outline-offset: -2px;
+}
+
+/*
+ * The roster below 720px.
+ *
+ * At 390px the sheet is 326px wide and the table asks for 820, so the two
+ * columns a clinician actually triages by — State, and the week — were both
+ * off the right-hand edge: a patient list with no indication of who is
+ * escalated. Narrow keeps Patient · State · The week and drops the two columns
+ * that can be recovered elsewhere ("Following up on" is on the patient page;
+ * "What's off" is the detail behind a state the badge and the week band
+ * already report). Columns are shown and hidden, never re-rendered: two tables
+ * would put every patient in the DOM twice.
+ */
+
+/*
+ * The roster reads as a sheet you work in, not a list you scroll past.
+ *
+ * Two spreadsheet affordances, and only two, because the rest of that
+ * vocabulary — zebra fills, cell borders, resize handles — is exactly the
+ * tinted-row signalling this system forbids and would spend colour on chrome.
+ *
+ * **The header stays.** Fourteen patients is one screen; a real practice is
+ * not, and a column header that scrolls away turns "what is this column?" into
+ * a scroll back to the top. It carries the stock's own background so rows pass
+ * *under* it rather than showing through, and the structural hairline travels
+ * with it as the edge of the printed head.
+ *
+ * **The row under the pointer lifts.** `label-2` is the inset tone already used
+ * for a panel within a sheet, so a hovered row reads as the same paper caught
+ * slightly differently — not as a state, which in this world would have to be a
+ * printed band with a word on it.
+ */
+.roster-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--label);
+  box-shadow: inset 0 -1px 0 var(--rule-ink);
+}
+
+.roster-table tbody tr:hover {
+  background: var(--label-2);
+}
+
+/* A pointer is the only thing this responds to. Keyboard focus is already
+   carried by the ring on the patient link inside the row, and doubling it
+   would put two marks on one line. */
+@media (hover: none) {
+  .roster-table tbody tr:hover {
+    background: transparent;
+  }
+}
+
+.roster-table {
+  min-width: 440px;
+}
+
+.roster-table .col-reason,
+.roster-table .col-signal,
+.roster-table .col-age {
+  display: none;
+}
+
+@media (min-width: 720px) {
+  .roster-table {
+    min-width: 880px;
+  }
+
+  .roster-table .col-reason,
+  .roster-table .col-signal,
+  .roster-table .col-age {
+    display: table-cell;
+  }
+
+  /*
+   * Age is printed twice in the markup and shown once: as its own sortable
+   * column here, and inside the patient cell on a phone, where a column for
+   * one two-digit number would cost more than it tells anyone. Hidden, not
+   * re-rendered — two tables would put every patient in the DOM twice.
+   */
+  .roster-table .age-inline {
+    display: none;
+  }
+}
+
+/*
+ * The scroll cue. Prose at reading size, not tracked caps — caps label a value,
+ * they never set a sentence. It is `print-3` rather than the bench's quiet ink
+ * because it prints inside the sheet, where `bench-ink-3` measures 3.6:1 on
+ * white stock and fails as body text.
+ */
+.scroll-note {
+  margin: 0;
+  padding: calc(var(--cell) * 1.5) calc(var(--cell) * 2);
+  border-top: 1px solid var(--rule-2);
+  color: var(--print-3);
+  font-size: 13px;
+}
+
+/*
+ * The four figures are one sheet of label stock ruled into cells, never four
+ * floating cards. They divide two-up, then four-up — a 2x2 block of numbers is
+ * readable where four squeezed columns are not.
+ */
+.figure-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.figure-row > * + * {
+  border-left: 1px solid var(--rule);
+}
+
+/* The rule that starts the second row must not read as a column edge. */
+.figure-row > :nth-child(3) {
+  border-left: none;
+}
+
+.figure-row > :nth-child(n + 3) {
+  border-top: 1px solid var(--rule);
+}
+
+@media (min-width: 1100px) {
+  .figure-row {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .figure-row > :nth-child(3) {
+    border-left: 1px solid var(--rule);
+  }
+
+  .figure-row > :nth-child(n + 3) {
+    border-top: none;
+  }
+}
+
+/*
+ * The work on the left, what needs a person on the right. The rail drops under
+ * the table before the table would have to start hiding columns.
+ */
+.overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: calc(var(--cell) * 3);
+  /* Each sheet ends where its content ends. Stretching the shorter one to match
+     its neighbour leaves a field of blank stock under the last row. */
+  align-items: start;
+}
+
+@media (min-width: 1180px) {
+  .overview-grid {
+    grid-template-columns: minmax(0, 1.75fr) minmax(320px, 0.95fr);
   }
 }
 
@@ -401,7 +961,15 @@ a {
   color: var(--print);
   font: inherit;
   font-size: 15px;
-  line-height: 1.4;
+  /*
+   * A fixed line box, not a proportional one.
+   *
+   * `1.4` resolves against the face, and Martian Mono is shorter than Archivo
+   * at the same size — so a mono Age box and an Archivo Name box beside it came
+   * out 42px and 43px, three fields on one baseline at two heights. A fixed
+   * 22px line box makes every control the same height whatever it is set in.
+   */
+  line-height: 22px;
 }
 
 .control::placeholder {
@@ -427,6 +995,26 @@ a {
 /* Numbers, ids and phone entry are compared by eye, so they are set in mono. */
 .control.mono {
   font-size: 14px;
+}
+
+/*
+ * A disclosure for settings that already have a right answer.
+ *
+ * Native <details>, because the browser owns the open state, the keyboard
+ * handling and the semantics for free — the only work left is making the
+ * summary read as a sheet's header band rather than as a link. `display` is
+ * left alone deliberately: a summary is a `list-item`, and overriding it takes
+ * the triangle — the only thing announcing that the band opens — away with it.
+ */
+.disclosure > summary {
+  padding: calc(var(--cell) * 2);
+  color: var(--print-3);
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.disclosure > summary:hover {
+  background: var(--label-2);
 }
 
 /*
@@ -510,4 +1098,96 @@ a {
 .tab-invite:focus-visible,
 .pull-tab:focus-visible {
   outline-color: var(--amber-deep);
+}
+
+
+/*
+ * The commit band.
+ *
+ * The approval screen asks its question in the headline and answered it 2.8
+ * screens later, at 94% page depth, behind fifty controls for rewording
+ * questions and deleting red-flag words. Moving the decision above the evidence
+ * would have been worse — it would invite approving a plan nobody read — so the
+ * evidence keeps its reading order and the decision follows the doctor down it.
+ *
+ * Chrome, not a floating card: `bench-2` is the console's own closing-band
+ * tone, and the single hairline is a rule, not a shadow. Nothing here lifts off
+ * the bench, and the Contact-Shadow Rule is untouched.
+ *
+ * It hides itself the moment the real authorisation panel is on screen, so the
+ * One Amber Rule holds: there is never more than one amber button in view.
+ */
+.commit-band {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  padding: calc(var(--cell) * 1.5) 0;
+  background: var(--bench-2);
+  border-top: 1px solid var(--bench-line-strong);
+  animation: commit-band-in 160ms ease-out;
+}
+
+/* The plan page's own measure, so the sentence starts where the sheets start
+   and the button ends where they end. A band that spans the window puts the
+   one irreversible control outside the column everything else was read in. */
+.commit-band-inner {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--cell) * 2);
+  max-width: 944px;
+  margin: 0 auto;
+  padding: 0 calc(var(--cell) * 3);
+}
+
+.commit-band-note {
+  margin: 0;
+  min-width: 0;
+  color: var(--bench-ink-2);
+  font-size: 14px;
+}
+
+/* Wide enough for a row: the button goes to the far edge. Narrower than that
+   and the band stacks, with the button full width rather than wrapping its
+   own label onto two lines. */
+@media (min-width: 640px) {
+  .commit-band-inner > button {
+    margin-left: auto;
+  }
+}
+
+@media (max-width: 639px) {
+  .commit-band-inner {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .commit-band-inner > button {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+@keyframes commit-band-in {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .commit-band {
+    animation: none;
+  }
+}
+
+@media (min-width: 900px) {
+  /* Clear of the rail, and it follows the rail when that collapses. */
+  .commit-band {
+    left: 232px;
+  }
+
+  .console-shell:has(.rail[data-collapsed]) .commit-band {
+    left: calc(var(--cell) * 7);
+  }
 }

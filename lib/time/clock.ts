@@ -2,9 +2,9 @@
  * Time, as a value that gets passed in.
  *
  * The rule engine must be pure, and a function that calls `Date.now()` is not:
- * it cannot be tested at a boundary, and "escalation is never model judgment"
- * stops being checkable if the answer depends on when you ask. So `now` is an
- * argument everywhere, and this file holds the only places that read a clock.
+ * it cannot be tested at a boundary, and the floor it sets stops being checkable
+ * if the answer depends on when you ask. So `now` is an argument everywhere, and
+ * this file holds the only places that read a clock.
  */
 
 export type Clock = () => Date;

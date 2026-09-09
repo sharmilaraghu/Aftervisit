@@ -5,36 +5,18 @@
  * thing a clinician actually wants: parameters down, days across. Everything the
  * agent has collected has been in the database all along and no screen showed it.
  *
- * What counts as an escalating value comes from the **plan's own rules**, so a
- * cell is never toned by a guess — it is toned by what the doctor said matters.
+ * What counts as an escalating value is a property of the question itself
+ * (`escalatingFor`), not of a per-plan rule. It only tones a cell so a
+ * fortnight can be scanned; nothing escalates from it, and what a call actually
+ * meant is the model's reading, not this.
  */
 
 import { sql } from "drizzle-orm";
 
 import { getDb } from "@/lib/db/client";
 import type { AnswerType, SlotStatus } from "@/lib/db/enums";
-import type { PlanRule } from "@/lib/rules/types";
 import type { ParameterReading, ParameterRow } from "@/lib/patients/parameters";
-
-/** Pull each question's escalating values out of the rules the doctor approved. */
-function escalationFor(rules: PlanRule[], questionId: string) {
-  let escalatingValues: string[] = [];
-  let escalatingBool: boolean | null = null;
-  let threshold: number | null = null;
-
-  for (const { rule } of rules) {
-    if (rule.kind === "enum_in" && rule.questionId === questionId) {
-      escalatingValues = [...escalatingValues, ...rule.values];
-    }
-    if (rule.kind === "boolean_equals" && rule.questionId === questionId) {
-      escalatingBool = rule.value;
-    }
-    if (rule.kind === "scale_at_least" && rule.questionId === questionId) {
-      threshold = rule.threshold;
-    }
-  }
-  return { escalatingValues, escalatingBool, threshold };
-}
+import { escalatingFor } from "@/lib/plan/universal-questions";
 
 export interface ParameterHistory {
   rows: ParameterRow[];
@@ -46,7 +28,7 @@ export async function getParameterHistory(patientId: string): Promise<ParameterH
   const db = getDb();
 
   const planRows = await db.execute(sql`
-    select id, rules, duration_days
+    select id, duration_days
     from follow_up_plans
     where patient_id = ${patientId} and status <> 'cancelled'
     order by created_at desc
@@ -56,7 +38,6 @@ export async function getParameterHistory(patientId: string): Promise<ParameterH
   if (!plan) return { rows: [], occurrences: [] };
 
   const planId = String(plan.id);
-  const rules = (plan.rules ?? []) as PlanRule[];
 
   /*
    * One row per (question, occurrence), including occurrences with no slot yet —
@@ -93,7 +74,7 @@ export async function getParameterHistory(patientId: string): Promise<ParameterH
         answerType: String(r.answer_type) as AnswerType,
         enumValues: (r.enum_values ?? null) as string[] | null,
         readings: [],
-        ...escalationFor(rules, questionId),
+        ...escalatingFor(questionId),
       });
     }
 
@@ -130,7 +111,7 @@ export async function getRosterSignals(): Promise<
 
   const result = await db.execute(sql`
     select s.patient_id, s.question_id, s.value_number, s.value_text, s.value_bool,
-           s.status, c.occurrence, p.rules, q.answer_type
+           s.status, c.occurrence, q.answer_type
     from extracted_slots s
     join scheduled_calls c on c.id = s.call_id
     join follow_up_plans p on p.id = c.plan_id and p.status in ('active','paused')
@@ -154,7 +135,7 @@ export async function getRosterSignals(): Promise<
         answerType: String(r.answer_type ?? "text") as AnswerType,
         enumValues: null,
         readings: [],
-        ...escalationFor((r.rules ?? []) as PlanRule[], questionId),
+        ...escalatingFor(questionId),
       });
     }
     grouped.get(key)!.readings.push({

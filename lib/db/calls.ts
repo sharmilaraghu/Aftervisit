@@ -46,7 +46,12 @@ export interface CallDetail {
   refusalDetail: string | null;
   skipReason: string | null;
   resultStatus: string;
+  /* CALL-E's own post-call analysis. Displayed as evidence, never used for a
+     decision — the rules read slots, not prose. */
   summary: string | null;
+  taskCompleted: boolean | null;
+  completionConfidence: { score: number; label: string } | null;
+  evidence: string[] | null;
   task: string | null;
   transcript: StoredTurn[] | null;
   transcriptGuardFindings: GuardFinding[] | null;
@@ -107,6 +112,13 @@ export async function getCall(callId: string): Promise<CallDetail | null> {
     skipReason: r.skip_reason ? String(r.skip_reason) : null,
     resultStatus: String(r.result_status),
     summary: r.summary ? String(r.summary) : null,
+    taskCompleted: r.task_completed === null || r.task_completed === undefined
+      ? null
+      : Boolean(r.task_completed),
+    completionConfidence: (r.completion_confidence ?? null) as
+      | { score: number; label: string }
+      | null,
+    evidence: (r.evidence ?? null) as string[] | null,
     task: r.task ? String(r.task) : null,
     transcript: (r.transcript ?? null) as StoredTurn[] | null,
     transcriptGuardFindings: (r.transcript_guard_findings ?? null) as GuardFinding[] | null,

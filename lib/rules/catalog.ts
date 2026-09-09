@@ -40,51 +40,27 @@ export const RULE_CATALOG: Record<RuleKind, RuleMeta> = {
       "The patient described something that sounded urgent. Care Loop routes it to a person rather than judging it.",
     locked: true,
   },
-  red_flag_term_heard: {
-    label: "Red flag term heard",
-    rationale:
-      "A term the plan was told to escalate on appeared in what the patient said.",
-    locked: false,
-  },
   no_answer_exhausted: {
-    label: "Three attempts, no answer",
+    label: "Every attempt went unanswered",
     rationale:
-      "Every attempt for this day ended with a no-answer failure code. Silence is the signal this product exists to catch.",
-    locked: false,
-  },
-  boolean_equals: {
-    label: "Answer needs a clinician",
-    rationale: "A yes/no answer came back with the value the plan was told to escalate on.",
-    locked: false,
-  },
-  scale_at_least: {
-    label: "Score reached the threshold",
-    rationale: "A rated answer reached or passed the threshold the plan set.",
-    locked: false,
-  },
-  enum_in: {
-    label: "Answer needs a clinician",
-    rationale: "The answer landed in the set of values the plan was told to escalate on.",
-    locked: false,
-  },
-  task_incomplete: {
-    label: "The agent did not finish the call",
-    rationale:
-      "CALL-E reported the call did not complete the task. Some answers may have been recorded without the question being asked, so none of them can be relied on without a person checking.",
-    locked: false,
-  },
-  drift_days: {
-    label: "No contact for several days",
-    rationale:
-      "Nobody has heard from this patient for long enough that the follow-up has stopped working.",
+      "Nobody spoke on any attempt for this day. Silence is the signal this product exists to catch.",
     locked: false,
   },
 };
 
-/** The three rules every plan carries, whatever the note said. */
+/**
+ * The three rules every plan carries, whatever the note said.
+ *
+ * Only two of them pause. `unmappable_response` routes to a clinician and lets
+ * the plan keep dialling — see the note on its variant in `types.ts`. The
+ * urgency is per kind rather than blanket, because "this must reach a person"
+ * and "this must stop the follow-up" are different claims.
+ */
 export function lockedRules(): PlanRule[] {
   return LOCKED_RULE_KINDS.map((kind) => ({
-    rule: { kind, urgent: true } as Rule,
+    rule: (kind === "unmappable_response"
+      ? { kind, urgent: false }
+      : { kind, urgent: true }) as Rule,
     source: "locked" as const,
     label: RULE_CATALOG[kind].label,
   }));
@@ -105,56 +81,21 @@ export function withLockedRules(rules: PlanRule[]): PlanRule[] {
 }
 
 /**
- * The rules every plan gets by default, on top of the locked three.
+ * The rules every plan gets on top of the locked set.
  *
- * `task_incomplete` is here rather than in the locked set because it is about
- * the agent's own performance rather than the patient's care — but it defaults
- * on, because a call where the agent answered its own questions is worthless
- * and nobody would think to add the rule themselves.
+ * One, now. This used to add a `task_incomplete` rule and three threshold
+ * matchers over `symptom_change`, `patient_concern` and `something_else_raised`
+ * — all of them judgements about what the patient expressed, and all of them
+ * now made by the model reading the actual transcript, which is better at it
+ * and can say why. What is left is the one thing no transcript can tell you,
+ * because there is no transcript: nobody answered, on any attempt.
  */
 export function defaultRules(): PlanRule[] {
   return [
     {
-      rule: { kind: "task_incomplete", urgent: false },
+      rule: { kind: "no_answer_exhausted", attempts: 3, urgent: false },
       source: "default",
-      label: RULE_CATALOG.task_incomplete.label,
-    },
-    /*
-     * The three below read what the patient expressed about themselves, which
-     * is the richest signal a call produces and the one a clinician most wants
-     * to set a threshold on. They default to routine — a queue entry, not a
-     * paused plan — because "worse" and "very concerned" are common and a
-     * doctor should decide for each patient whether they are urgent.
-     */
-    {
-      rule: {
-        kind: "enum_in",
-        questionId: "symptom_change",
-        values: ["worse"],
-        urgent: false,
-      },
-      source: "default",
-      label: "Said things are worse",
-    },
-    {
-      rule: {
-        kind: "enum_in",
-        questionId: "patient_concern",
-        values: ["very"],
-        urgent: false,
-      },
-      source: "default",
-      label: "Very concerned about themselves",
-    },
-    {
-      rule: {
-        kind: "boolean_equals",
-        questionId: "something_else_raised",
-        value: true,
-        urgent: false,
-      },
-      source: "default",
-      label: "Raised something the questions did not cover",
+      label: RULE_CATALOG.no_answer_exhausted.label,
     },
   ];
 }

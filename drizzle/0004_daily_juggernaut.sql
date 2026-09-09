@@ -1,0 +1,1 @@
+ALTER TABLE "escalations" ADD COLUMN "floor_hits" jsonb;

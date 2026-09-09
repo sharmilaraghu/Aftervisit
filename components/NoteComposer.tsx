@@ -92,6 +92,29 @@ export function NoteComposer({
             />
           </Field>
 
+          {/*
+            Directly under the note, because the two are compiled together and
+            a doctor writes them in one breath: the note becomes the questions,
+            this becomes what the agent escalates on.
+          */}
+          <Field
+            label="What you want to hear about"
+            htmlFor="escalationNote"
+            hint="Optional, and in your own words. These become the terms that escalate — Care Loop will not broaden them or add conditions you did not name."
+          >
+            <Textarea
+              id="escalationNote"
+              name="escalationNote"
+              rows={4}
+              defaultValue={state.values.escalationNote}
+              style={{ fontFamily: "var(--mono)", fontSize: 14, lineHeight: 1.7 }}
+              placeholder={
+                "Vomiting, or not keeping fluids down.\n" +
+                "Any chest pain."
+              }
+            />
+          </Field>
+
           <Field
             label="Clock"
             htmlFor="timeScale"

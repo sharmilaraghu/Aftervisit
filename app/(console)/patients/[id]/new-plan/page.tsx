@@ -7,6 +7,8 @@
 
 import { notFound } from "next/navigation";
 
+import { Button } from "@/components/ui";
+
 import { NoteComposer } from "@/components/NoteComposer";
 import { compileNoteAction } from "@/app/(console)/plans/actions";
 import { getPatient } from "@/lib/db/patients";
@@ -25,12 +27,19 @@ export default async function NewPlanPage({ params }: { params: Promise<{ id: st
   return (
     <div
       style={{
-        maxWidth: 860,
+        maxWidth: 864,
         margin: "0 auto",
         padding: "calc(var(--cell) * 5) calc(var(--cell) * 3) calc(var(--cell) * 10)",
       }}
     >
       <header style={{ marginBottom: "calc(var(--cell) * 4)" }}>
+        {/* The same way out, in the same place, on every screen under a
+            patient. This one only had Cancel at the foot of a form. */}
+        <p style={{ margin: "0 0 calc(var(--cell) * 1)" }}>
+          <Button variant="ghost" href={`/patients/${id}`}>
+            Back to {patient.name}
+          </Button>
+        </p>
         <h1
           className="display"
           style={{
@@ -41,11 +50,12 @@ export default async function NewPlanPage({ params }: { params: Promise<{ id: st
         >
           Follow up on {patient.name}.
         </h1>
-        <p className="measure" style={{ margin: 0, color: "var(--bench-ink-2)" }}>
-          Write the note as you normally would. Care Loop compiles it into a plan
-          you can read, edit and approve — and marks every field it filled in
-          itself, so you can see what came from you and what did not.
-        </p>
+        {/*
+          No standing blurb here. It explained what the product does to someone
+          already using it, which is an advert with the sound turned down — and
+          the next screen demonstrates the same claim by marking the defaulted
+          fields, where it is a fact rather than a promise.
+        */}
       </header>
 
       <NoteComposer

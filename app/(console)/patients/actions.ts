@@ -13,6 +13,7 @@
  */
 
 import { revalidatePath } from "next/cache";
+import { readConfig } from "@/lib/config";
 import { redirect } from "next/navigation";
 
 import {
@@ -21,9 +22,11 @@ import {
   deletePatient,
   DuplicatePhoneError,
   stopCalls,
+  unarchivePatient,
   updatePatient,
   type PatientInput,
 } from "@/lib/db/patients";
+import { resumePlan } from "@/lib/schedule/store";
 import { REJECTION_TEXT, normalizePhone } from "@/lib/phone/normalize";
 import { compileNote } from "@/lib/plan/compile";
 import { applyDefaults } from "@/lib/plan/defaults";
@@ -46,18 +49,24 @@ function parse(formData: FormData): {
   const timezone = String(formData.get("timezone") ?? "").trim();
   const language = String(formData.get("language") ?? "en-US").trim() || "en-US";
   /*
-   * Consent is not asked per call any more, and not asked on this form either.
-   * It is a condition of being enrolled in follow-up, recorded once — the field
-   * stays on the patient record so a withdrawal can still be honoured, and the
-   * dial allowlist remains the gate that decides whether anything rings.
+   * Consent is asked once, at enrolment, and never re-asked on a call. It is
+   * now what authorises dialling — `lib/calle/port.ts` refuses a patient whose
+   * consent is anything but `granted` — so the default here is `unknown`, not
+   * `granted`. A checkbox nobody ticked must not read as a patient who agreed.
    */
-  const consentRaw = String(formData.get("consent") ?? "granted").trim() || "granted";
+  const consentRaw =
+    formData.get("consent") === null
+      ? "unknown"
+      : String(formData.get("consent")).trim() || "unknown";
   const note = String(formData.get("note") ?? "").trim();
+  /* The doctor's own list of what to escalate on. Optional: a plan with none is
+     still a plan, and the locked rules still fire. */
+  const escalationNote = String(formData.get("escalationNote") ?? "").trim();
   const timeScale = String(formData.get("timeScale") ?? "1");
 
   const state: PatientFormState = {
     errors: {},
-    values: { name, age: ageRaw, phone: phoneRaw, timezone, language, consent: consentRaw, note, timeScale },
+    values: { name, age: ageRaw, phone: phoneRaw, timezone, language, consent: consentRaw, note, escalationNote, timeScale },
   };
 
   /*
@@ -124,6 +133,7 @@ export async function createPatientAction(
   if (!input) return state;
 
   const note = state.values.note;
+  const escalationNote = state.values.escalationNote;
   const timeScale = Number(state.values.timeScale) || 1;
 
   let id: string;
@@ -150,7 +160,12 @@ export async function createPatientAction(
    * can fill in rather than losing what they typed.
    */
   if (note) {
-    const outcome = await compileNote({ noteBody: note, fallbackReason: "Follow-up" });
+    const outcome = await compileNote({
+      noteBody: note,
+      escalationNote,
+      patientAge: input.age,
+      fallbackReason: "Follow-up",
+    });
 
     const resolved = outcome.ok
       ? outcome.plan
@@ -183,6 +198,7 @@ export async function createPatientAction(
         : { status: "refused", provider: null, model: null, raw: null, error: outcome.detail },
       rejectedQuestions: outcome.ok ? outcome.rejectedQuestions : undefined,
       timeScale,
+      escalationNote,
     });
 
     revalidatePath("/patients");
@@ -240,11 +256,86 @@ export async function stopCallsAction(id: string): Promise<{ stopped: number }> 
   return { stopped: result.stopped };
 }
 
+/**
+ * Correct a patient's details without leaving the approval screen.
+ *
+ * Same validation, same `updatePatient`, same duplicate-phone refusal as the
+ * full edit page — the difference is only where it returns to. A doctor who
+ * spots a wrong number, zone, language or consent state while reviewing a plan
+ * was previously sent on a three-hop round trip to the patient page and back,
+ * losing the review they were half-way through. The reason to look at these
+ * fields is that something on *this* screen is wrong, so this is where they get
+ * fixed.
+ */
+export async function correctPatientAction(
+  patientId: string,
+  planId: string,
+  _prev: PatientFormState,
+  formData: FormData,
+): Promise<PatientFormState> {
+  const { state, input } = parse(formData);
+  if (!input) return state;
+
+  let ok: boolean;
+  try {
+    ok = await updatePatient(patientId, input);
+  } catch (error) {
+    if (error instanceof DuplicatePhoneError) {
+      return {
+        ...state,
+        errors: { ...state.errors, phone: "Another active patient already has this number." },
+      };
+    }
+    throw error;
+  }
+
+  if (!ok) {
+    return {
+      ...state,
+      errors: { ...state.errors, form: "That patient no longer exists, or has been archived." },
+    };
+  }
+
+  revalidatePath("/patients");
+  revalidatePath(`/patients/${patientId}`);
+  revalidatePath(`/plans/${planId}`);
+  return { ...state, saved: true };
+}
+
+/**
+ * Let the brake off again.
+ *
+ * `stopCalls` pauses the plan without raising an escalation, and the only
+ * resume path in the app went through `QueueActions`, which needs an escalation
+ * id. So a plan a clinician stopped by hand was paused permanently — while the
+ * button that stopped it justified having no confirmation step on the grounds
+ * that stopping "is always reversible". This is the control that makes that
+ * sentence true.
+ *
+ * `resumePlan` skips the backlog before it reactivates, so a plan stopped for
+ * two days does not dial twice the moment this is pressed.
+ */
+export async function resumeStoppedPlanAction(
+  patientId: string,
+  planId: string,
+): Promise<void> {
+  await resumePlan(planId, readConfig().clinicianName);
+  revalidatePath("/patients");
+  revalidatePath(`/patients/${patientId}`);
+}
+
 /** Permanent. Archiving is the reversible option; this is not it. */
 export async function deletePatientAction(id: string): Promise<void> {
   await deletePatient(id);
   revalidatePath("/patients");
   redirect("/patients");
+}
+
+/** Undo an archive. The record comes back; the closed plans stay closed. */
+export async function unarchivePatientAction(id: string): Promise<void> {
+  await unarchivePatient(id);
+  revalidatePath("/patients");
+  revalidatePath(`/patients/${id}`);
 }
 
 export async function archivePatientAction(id: string): Promise<void> {

@@ -101,12 +101,38 @@ export type Resolution = "resumed" | "closed" | "contacted_patient" | "no_action
 export type TickTrigger = "page" | "cron" | "poller" | "manual";
 
 /** Why a due call never dialled. Always visible, never silent. */
-export type SkipReason = "plan_paused" | "plan_closed" | "patient_archived";
+/**
+ * Why an occurrence was never dialled.
+ *
+ * `too_late` is a safety outcome, not an error: a call is never early but can
+ * be arbitrarily late, and nothing ran the scheduler for hours would otherwise
+ * mean the whole backlog rings at whatever hour it finally woke up.
+ */
+export type SkipReason = "plan_paused" | "plan_closed" | "patient_archived" | "too_late";
 
 export type ConsentSource = "registration" | "call";
 
 /** Which model actually compiled the note. Gemini primary, OpenAI fallback. */
 export type CompileProvider = "gemini" | "openai";
+
+/**
+ * How a triage verdict was reached.
+ *
+ * The three failure states exist so that "the model could not judge this call"
+ * is a fact a clinician can see, rather than a null anyone can read as "fine".
+ * Every one of them carries a verdict of `escalate` — an absent judgement is
+ * never `low`.
+ */
+export type TriageStatus = "ok" | "unavailable" | "error" | "unparseable";
+
+/**
+ * What the model thinks this call needs.
+ *
+ * `severe` pauses the plan; `escalate` queues it while the follow-up keeps
+ * dialling; `low` raises nothing. Only `severe` stops care, because a wrong
+ * verdict that halts a patient's follow-up is worse than one that queues it.
+ */
+export type TriageVerdict = "severe" | "escalate" | "low";
 
 /**
  * Derived plan health. Not a column — computed in `lib/patients/kpi.ts` from
@@ -147,6 +173,8 @@ export type DayState =
 export const CONSENT_STATES = ["unknown", "granted", "declined"] as const;
 export const COMPILE_STATUSES = ["pending", "compiled", "refused"] as const;
 export const COMPILE_PROVIDERS = ["gemini", "openai"] as const;
+export const TRIAGE_STATUSES = ["ok", "unavailable", "error", "unparseable"] as const;
+export const TRIAGE_VERDICTS = ["severe", "escalate", "low"] as const;
 export const PLAN_STATUSES = [
   "awaiting_approval",
   "active",
@@ -203,5 +231,5 @@ export const RESOLUTIONS = [
   "no_action",
 ] as const;
 export const TICK_TRIGGERS = ["page", "cron", "poller", "manual"] as const;
-export const SKIP_REASONS = ["plan_paused", "plan_closed", "patient_archived"] as const;
+export const SKIP_REASONS = ["plan_paused", "plan_closed", "patient_archived", "too_late"] as const;
 export const CONSENT_SOURCES = ["registration", "call"] as const;

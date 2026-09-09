@@ -22,6 +22,7 @@ const request = (overrides: Record<string, unknown> = {}) => ({
   phone: ARMED,
   resultSchema: SCHEMA as unknown as Record<string, unknown>,
   idempotencyKey: "plan_1:o1:a1",
+  consentGranted: true,
   ...overrides,
 });
 
@@ -54,12 +55,46 @@ describe("createCallePort — the happy path", () => {
   });
 });
 
-describe("createCallePort — the allowlist opt-out", () => {
+describe("createCallePort — consent is what authorises a call", () => {
   /*
-   * The gate exists because there is no auth: with a login, "a clinician
-   * approved this plan" would itself authorise the dial. Opening it is an
-   * explicit act, never a default — an empty list still refuses everything, so
-   * forgetting to configure the allowlist can only fail closed.
+   * The clinical gate, and the one that replaced a mandatory allowlist. A
+   * patient who never agreed must not be dialled from any machine, however
+   * permissively that machine is configured.
+   */
+  it("refuses a patient who has not consented, even with the gate wide open", async () => {
+    const fetchSpy = vi.fn();
+    const outcome = await createCallePort({
+      apiKey: "test-key",
+      allowlist: [],
+      allowlistOpen: true,
+      fetch: fetchSpy as never,
+    }).dial(request({ consentGranted: false }));
+
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.refusal).toBe("no_consent");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("refuses without consent even when the number is on the allowlist", async () => {
+    const fetchSpy = vi.fn();
+    const outcome = await createCallePort({
+      apiKey: "test-key",
+      allowlist: [ARMED],
+      fetch: fetchSpy as never,
+    }).dial(request({ consentGranted: false }));
+
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) expect(outcome.refusal).toBe("no_consent");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("createCallePort — the optional deployment lock", () => {
+  /*
+   * Not the authorisation gate any more: consent is. This answers a different
+   * question — may this *instance* reach the outside world at all — which is
+   * what you want a hard answer to on a public URL with no login.
    */
   it("dials any number when the gate is explicitly open", async () => {
     const fake = createFakeCalleFetch();
@@ -73,11 +108,11 @@ describe("createCallePort — the allowlist opt-out", () => {
     expect(outcome.ok).toBe(true);
   });
 
-  it("still refuses everything when the list is merely empty", async () => {
+  it("refuses a number outside the list once a list is configured", async () => {
     const fetchSpy = vi.fn();
     const outcome = await createCallePort({
       apiKey: "test-key",
-      allowlist: [],
+      allowlist: [ARMED],
       fetch: fetchSpy as never,
     }).dial(request({ phone: NOT_ARMED }));
 
@@ -225,14 +260,23 @@ describe("createCallePort — reading a call back", () => {
     expect(call.id).toBe("call_abc");
   });
 
-  it("surfaces an unanswered call as a failed attempt with a failure code", async () => {
-    // The retry ladder is driven by this, so it has to come through faithfully.
+  /*
+   * The code comes through, and nothing may depend on what it says.
+   *
+   * CALL-E publishes no enum for `failure_code`, and its docs say not to branch
+   * retry, reporting or analytics on a particular string. The one real call
+   * returned "603" while this codebase looked for "no_answer", and the retry
+   * ladder silently never ran. So this asserts the field is carried faithfully
+   * and is opaque — not that it holds any particular value.
+   */
+  it("carries the failure code through opaquely, without promising a vocabulary", async () => {
     const fake = createFakeCalleFetch({ outcome: "no_answer" });
     const call = await port(fake).fetchCall("call_abc");
 
     expect(call.status).toBe("failed");
-    expect(call.recipients[0].attempts[0].failureCode).toBe("no_answer");
-    expect(call.recipients[0].structuredResult).toBeNull();
+    const code = call.recipients[0].attempts[0].failureCode;
+    expect(code).toBeTruthy();
+    expect(code).not.toBe("no_answer");
   });
 
   it("returns the structured result on a completed call", async () => {
@@ -241,6 +285,20 @@ describe("createCallePort — reading a call back", () => {
     });
     const call = await port(fake).fetchCall("call_abc");
 
-    expect(call.recipients[0].structuredResult).toMatchObject({ adherence: "no" });
+    expect(call.structuredResult).toMatchObject({ adherence: "no" });
+  });
+
+  /*
+   * Two schemas, two results, deliberately not the same object. The task-level
+   * one carries the answers; the per-recipient one carries who picked up, which
+   * is the only documented way to tell a person from an answerphone.
+   */
+  it("returns who answered on the recipient, separately from the answers", async () => {
+    const fake = createFakeCalleFetch({
+      structuredResult: { reached_patient: "yes", adherence: "no" },
+    });
+    const call = await port(fake).fetchCall("call_abc");
+
+    expect(call.recipients[0].structuredResult).toMatchObject({ answered_by: "human" });
   });
 });

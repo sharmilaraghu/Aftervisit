@@ -23,6 +23,7 @@ import {
   bigserial,
   boolean,
   check,
+  doublePrecision,
   index,
   integer,
   jsonb,
@@ -55,6 +56,8 @@ import type {
   SkipReason,
   SlotStatus,
   TickTrigger,
+  TriageStatus,
+  TriageVerdict,
 } from "@/lib/db/enums";
 import {
   ANSWER_TYPES,
@@ -75,6 +78,8 @@ import {
   SKIP_REASONS,
   SLOT_STATUSES,
   TICK_TRIGGERS,
+  TRIAGE_STATUSES,
+  TRIAGE_VERDICTS,
 } from "@/lib/db/enums";
 
 /** `col in ('a','b')`, or `col is null or col in (…)` for a nullable column. */
@@ -186,6 +191,17 @@ export const consultationNotes = pgTable(
     /** There is no auth. The author is a column with a default, not a session. */
     authorName: text("author_name").notNull().default("Dr Rao"),
     body: text("body").notNull(),
+    /**
+     * What the doctor said to watch out for, in their own words.
+     *
+     * Kept verbatim and separate from the note because it is handed to the
+     * triage model at call time as the doctor's own reference standard. It is
+     * also grounded against alongside `body`, so a term written only here is
+     * still a term the compiler is allowed to use.
+     */
+    escalationNote: text("escalation_note"),
+    /** Set when a doctor adds to the note and it is re-parsed. */
+    amendedAt: ts("amended_at"),
     compileStatus: text("compile_status").$type<CompileStatus>().notNull().default("pending"),
     /** Which model actually ran. Without this, "Gemini with OpenAI fallback" is unverifiable. */
     compileProvider: text("compile_provider").$type<CompileProvider>(),
@@ -258,8 +274,8 @@ export const followUpPlans = pgTable(
      *
      * The pure evaluator consumes the whole set at once and nothing queries
      * across individual rules. A row-per-rule table would invite someone to join
-     * it into a decision path, which is precisely the impurity that makes
-     * "escalation is never model judgment" uncheckable. The three locked rules
+     * it into a decision path, which is precisely the impurity that makes the
+     * evaluator's floor uncheckable. The three locked rules
      * are re-asserted here by code at approval, so a malformed edit cannot drop them.
      */
     rules: jsonb("rules").$type<PlanRule[]>().notNull().default(sql`'[]'::jsonb`),
@@ -349,7 +365,24 @@ export const planQuestions = pgTable(
       .references(() => followUpPlans.id, { onDelete: "cascade" }),
     /** The stable slug: the CALL-E resultSchema key and the slot's question_id. */
     questionId: text("question_id").notNull(),
-    ordinal: integer("ordinal").notNull(),
+    /**
+     * Sparse, not sequential. Fractional so a reorder is one single-row UPDATE
+     * to a midpoint between neighbours: a permutation UPDATE is unsafe under
+     * the non-deferrable `uniq_q_ordinal`, and there are no transactions on the
+     * Neon HTTP driver to make one atomic.
+     */
+    ordinal: doublePrecision("ordinal").notNull(),
+    /** When a compile last mentioned this question. Older than `notes.amended_at`
+        means the newest note no longer covers it — shown, never auto-deleted. */
+    lastCompileAt: ts("last_compile_at"),
+    /**
+     * When this question joined a plan that was already running.
+     *
+     * Null for everything the plan was approved with. Set only by an
+     * append-only merge, so a doctor reading a call from day 2 can tell which
+     * questions did not exist yet when it was placed.
+     */
+    addedAt: ts("added_at"),
     /** The exact text spoken. This string, verbatim, is what guard phase 2 masks by location. */
     prompt: text("prompt").notNull(),
     answerType: text("answer_type").$type<AnswerType>().notNull(),
@@ -432,6 +465,15 @@ export const scheduledCalls = pgTable(
     /** The terminal attempt's code. `no_answer` drives the retry ladder, so it is a column. */
     calleFailureCode: text("calle_failure_code"),
     calleFailureMessage: text("calle_failure_message"),
+    /**
+     * Who or what picked up: human, ivr, voicemail, unknown.
+     *
+     * CALL-E exposes no built-in answered-by field; the documented way to get
+     * one is a per-recipient structured result, which Care Loop never sent. So
+     * "the patient answered" and "the answerphone answered" were the same row,
+     * and the retry ladder could dial a voicemail box three times.
+     */
+    answeredBy: text("answered_by"),
 
     /** See `ResultStatus` — this is the SQL-NULL versus JSON-null distinction, made explicit. */
     resultStatus: text("result_status").$type<ResultStatus>().notNull().default("pending"),
@@ -601,6 +643,20 @@ export const escalations = pgTable(
     utterance: text("utterance"),
 
     /**
+     * The model's verdict, when a model produced one. Null on a pure-engine
+     * row, which is the honest answer: a rule has no opinion about degree, it
+     * only knows that it matched.
+     */
+    severity: text("severity").$type<TriageVerdict>(),
+    /** The model's account of the call, for a clinician who was not on it. */
+    summary: text("summary"),
+    /** Deep link to the verdict and the evidence behind it. */
+    triageId: text("triage_id"),
+    /** Set when a clinician has actually read it — see the `acknowledged` status. */
+    acknowledgedAt: ts("acknowledged_at"),
+    acknowledgedBy: text("acknowledged_by"),
+
+    /**
      * The idempotency anchor. `${planId}:${ruleId}:${callId}` for call-derived
      * rules, `${planId}:drift:${patientLocalDate}` for the sweep — and that date
      * **must** be computed in the patient's timezone, or a sweep at 23:00 UTC
@@ -615,6 +671,23 @@ export const escalations = pgTable(
     resolvedAt: ts("resolved_at"),
     resolvedBy: text("resolved_by"),
     resolution: text("resolution").$type<Resolution>(),
+    /**
+     * What the clinician actually did about it.
+     *
+     * The queue could record that an escalation was closed and never what
+     * happened — so "I rang her, she is fine" had nowhere to live, and the next
+     * person read the same evidence from scratch.
+     */
+    resolutionNote: text("resolution_note"),
+    /**
+     * What the floor caught on this call, alongside the model's reading.
+     *
+     * One call used to produce one row per rule hit *plus* one for triage — a
+     * real declined call raised three, two of them saying the same thing in
+     * worse words. A clinician takes one action per call, so a call is one row,
+     * and the rules it tripped are listed on it rather than beside it.
+     */
+    floorHits: jsonb("floor_hits").$type<{ ruleId: string; label: string; urgent: boolean }[]>(),
   },
   (t) => [
     check("esc_status", oneOf("status", ESCALATION_STATUSES)),
@@ -631,6 +704,73 @@ export const escalations = pgTable(
       .on(t.urgent, t.raisedAt)
       .where(sql`${t.status} in ('open', 'acknowledged')`),
     index("idx_esc_patient").on(t.patientId, t.raisedAt),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// call_triage
+// ---------------------------------------------------------------------------
+
+/**
+ * What a model made of one finished call.
+ *
+ * A separate table rather than columns on `escalations`, for two reasons. The
+ * verdict is about the **call**: the rules may raise zero or three escalations
+ * for one call, and hanging a copy of the verdict off each is a denormalisation
+ * that can disagree with itself. And a row that exists with
+ * `status = 'unavailable'` says "the model could not judge this call" out loud,
+ * where a null severity column would read as "not done yet" — the same
+ * ambiguity `result_status` exists elsewhere in this schema to kill.
+ *
+ * `verdict` is NOT NULL by design. Every failure path writes `escalate`; there
+ * is no state in which an absent judgement can be mistaken for a quiet call.
+ */
+export const callTriage = pgTable(
+  "call_triage",
+  {
+    id: text("id").primaryKey(),
+    callId: text("call_id")
+      .notNull()
+      .references(() => scheduledCalls.id, { onDelete: "cascade" }),
+    patientId: text("patient_id")
+      .notNull()
+      .references(() => patients.id, { onDelete: "restrict" }),
+    planId: text("plan_id")
+      .notNull()
+      .references(() => followUpPlans.id, { onDelete: "restrict" }),
+
+    status: text("status").$type<TriageStatus>().notNull(),
+    verdict: text("verdict").$type<TriageVerdict>().notNull(),
+    /** One or two sentences. Why this verdict — never a diagnosis. */
+    reason: text("reason").notNull(),
+    /** What happened on the call, for a clinician who was not on it. */
+    summary: text("summary"),
+    /** Phrases copied from the transcript, never paraphrased. */
+    keyTerms: jsonb("key_terms").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    /** Which of the doctor's own escalation conditions this call touched. */
+    matchedConcerns: jsonb("matched_concerns")
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    /** One line the patient actually said. Evidence, not summary. */
+    quote: text("quote"),
+
+    /** Which model ran, so "Gemini with an OpenAI fallback" stays checkable here too. */
+    provider: text("provider").$type<CompileProvider>(),
+    model: text("model"),
+    /** The model's answer verbatim — the same evidence discipline as `compile_raw`. */
+    raw: jsonb("raw"),
+    /** Printed to the clinician on a failure, never swallowed. */
+    error: text("error"),
+    createdAt: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    check("triage_status", oneOf("status", TRIAGE_STATUSES)),
+    check("triage_verdict", oneOf("verdict", TRIAGE_VERDICTS)),
+    check("triage_provider", oneOf("provider", COMPILE_PROVIDERS, true)),
+    /** One verdict per call. Re-reading a finished call must never re-charge the model. */
+    uniqueIndex("uniq_triage_call").on(t.callId),
+    index("idx_triage_patient").on(t.patientId, t.createdAt),
   ],
 );
 
@@ -659,6 +799,8 @@ export const tickRuns = pgTable(
     finishedAt: ts("finished_at"),
 
     expanded: integer("expanded").notNull().default(0),
+    /** Calls retired for being too late to place, rather than dialled at 2am. */
+    retired: integer("retired").notNull().default(0),
     claimed: integer("claimed").notNull().default(0),
     dialed: integer("dialed").notNull().default(0),
     refused: integer("refused").notNull().default(0),

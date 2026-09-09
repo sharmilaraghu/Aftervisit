@@ -17,6 +17,7 @@
  */
 
 import type { AnswerType } from "@/lib/db/enums";
+import { OBSERVED_QUESTION_IDS, UNSPOKEN_RESULT_KEYS } from "@/lib/plan/universal-questions";
 
 export interface TaskQuestion {
   questionId: string;
@@ -39,11 +40,6 @@ export interface TaskInput {
    * agent's own.
    */
   clinicianStatements?: string[];
-  /**
-   * Retained for callers, but the script no longer asks permission per call.
-   * Consent lives on the patient record, obtained once, not re-asked daily.
-   */
-  consentAlreadyGranted: boolean;
   /**
    * Human-readable language to conduct the call in ("Hindi", "Tamil"), set only
    * when the patient's language is not English. The task text itself stays in
@@ -153,11 +149,20 @@ HOW TO CLOSE
 
 Say: "That's everything, thank you for your time. Someone from the care team will call you back if anything here needs attention."
 
-Then end the call.`;
+Then end the call.
+
+YOUR OWN NOTES
+
+${UNSPOKEN_RESULT_KEYS.length} fields you fill in are not questions, and you must never ask them out loud:
+
+- call_recap — one line on what they said, in their own words.
+- what_else — anything they raised that the questions above did not cover. Write unknown if there was nothing.
+
+These are your notes on the call, not answers from the patient, so filling them in is not "recording an answer to a question you did not ask".`;
 }
 
 export function assembleTask(input: TaskInput): AssembleResult {
-  if (input.questions.length === 0) {
+  if (input.questions.every((q) => OBSERVED_QUESTION_IDS.has(q.questionId))) {
     return {
       ok: false,
       reason: "no_questions",
@@ -182,9 +187,28 @@ export function assembleTask(input: TaskInput): AssembleResult {
     };
   }
 
-  const questionBlock = input.questions
+  /*
+   * Spoken and observed are separated here, not in the caller.
+   *
+   * An observation numbered in the question list is a question — the agent
+   * reads the list and asks what is in it. Keeping them apart is the whole
+   * mechanism, and doing it at the point the script is written means no call
+   * site can forget.
+   */
+  const spoken = input.questions.filter((q) => !OBSERVED_QUESTION_IDS.has(q.questionId));
+  const observed = input.questions.filter((q) => OBSERVED_QUESTION_IDS.has(q.questionId));
+
+  const questionBlock = spoken
     .map((q, i) => `${i + 1}. Ask: "${q.prompt}"\n   ${answerInstruction(q)}`)
     .join("\n\n");
+
+  const observedBlock = observed.length
+    ? `\n\nRECORD THESE FROM THE CALL — NEVER ASK THEM\n\n${observed
+        .map((q) => `- ${q.questionId} — ${q.prompt} Record yes if they did, no if they did not.`)
+        .join("\n")}\n\nThese are things you noticed, not questions you asked. Record what actually happened on the call.
+
+Do not record these as unclear. You either heard it or you did not, and "no" is the honest answer when you did not.`
+    : "";
 
   const statements = input.clinicianStatements ?? [];
   const quotes = statements.length
@@ -195,7 +219,9 @@ export function assembleTask(input: TaskInput): AssembleResult {
 
   return {
     ok: true,
-    task: frame(input, questionBlock, quotes),
+    task: frame(input, questionBlock + observedBlock, quotes),
+    /* Phase 2 exempts by exact string, so an observation's prompt has to be
+       exempted too — it is in the task text, it just is not asked. */
     approvedQuestions: input.questions.map((q) => q.prompt),
     clinicianStatements: statements,
   };

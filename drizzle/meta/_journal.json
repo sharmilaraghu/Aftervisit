@@ -15,6 +15,34 @@
       "when": 1788237152300,
       "tag": "0001_complex_hemingway",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788403468531,
+      "tag": "0002_lively_dakota_north",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788622206378,
+      "tag": "0003_faulty_captain_marvel",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788622736229,
+      "tag": "0004_daily_juggernaut",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788673638582,
+      "tag": "0005_past_sentry",
+      "breakpoints": true
     }
   ]
 }

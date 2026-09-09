@@ -19,7 +19,7 @@ import { assembleTask } from "@/lib/script/build";
 import { buildResultSchema } from "@/lib/plan/result-schema";
 import { extractSlots, foldOutcome, type ExtractQuestion } from "@/lib/plan/extract";
 import { evaluate } from "@/lib/rules/engine";
-import { withLockedRules } from "@/lib/rules/catalog";
+import { defaultRules, withLockedRules } from "@/lib/rules/catalog";
 import type { StoredTurn } from "@/lib/db/schema";
 import type { Call } from "@call-e/calle";
 import type { PlanRule } from "@/lib/rules/types";
@@ -39,23 +39,9 @@ const QUESTIONS: ExtractQuestion[] = [
   },
 ];
 
-const RULES: PlanRule[] = withLockedRules([
-  {
-    rule: { kind: "red_flag_term_heard", terms: ["threw up", "vomiting"], urgent: true },
-    source: "default",
-    label: "Red flag term heard",
-  },
-  {
-    rule: { kind: "enum_in", questionId: "symptom_severity", values: ["severe"], urgent: true },
-    source: "default",
-    label: "Severe symptoms reported",
-  },
-  {
-    rule: { kind: "no_answer_exhausted", attempts: 3, urgent: false },
-    source: "default",
-    label: "Three attempts, no answer",
-  },
-]);
+/* The floor, and nothing else. Every judgement the removed rules used to make
+   is now the model's, read from the transcript rather than matched on a slot. */
+const RULES: PlanRule[] = withLockedRules([...defaultRules()]);
 
 function flatten(call: Call): StoredTurn[] {
   const turns: StoredTurn[] = [];
@@ -91,7 +77,6 @@ async function runCall(options: Parameters<typeof createFakeCalleFetch>[0]) {
       enumValues: q.enumValues,
       guardApproved: true,
     })),
-    consentAlreadyGranted: false,
     attempt: 1,
     maxAttempts: 3,
   });
@@ -104,6 +89,7 @@ async function runCall(options: Parameters<typeof createFakeCalleFetch>[0]) {
       QUESTIONS.map((q) => ({ ...q, prompt: `Question about ${q.questionId}?` })),
     ),
     idempotencyKey: "pln_x:o1:a1",
+    consentGranted: true,
     approvedQuestions: script.approvedQuestions,
   });
   if (!dialed.ok) throw new Error(`dial refused: ${dialed.refusal}`);
@@ -121,18 +107,15 @@ async function runCall(options: Parameters<typeof createFakeCalleFetch>[0]) {
   const evaluation = evaluate({
     slots,
     rules: RULES,
-    redFlagTerms: ["threw up", "vomiting"],
     reached,
-    noAnswerExhausted: failureCode === "no_answer",
+    // Evidence, not a failure string: nobody spoke on any attempt.
+    noAnswerExhausted: !reached,
     attemptsMade: 3,
-    quietForDays: 0,
-    taskCompleted: call.taskCompleted ?? null,
     now: new Date("2026-08-30T10:00:00Z"),
   });
 
   const outcome = foldOutcome({
     reached,
-    failureCode,
     hasUrgentHit: evaluation.shouldPause,
     hasAnyHit: evaluation.hits.length > 0,
     anyUnmappable: slots.some((s) => s.status === "unmappable" || s.status === "missing"),
@@ -164,9 +147,22 @@ describe("a clear call", () => {
   });
 });
 
-describe("a call with a red flag", () => {
-  it("escalates urgently and carries the patient's own words", async () => {
-    const { evaluation, outcome } = await runCall({
+/*
+ * The judgement moved, and this test moved with it.
+ *
+ * "I threw up twice yesterday" used to fire a substring matcher over the
+ * patient's own words. That matcher is gone: it matched inside a negation, it
+ * ran against a heuristically chosen utterance, and it could never say why it
+ * fired. Deciding what a sentence *meant* is now the model's, over the whole
+ * transcript — see `lib/triage/triage.test.ts`.
+ *
+ * What this asserts is the other half of that contract: the floor stays quiet
+ * on a call where every answer mapped and no locked condition was met. A floor
+ * that fires here would be a floor making clinical judgements again.
+ */
+describe("a call the patient answered with something alarming", () => {
+  it("maps every answer and leaves the reading to the model", async () => {
+    const { slots, evaluation, outcome } = await runCall({
       structuredResult: {
         reached_patient: "yes",
         consent_given: "yes",
@@ -184,12 +180,12 @@ describe("a call with a red flag", () => {
       ],
     });
 
-    const ids = evaluation.hits.map((h) => h.ruleId);
-    expect(ids).toContain("red_flag_term_heard");
-    expect(ids).toContain("enum_in");
-    expect(evaluation.shouldPause).toBe(true);
-    expect(evaluation.hits[0].utterance).toContain("threw up twice");
-    expect(outcome).toBe("flagged");
+    expect(slots.every((s) => s.status === "answered")).toBe(true);
+    expect(evaluation.hits).toEqual([]);
+    expect(evaluation.shouldPause).toBe(false);
+    /* `answered` from the floor's point of view. Triage runs next and is what
+       turns a call like this into a severity and a summary. */
+    expect(outcome).toBe("answered");
   });
 });
 
@@ -200,15 +196,23 @@ describe("a call nobody answered", () => {
    * exhausted attempts are what raise the escalation.
    */
   it("produces a no_answer outcome and an exhausted-attempts escalation", async () => {
-    const { call, slots, evaluation, outcome, failureCode } = await runCall({
+    const { slots, evaluation, outcome, failureCode } = await runCall({
       outcome: "no_answer",
     });
 
-    expect(call.structuredResult).toBeNull();
-    expect(failureCode).toBe("no_answer");
-    expect(slots.every((s) => s.status === "missing")).toBe(true);
+    /*
+     * A call nobody answered still comes back with a result object, and the
+     * agent honestly records the one thing it can: nobody asked for a person.
+     * That single answered slot must not make the call read as reached — it
+     * did once, and it cost a real patient both remaining attempts.
+     */
+    expect(slots.filter((s) => s.status === "answered").map((s) => s.questionId)).toEqual([
+      "requests_clinician",
+    ]);
     expect(outcome).toBe("no_answer");
     expect(evaluation.hits.map((h) => h.ruleId)).toContain("no_answer_exhausted");
+    /* Nothing about the failure string decided any of that. */
+    expect(failureCode).not.toBe("no_answer");
   });
 });
 
@@ -236,8 +240,11 @@ describe("a call the model could not map", () => {
 
     expect(slots.find((s) => s.questionId === "symptom_severity")?.status).toBe("unmappable");
     expect(evaluation.hits.map((h) => h.ruleId)).toContain("unmappable_response");
-    expect(evaluation.shouldPause).toBe(true);
     expect(outcome).toBe("flagged");
+    /* Routed to a clinician, but the follow-up keeps running: a later call may
+       well get a clean answer, and pausing here disabled the retry ladder for
+       the commonest reason a call is useless. */
+    expect(evaluation.shouldPause).toBe(false);
   });
 });
 
