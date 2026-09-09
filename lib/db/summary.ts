@@ -31,6 +31,8 @@ export interface PatientSummary {
     reason: string;
     status: string;
     closeReason: string | null;
+    /** How the clinician said it resolved. Null unless they closed it themselves. */
+    closingSummary: string | null;
     startsAt: Date | null;
     closedAt: Date | null;
     calls: number;
@@ -75,7 +77,8 @@ export async function getPatientSummary(patientId: string): Promise<PatientSumma
 
   const [courses, escalations, readings, notes, totals] = await Promise.all([
     db.execute(sql`
-      select p.id, p.reason, p.status, p.close_reason, p.starts_at, p.closed_at,
+      select p.id, p.reason, p.status, p.close_reason, p.closing_summary,
+             p.starts_at, p.closed_at,
              count(c.*) filter (where c.finished_at is not null) as calls,
              count(distinct c.occurrence) filter (
                where c.outcome in ('answered','flagged','unmappable')
@@ -127,6 +130,7 @@ export async function getPatientSummary(patientId: string): Promise<PatientSumma
       reason: String(r.reason),
       status: String(r.status),
       closeReason: r.close_reason ? String(r.close_reason) : null,
+      closingSummary: r.closing_summary ? String(r.closing_summary) : null,
       startsAt: r.starts_at ? new Date(String(r.starts_at)) : null,
       closedAt: r.closed_at ? new Date(String(r.closed_at)) : null,
       calls: Number(r.calls),

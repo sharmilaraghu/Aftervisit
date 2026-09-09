@@ -22,9 +22,14 @@ import { compileNote } from "@/lib/plan/compile";
 import { applyDefaults } from "@/lib/plan/defaults";
 import {
   addQuestion,
+  amendNote,
   approvePlan,
   cancelPlan,
   createPlanFromNote,
+  getPlanForReview,
+  mergeCompiledPlan,
+  mergeCompiledQuestions,
+  refreezeResultSchema,
   deleteQuestion,
   getPlanQuestionOrder,
   moveQuestion,
@@ -414,7 +419,9 @@ export async function closePlanAction(
   note: string | null,
 ): Promise<void> {
   await resolveEscalation(escalationId, "closed", readConfig().clinicianName, note);
-  await closePlan(planId, "clinician_closed", readConfig().clinicianName);
+  /* Ending a follow-up from the queue is still ending it, and what the
+     clinician wrote there is the same fact the patient's record needs. */
+  await closePlan(planId, "clinician_closed", readConfig().clinicianName, note);
   revalidatePath("/patients");
   revalidatePath("/dashboard");
 }
@@ -439,8 +446,11 @@ export async function closePlanAction(
 export async function finishTreatmentAction(
   planId: string,
   patientId: string,
+  /** How it resolved, in the clinician's words. Kept on the patient's record. */
+  summary: string | null,
 ): Promise<void> {
-  await closePlan(planId, "clinician_closed", readConfig().clinicianName);
+  const text = summary?.trim();
+  await closePlan(planId, "clinician_closed", readConfig().clinicianName, text || null);
   revalidatePath(`/patients/${patientId}`);
   revalidatePath("/patients");
   revalidatePath("/dashboard");
@@ -451,3 +461,59 @@ export async function acknowledgeEscalationAction(escalationId: string): Promise
   revalidatePath("/dashboard");
 }
 
+export async function amendNoteAction(
+  planId: string,
+  addition: string,
+): Promise<{ ok: boolean; error?: string; added?: number; rewritten?: number }> {
+  const text = addition.trim();
+  if (text.length < 3) {
+    return { ok: false, error: "Write the addition first. There is nothing to add." };
+  }
+
+  const amended = await amendNote(planId, text);
+  if (!amended.ok) {
+    return {
+      ok: false,
+      error:
+        "This plan has finished, so its note cannot be changed. Start a new " +
+        "follow-up for this patient instead.",
+    };
+  }
+
+  const plan = await getPlanForReview(planId);
+  const outcome = await compileNote({
+    noteBody: amended.body,
+    escalationNote: amended.escalationNote ?? undefined,
+    patientAge: plan?.patientAge ?? undefined,
+    fallbackReason: plan?.reason ?? "Follow-up",
+  });
+
+  revalidatePath(`/plans/${planId}`);
+
+  if (!outcome.ok) {
+    return {
+      ok: false,
+      error: `Your note was saved, but it could not be re-read: ${outcome.detail}`,
+    };
+  }
+
+  const merged = await mergeCompiledQuestions(planId, outcome.plan.questions);
+  /* Plan-level values are the draft's to change. A running plan keeps the
+     cadence and the local time it was approved with — a doctor adding a new
+     symptom is not asking to move tomorrow's call. */
+  if (plan?.status === "awaiting_approval") await mergeCompiledPlan(planId, outcome.plan);
+
+  /*
+   * Re-freeze the schema, or the new questions are asked and their answers
+   * thrown away: `buildResultSchema` output is frozen onto the plan at approval
+   * and `loadContext` sends that frozen copy to CALL-E. Adding a key is
+   * additive and safe — calls already placed were extracted against the older
+   * schema and their slots are already written.
+   */
+  if (merged.added > 0) await refreezeResultSchema(planId);
+
+  revalidatePath(`/plans/${planId}`);
+  revalidatePath("/patients");
+
+  return { ok: true, ...merged };
+}

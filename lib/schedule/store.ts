@@ -399,7 +399,20 @@ export async function resumePlan(planId: string, by: string): Promise<boolean> {
   return result.rows.length > 0;
 }
 
-export async function closePlan(planId: string, reason: string, by: string): Promise<boolean> {
+export async function closePlan(
+  planId: string,
+  reason: string,
+  by: string,
+  /**
+   * What the clinician wrote about how this episode resolved.
+   *
+   * The one thing the record cannot reconstruct. The calls say what was asked
+   * and answered and `close_reason` says the episode ended; neither says
+   * whether the patient got better. Optional because three of the four close
+   * reasons are not a clinician sitting down to write.
+   */
+  summary?: string | null,
+): Promise<boolean> {
   const db = getDb();
 
   /*
@@ -420,7 +433,7 @@ export async function closePlan(planId: string, reason: string, by: string): Pro
   const result = await db.execute(sql`
     update follow_up_plans
     set status = 'completed', closed_at = now(), close_reason = ${reason},
-        resumed_by = ${by}, updated_at = now()
+        resumed_by = ${by}, closing_summary = ${summary ?? null}, updated_at = now()
     where id = ${planId} and status in ('active', 'paused')
     returning id
   `);

@@ -19,7 +19,7 @@ import { questionSlug } from "@/lib/plan/clinician-question";
 import { RESERVED_QUESTION_IDS, UNIVERSAL_QUESTIONS } from "@/lib/plan/universal-questions";
 import type { QuestionDraft } from "@/lib/plan/clinician-question";
 import type { ResolvedPlan } from "@/lib/plan/defaults";
-import type { CompileProvider, Provenance } from "@/lib/db/enums";
+import type { AnswerType, CompileProvider, Provenance } from "@/lib/db/enums";
 import type { PlanRule, RedFlagTerm } from "@/lib/rules/types";
 import type { GuardFinding, GuardResult } from "@/lib/script/guard";
 import { nextOrdinal } from "@/lib/plan/ordinals";
@@ -675,6 +675,226 @@ export async function approvePlan(planId: string, by: string): Promise<ApproveRe
   return { ok: true, occurrences: inserted };
 }
 
+/**
+ * Append to the note a doctor already wrote.
+ *
+ * It appends to `consultation_notes.body` rather than living in a column of its
+ * own, and that is not a shortcut. `assertGrounded` runs again at *dial* time
+ * against `body`: a medication named only in an amendment stored elsewhere
+ * would make every subsequent call refuse as ungrounded. The note the compiler
+ * reads and the note the dialer grounds against have to be the same text.
+ *
+ * Only while the plan is awaiting approval, and that is enforced in the SQL
+ * rather than in the caller.
+ *
+ * **A running plan may be amended.** The patient came back with something new
+ * and the follow-up that is already dialling them is the right place to put it:
+ * one call a day covering everything, rather than two agents phoning the same
+ * person. What must not change is a question calls have already been placed
+ * against — so a live amendment is strictly additive, enforced in
+ * `mergeCompiledQuestions` rather than trusted to the caller.
+ */
+export async function amendNote(
+  planId: string,
+  addition: string,
+): Promise<{ ok: boolean; body: string; escalationNote: string | null }> {
+  const trimmed = addition.trim();
+  if (!trimmed) return { ok: false, body: "", escalationNote: null };
 
+  const result = await getDb().execute(sql`
+    update consultation_notes n
+    set body = n.body || E'\n\n' || ${trimmed},
+        amended_at = now()
+    from follow_up_plans p
+    where p.note_id = n.id
+      and p.id = ${planId}
+      -- A running plan may be amended too, but only additively:
+      -- mergeCompiledQuestions refuses to rewrite a question once calls
+      -- have been placed against it.
+      and p.status in ('awaiting_approval', 'active', 'paused')
+    returning n.body, n.escalation_note
+  `);
 
+  const row = result.rows[0] as Record<string, unknown> | undefined;
+  if (!row) return { ok: false, body: "", escalationNote: null };
+  return {
+    ok: true,
+    body: String(row.body),
+    escalationNote: row.escalation_note ? String(row.escalation_note) : null,
+  };
+}
 
+/**
+ * Fold a fresh compile into the questions already on a plan.
+ *
+ * Merging on `question_id`, with one rule per case, and the cases exist because
+ * a recompile arrives *after* a doctor has already edited and reordered:
+ *
+ *   new slug          → inserted, appended last, guard run on the way in
+ *   source clinician  → never touched. Their wording outranks the model's
+ *   source note       → the prompt may be rewritten by the newer compile
+ *   locked / default  → never touched; that set is code-owned
+ *   gone from the new compile → kept. Deleting is the doctor's act, not ours
+ *
+ * **A recompile never writes an ordinal except to append.** That single
+ * invariant is what makes reordering and re-parsing compose: no code path here
+ * can move a question the doctor placed, so their order survives every
+ * amendment by construction rather than by care.
+ *
+ * The `where source = 'note'` on the update is what enforces the clinician rule
+ * in the database instead of relying on this function remembering it.
+ */
+export async function mergeCompiledQuestions(
+  planId: string,
+  questions: { questionId: string; prompt: string; answerType: string; enumValues?: string[] | null }[],
+): Promise<{ added: number; rewritten: number }> {
+  const db = getDb();
+  let added = 0;
+  let rewritten = 0;
+
+  for (const q of questions) {
+    if (RESERVED_QUESTION_IDS.has(q.questionId)) continue;
+    const guard = inspectQuestion(q.prompt);
+
+    const inserted = await db.execute(sql`
+      insert into plan_questions
+        (id, plan_id, question_id, ordinal, prompt, answer_type, enum_values, required,
+         source, guard_status, guard_findings, last_compile_at, added_at)
+      select ${newId("q")}, ${planId}, ${q.questionId},
+             (select coalesce(max(ordinal), 0) + 1 from plan_questions where plan_id = ${planId}),
+             ${q.prompt}, ${q.answerType},
+             ${q.enumValues ? JSON.stringify(q.enumValues) : null}::jsonb, true,
+             'note', ${guard.ok ? "approved" : "rejected"},
+             ${guard.ok ? null : JSON.stringify(guard.findings)}::jsonb, now(),
+             -- Stamped only when the plan was already running, so a call from
+             -- day 2 can be read knowing which questions did not exist yet.
+             (case when p.status = 'awaiting_approval' then null else now() end)
+      from follow_up_plans p
+      where p.id = ${planId} and p.status in ('awaiting_approval', 'active', 'paused')
+      on conflict (plan_id, question_id) do nothing
+      returning id
+    `);
+
+    if (inserted.rows.length > 0) {
+      added += 1;
+      continue;
+    }
+
+    const updated = await db.execute(sql`
+      update plan_questions
+      set prompt = ${q.prompt},
+          guard_status = ${guard.ok ? "approved" : "rejected"},
+          guard_findings = ${guard.ok ? null : JSON.stringify(guard.findings)}::jsonb,
+          last_compile_at = now(),
+          updated_at = now()
+      where plan_id = ${planId} and question_id = ${q.questionId}
+        -- The doctor's own wording is never overwritten by a later compile.
+        and source = 'note'
+        and exists (
+          select 1 from follow_up_plans p
+          where p.id = ${planId} and p.status = 'awaiting_approval'
+        )
+      returning id
+    `);
+    if (updated.rows.length > 0) rewritten += 1;
+  }
+
+  return { added, rewritten };
+}
+
+/**
+ * Re-freeze the result schema after questions were added to a running plan.
+ *
+ * The schema is frozen at approval and `loadContext` sends that frozen copy to
+ * CALL-E, so a question added afterwards would be asked on the call and its
+ * answer discarded — the key would not be in the contract, and `extractSlots`
+ * would record it `missing` forever.
+ *
+ * Additive and safe: calls already placed were extracted against the older
+ * schema and their slots are already written. Only guard-approved questions go
+ * in, exactly as at approval — a refused question must never reach a patient.
+ */
+export async function refreezeResultSchema(planId: string): Promise<boolean> {
+  const db = getDb();
+  const rows = await db.execute(sql`
+    select question_id, prompt, answer_type, enum_values
+    from plan_questions
+    where plan_id = ${planId} and guard_status = 'approved'
+    order by ordinal, question_id
+  `);
+
+  const questions = (rows.rows as Record<string, unknown>[]).map((r) => ({
+    questionId: String(r.question_id),
+    prompt: String(r.prompt),
+    answerType: String(r.answer_type) as AnswerType,
+    enumValues: (r.enum_values ?? null) as string[] | null,
+  }));
+  if (questions.length === 0) return false;
+
+  const result = await db.execute(sql`
+    update follow_up_plans
+    set result_schema = ${JSON.stringify(buildResultSchema(questions))}::jsonb,
+        updated_at = now()
+    where id = ${planId} and status in ('awaiting_approval', 'active', 'paused')
+    returning id
+  `);
+  return result.rows.length > 0;
+}
+
+/**
+ * Take the newer compile's plan-level values, except where the doctor set them.
+ *
+ * `provenance` already records who chose each field, and it is the same map the
+ * review screen reads to print "Defaulted" and "You set this". Honouring it here
+ * is what stops an amendment quietly undoing a cadence a doctor typed.
+ */
+export async function mergeCompiledPlan(
+  planId: string,
+  plan: ResolvedPlan,
+): Promise<boolean> {
+  const db = getDb();
+  const current = await db.execute(sql`
+    select provenance, red_flag_terms from follow_up_plans
+    where id = ${planId} and status = 'awaiting_approval'
+  `);
+  const row = current.rows[0] as Record<string, unknown> | undefined;
+  if (!row) return false;
+
+  const was = (row.provenance ?? {}) as Record<string, Provenance>;
+
+  /*
+   * A word the doctor typed survives a recompile.
+   *
+   * Taking the new compile's list wholesale would delete every term they added
+   * by hand — the compiler never proposes those, so they would vanish on the
+   * next amendment with no trace and nothing to undo.
+   */
+  const existing = (row.red_flag_terms ?? []) as RedFlagTerm[];
+  const theirs = existing.filter((t) => t.source === "clinician");
+  const seen = new Set(theirs.map((t) => t.term.toLowerCase()));
+  const terms = [
+    ...theirs,
+    ...plan.redFlagTerms.filter((t) => !seen.has(t.term.toLowerCase())),
+  ];
+  const mine = (field: string) => was[field] === "clinician";
+
+  const merged: Record<string, Provenance> = { ...was };
+  for (const [field, source] of Object.entries(plan.provenance)) {
+    if (!mine(field)) merged[field] = source;
+  }
+
+  const result = await db.execute(sql`
+    update follow_up_plans
+    set reason = ${mine("reason") ? sql`reason` : plan.reason},
+        condition = ${mine("condition") ? sql`condition` : plan.condition},
+        duration_days = ${mine("durationDays") ? sql`duration_days` : plan.durationDays},
+        cadence = ${mine("cadence") ? sql`cadence` : plan.cadence},
+        local_time = ${mine("localTime") ? sql`local_time` : plan.localTime},
+        red_flag_terms = ${JSON.stringify(terms)}::jsonb,
+        provenance = ${JSON.stringify(merged)}::jsonb,
+        updated_at = now()
+    where id = ${planId} and status = 'awaiting_approval'
+    returning id
+  `);
+  return result.rows.length > 0;
+}

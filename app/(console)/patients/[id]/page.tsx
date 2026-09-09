@@ -15,6 +15,7 @@ import { notFound } from "next/navigation";
 import { CallLog } from "@/components/CallLog";
 import { PatientControls } from "@/components/PatientControls";
 import { TreatmentControls } from "@/components/TreatmentControls";
+import { AmendNote } from "@/components/AmendNote";
 import { Badge, Button, Panel } from "@/components/ui";
 import { getPatientDetail } from "@/lib/db/patients";
 import { getPatientSummary } from "@/lib/db/summary";
@@ -247,19 +248,60 @@ export default async function PatientPage({
         >
           <div style={{ padding: "calc(var(--cell) * 2.5) calc(var(--cell) * 3)" }}>
             {["active", "paused"].includes(detail.planStatus ?? "") && !patient.archivedAt ? (
-              <TreatmentControls
-                planId={detail.planId}
-                patientId={patient.id}
-                patientName={patient.name}
-              />
+              <>
+                <TreatmentControls
+                  planId={detail.planId}
+                  patientId={patient.id}
+                  patientName={patient.name}
+                />
+                {/*
+                  Reviewing a patient mid-course and wanting one more thing
+                  watched is not a new episode. A second plan would dial the
+                  same person twice a day — and cannot exist anyway, since one
+                  live plan per patient is a unique index. This adds to the note
+                  the questions were compiled from, so the addition is grounded
+                  the same way everything else is.
+                */}
+                <AmendNote planId={detail.planId} live />
+              </>
             ) : (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "calc(var(--cell) * 1.5)", alignItems: "center" }}>
-                <Button variant="onLabel" href={`/plans/${detail.planId}`}>
-                  See the whole plan
-                </Button>
-                <Badge tone="plain" quiet>
-                  {detail.planStatus}
-                </Badge>
+              <div style={{ display: "grid", gap: "calc(var(--cell) * 1.5)" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: "calc(var(--cell) * 1.5)",
+                    alignItems: "center",
+                  }}
+                >
+                  <Button variant="onLabel" href={`/plans/${detail.planId}`}>
+                    See the whole plan
+                  </Button>
+                  <Badge tone="plain" quiet>
+                    {detail.planStatus}
+                  </Badge>
+                </div>
+
+                {/* How it resolved, on the episode it belongs to. It moves down
+                    to "Earlier follow-ups" only once a newer plan exists. */}
+                {(() => {
+                  const course = summary.courses.find((c) => c.planId === detail.planId);
+                  return course?.closingSummary ? (
+                    <p
+                      style={{
+                        margin: 0,
+                        paddingLeft: "calc(var(--cell) * 1.5)",
+                        borderLeft: "2px solid var(--rule-2)",
+                        color: "var(--print)",
+                        fontSize: 14,
+                        lineHeight: 1.6,
+                        maxWidth: "72ch",
+                      }}
+                    >
+                      {course.closingSummary}
+                    </p>
+                  ) : null;
+                })()}
               </div>
             )}
           </div>
@@ -285,18 +327,24 @@ export default async function PatientPage({
           style={{ marginBottom: "calc(var(--cell) * 2)" }}
         >
           <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-            {detail.priorPlans.map((p) => (
+            {detail.priorPlans.map((p) => {
+              const course = summary.courses.find((c) => c.planId === p.id);
+              return (
               <li
                 key={p.id}
+                style={{
+                  padding: "calc(var(--cell) * 1.75) calc(var(--cell) * 2.5)",
+                  borderBottom: "1px solid var(--rule-2)",
+                }}
+              >
+               <div
                 style={{
                   display: "flex",
                   flexWrap: "wrap",
                   alignItems: "baseline",
                   gap: "calc(var(--cell) * 2)",
-                  padding: "calc(var(--cell) * 1.75) calc(var(--cell) * 2.5)",
-                  borderBottom: "1px solid var(--rule-2)",
                 }}
-              >
+               >
                 <Link
                   href={`/plans/${p.id}`}
                   style={{
@@ -323,20 +371,43 @@ export default async function PatientPage({
                 {/* What the course actually achieved. The rows were retained
                     and the result schema frozen at approval precisely so a
                     superseded plan stayed readable, and nothing read it. */}
-                {(() => {
-                  const course = summary.courses.find((c) => c.planId === p.id);
-                  return course && course.calls > 0 ? (
-                    <span className="mono" style={{ fontSize: 13, color: "var(--print-2)" }}>
-                      {course.reached}/{course.calls} answered
-                    </span>
-                  ) : null;
-                })()}
+                {course && course.calls > 0 ? (
+                  <span className="mono" style={{ fontSize: 13, color: "var(--print-2)" }}>
+                    {course.reached}/{course.calls} answered
+                  </span>
+                ) : null}
                 <span className="mono" style={{ fontSize: 13, color: "var(--print-3)" }}>
                   {p.startsAt ? formatDay(p.startsAt, patient.timezone) : "never started"}
                   {p.closedAt ? ` → ${formatDay(p.closedAt, patient.timezone)}` : ""}
                 </span>
+               </div>
+
+                {/*
+                  How it resolved, in the clinician's own words.
+                  The reason this record exists: everything else on the row is
+                  machinery — how many calls, which dates, why it stopped — and
+                  none of it says whether the patient got better. It is printed
+                  rather than hidden behind the link, because a doctor seeing
+                  this patient again needs it before they decide anything.
+                */}
+                {course?.closingSummary ? (
+                  <p
+                    style={{
+                      margin: "calc(var(--cell) * 1) 0 0",
+                      paddingLeft: "calc(var(--cell) * 1.5)",
+                      borderLeft: "2px solid var(--rule-2)",
+                      color: "var(--print)",
+                      fontSize: 14,
+                      lineHeight: 1.6,
+                      maxWidth: "72ch",
+                    }}
+                  >
+                    {course.closingSummary}
+                  </p>
+                ) : null}
               </li>
-            ))}
+              );
+            })}
           </ul>
         </Panel>
       ) : null}
