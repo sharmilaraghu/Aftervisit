@@ -932,10 +932,17 @@ a.stepper-step[data-state="ahead"] .stepper-mark {
     display: grid;
   }
 
+  /* Pinned to the foot of the rail: whose practice this is is the last thing
+     you read, not something sitting between the sections and the empty column
+     below them. */
   .rail-foot {
     display: block;
-    margin-top: calc(var(--cell) * 3);
+    margin-top: auto;
     padding-top: calc(var(--cell) * 2);
+    /* Clear of the very bottom edge — and of the dev overlay that parks in
+       this corner, which would otherwise sit across the clinician's name in
+       every screen recording made from a dev server. */
+    padding-bottom: calc(var(--cell) * 5);
     border-top: 1px solid var(--bench-line);
   }
 
