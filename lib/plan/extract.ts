@@ -21,6 +21,12 @@ import { UNKNOWN } from "@/lib/plan/result-schema";
 
 export interface ExtractQuestion {
   questionId: string;
+  /**
+   * The wording the agent was told to use, which is how its turn is found in
+   * the transcript. Without it there is no way to tell which reply belongs to
+   * which question, and no quote is shown.
+   */
+  prompt?: string;
   answerType: AnswerType;
   enumValues?: string[] | null;
   required: boolean;
@@ -45,40 +51,41 @@ export interface ExtractInput {
 }
 
 /**
- * Find what the patient said closest to a question.
+ * Find what the patient said in reply to one question.
  *
  * The transcript is walked for the agent turn that asked, then the next patient
  * turn is taken as the answer. It is a heuristic and it is allowed to be: the
  * utterance is *evidence shown to a clinician*, never an input to a decision.
  * The rule engine reads typed values; this only decides which sentence to quote.
+ *
+ * Null is the honest answer whenever that reply cannot be located — the question
+ * was never asked, or the call ended before anyone answered it. There used to be
+ * a fallback here that quoted "the longest thing the patient said" instead,
+ * which meant every question on a call carried the same sentence: one real call
+ * printed the same eleven words under all eight answers, including the two
+ * nobody had answered. A quote under the wrong question is not weak evidence,
+ * it is wrong evidence.
  */
 function findUtterance(
   transcript: StoredTurn[] | null,
-  questionId: string,
-  prompt?: string,
+  prompt: string | undefined,
 ): { text: string; offsetSeconds: number } | null {
-  if (!transcript || transcript.length === 0) return null;
+  if (!transcript || transcript.length === 0 || !prompt) return null;
 
   const isPatient = (t: StoredTurn) =>
     !["agent", "assistant", "bot", "ai"].includes(t.speaker.toLowerCase());
 
-  if (prompt) {
-    const askedAt = transcript.findIndex(
-      (t) => !isPatient(t) && t.text.includes(prompt.slice(0, 40)),
-    );
-    if (askedAt !== -1) {
-      const reply = transcript.slice(askedAt + 1).find(isPatient);
-      if (reply) return { text: reply.text, offsetSeconds: reply.offsetSeconds };
-    }
-  }
+  /* A prefix, because the agent is told to use this wording but is not bound to
+     it character for character. */
+  const askedAt = transcript.findIndex(
+    (t) => !isPatient(t) && t.text.includes(prompt.slice(0, 40)),
+  );
+  if (askedAt === -1) return null;
 
-  // No prompt match: fall back to the longest thing the patient said, which is
-  // the most informative line to put in front of a clinician.
-  const patientTurns = transcript.filter(isPatient);
-  if (patientTurns.length === 0) return null;
-  const longest = patientTurns.reduce((a, b) => (b.text.length > a.text.length ? b : a));
-  return questionId ? { text: longest.text, offsetSeconds: longest.offsetSeconds } : null;
+  const reply = transcript.slice(askedAt + 1).find(isPatient);
+  return reply ? { text: reply.text, offsetSeconds: reply.offsetSeconds } : null;
 }
+
 
 /**
  * Coerce one raw value against its declared type, or refuse to.
@@ -155,7 +162,7 @@ export function extractSlots(input: ExtractInput): ExtractedValue[] {
       ? coerce(raw, question)
       : { status: "missing" as SlotStatus, valueBool: null, valueNumber: null, valueText: null };
 
-    const utterance = findUtterance(input.transcript, question.questionId);
+    const utterance = findUtterance(input.transcript, question.prompt);
 
     return {
       questionId: question.questionId,
