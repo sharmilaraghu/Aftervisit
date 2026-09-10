@@ -33,6 +33,7 @@ import {
   outcomeTone,
 } from "@/lib/patients/labels";
 import { formatStamp } from "@/lib/format";
+import { failureShort } from "@/lib/calle/failure";
 
 /**
  * The one clause the row shows.
@@ -152,6 +153,14 @@ function Row({ row }: { row: TodayRow }) {
                 <>
                   {formatStamp(row.lastCallAt, row.timezone)}
                   {ladderLine ? <span className="today-ledger-dim">{ladderLine}</span> : null}
+                  {/* What the network did, when it did something. "Failed"
+                      alone does not tell a doctor whether to redial or check
+                      the number. */}
+                  {failureShort(row.lastCallFailureCode) ? (
+                    <span className="today-ledger-dim">
+                      {failureShort(row.lastCallFailureCode)}
+                    </span>
+                  ) : null}
                   {/* Always quiet here. A solid red `Red flag` beside an amber
                       `Medium` is one row saying two different things about how
                       bad this is — the severity badge owns the alarm, this

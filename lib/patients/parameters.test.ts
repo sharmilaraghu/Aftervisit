@@ -181,7 +181,7 @@ describe("cells", () => {
   /* Colour is never the only carrier: every cell says its value in words. */
   it("titles every cell with its full value", () => {
     expect(cellTitle(row, row.readings[1])).toBe("Day 2: 8 out of 10");
-    expect(cellTitle(row, reading(4, { status: null }))).toBe("Day 4: not scheduled");
+    expect(cellTitle(row, reading(4, { status: null }))).toBe("Day 4: no reading");
     expect(cellTitle(row, reading(5, { status: "missing" }))).toBe("Day 5: never answered");
   });
 });

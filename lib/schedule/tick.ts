@@ -269,7 +269,10 @@ export async function completeCall(
   const reached = someoneSpoke({ slots, transcript });
   const anyUnmappable = slots.some((s) => s.status === "unmappable" || s.status === "missing");
 
-  const { attemptsMade, allNoAnswer } = await occurrenceAttempts(ctx.planId, ctx.occurrence);
+  const { attemptsMade, allNoAnswer, networkRefusedAll } = await occurrenceAttempts(
+    ctx.planId,
+    ctx.occurrence,
+  );
 
   const lastHeard = await db.execute(sql`
     select max(finished_at) as at from scheduled_calls
@@ -288,6 +291,8 @@ export async function completeCall(
     // unmappable rule on every question of a call nobody picked up.
     reached,
     noAnswerExhausted: allNoAnswer && attemptsMade >= ctx.maxAttempts,
+    /* Changes what the escalation says, never whether it fires. */
+    networkRefusedAll,
     attemptsMade,
     now: new Date(),
   });

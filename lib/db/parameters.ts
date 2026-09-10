@@ -15,6 +15,7 @@ import { sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import type { AnswerType, SlotStatus } from "@/lib/db/enums";
 import type { ParameterReading, ParameterRow } from "@/lib/patients/parameters";
+import { NETWORK_REFUSED_CODES } from "@/lib/calle/failure";
 import {
   OBSERVED_QUESTION_IDS,
   UNSPOKEN_RESULT_KEYS,
@@ -44,6 +45,8 @@ const NOT_A_PARAMETER = new Set<string>([
  */
 export async function getParameterGrid(planId: string): Promise<ParameterRow[]> {
   const db = getDb();
+  /* One source for what a refusal code means — see lib/calle/failure.ts. */
+  const refusedCodes = NETWORK_REFUSED_CODES.join(",");
 
   const [questions, slots, occurrences] = await Promise.all([
     db.execute(sql`
@@ -65,6 +68,15 @@ export async function getParameterGrid(planId: string): Promise<ParameterRow[]> 
       from extracted_slots s
       join scheduled_calls c on c.id = s.call_id
       where c.plan_id = ${planId}
+        -- A call the network refused still comes back with a full result
+        -- object, every key filled in as unknown, so it lands here as a row of
+        -- unmappable slots. Rendered, that is a column of "?" implying the
+        -- questions were asked and did not land — a claim about the patient,
+        -- on a call she never received. There is no reading for that day.
+        -- string_to_array, not a JS array: Drizzle expands an array parameter
+        -- into a row constructor ($2, $3, …), which is not an array and will
+        -- not take the ::text[] cast.
+        and coalesce(c.calle_failure_code, '') <> all(string_to_array(${refusedCodes}, ','))
       order by s.question_id, c.occurrence, s.status = 'answered' desc, c.attempt desc
     `),
     db.execute(sql`

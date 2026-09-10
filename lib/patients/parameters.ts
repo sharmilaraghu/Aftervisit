@@ -224,7 +224,9 @@ function abbreviate(value: string, options: string[]): string {
 /** The full value, for a `title` and the row's `aria-label`. */
 export function cellTitle(row: ParameterRow, reading: ParameterReading): string {
   const day = `Day ${reading.occurrence}`;
-  if (reading.status === null) return `${day}: not scheduled`;
+  /* Not "not scheduled": a day whose call the network refused was scheduled and
+     attempted, and there is simply no reading from it. */
+  if (reading.status === null) return `${day}: no reading`;
   if (reading.status === "missing") return `${day}: never answered`;
   if (reading.status === "unmappable") return `${day}: could not be mapped`;
   if (typeof reading.valueNumber === "number") return `${day}: ${reading.valueNumber} out of 10`;

@@ -15,6 +15,7 @@
 import { sql } from "drizzle-orm";
 
 import { getDb } from "@/lib/db/client";
+import { networkRefused } from "@/lib/calle/failure";
 import { readConfig } from "@/lib/config";
 import { newId, idempotencyKey } from "@/lib/db/ids";
 import type { CallOutcome, ResultStatus, TickTrigger } from "@/lib/db/enums";
@@ -248,7 +249,13 @@ export async function scheduleRetry(
 export async function occurrenceAttempts(
   planId: string,
   occurrence: number,
-): Promise<{ attemptsMade: number; allNoAnswer: boolean; maxAttempts: number }> {
+): Promise<{
+  attemptsMade: number;
+  allNoAnswer: boolean;
+  maxAttempts: number;
+  /** Whether every finished attempt was ended by the network before it rang. */
+  networkRefusedAll: boolean;
+}> {
   const result = await getDb().execute(sql`
     select
       count(c.*) filter (where c.finished_at is not null)                    as made,
@@ -257,6 +264,12 @@ export async function occurrenceAttempts(
       -- vocabulary that came back 603 the one time it mattered, so counting
       -- it here meant no_answer_exhausted could never fire in production.
       count(c.*) filter (where c.outcome = 'no_answer')                      as no_answer,
+      -- The codes themselves, so lib/calle/failure.ts decides what they mean
+      -- rather than this query hard-coding a second copy of that vocabulary.
+      array_remove(
+        array_agg(c.calle_failure_code) filter (where c.finished_at is not null),
+        null
+      )                                                                      as codes,
       max(p.max_attempts)                                                    as max_attempts
     from scheduled_calls c
     join follow_up_plans p on p.id = c.plan_id
@@ -266,10 +279,16 @@ export async function occurrenceAttempts(
   const row = (result.rows as Record<string, unknown>[])[0] ?? {};
   const made = Number(row.made ?? 0);
   const noAnswer = Number(row.no_answer ?? 0);
+  const codes = Array.isArray(row.codes) ? (row.codes as unknown[]).map(String) : [];
+
   return {
     attemptsMade: made,
     allNoAnswer: made > 0 && made === noAnswer,
     maxAttempts: Number(row.max_attempts ?? 3),
+    /* Every attempt has to have carried a refusal code. A single attempt that
+       merely rang out means the number does reach somebody, and the honest
+       account of the occurrence is that nobody answered. */
+    networkRefusedAll: made > 0 && codes.length === made && codes.every(networkRefused),
   };
 }
 

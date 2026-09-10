@@ -207,6 +207,34 @@ describe("evaluate — nobody ever answered", () => {
     expect(result.hits[0].reason).toContain("3 attempts");
   });
 
+  /*
+   * A ladder that exhausted because the number could not be dialled and one
+   * that exhausted because a patient did not pick up are the same row in the
+   * queue and two completely different jobs for whoever opens it.
+   */
+  it("says the number was refused, not that nobody answered", () => {
+    const result = evaluate(
+      input({
+        reached: false,
+        noAnswerExhausted: true,
+        attemptsMade: 3,
+        networkRefusedAll: true,
+      }),
+    );
+    expect(result.hits).toHaveLength(1);
+    expect(result.hits[0].ruleId).toBe("no_answer_exhausted");
+    expect(result.hits[0].ruleLabel).toBe("This number could not be reached");
+    expect(result.hits[0].reason).toContain("network refused every one");
+    expect(result.hits[0].reason).not.toContain("nobody spoke");
+  });
+
+  it("keeps the unanswered wording when the flag is absent", () => {
+    const result = evaluate(
+      input({ reached: false, noAnswerExhausted: true, attemptsMade: 3 }),
+    );
+    expect(result.hits[0].reason).toContain("nobody spoke");
+  });
+
   it("stays quiet while attempts remain", () => {
     const result = evaluate(
       input({ reached: false, noAnswerExhausted: true, attemptsMade: 2 }),

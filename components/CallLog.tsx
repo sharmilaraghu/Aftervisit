@@ -21,6 +21,7 @@ import { useState } from "react";
 import { Badge, Button } from "@/components/ui";
 import { formatStamp } from "@/lib/format";
 import { outcomeLabel, outcomeTone } from "@/lib/patients/labels";
+import { failureReason, networkRefused } from "@/lib/calle/failure";
 
 export interface CallRow {
   id: string;
@@ -68,6 +69,10 @@ export function CallLog({
   const silent = calls.filter((c) => c.outcome === "no_answer");
   const spoken = calls.filter((c) => c.outcome !== "no_answer");
   const rows = full || silent.length === 0 ? calls : spoken;
+
+  /* "No answer" is a claim about the patient. When every folded attempt was
+     ended by the network, nobody chose anything and the fold has to say so. */
+  const allRefused = silent.length > 0 && silent.every((c) => networkRefused(c.failureCode));
 
   /* The days the silence covers, named rather than counted: "days 3–5" is
      something a doctor can put against the week band; "9 attempts" alone is not. */
@@ -151,7 +156,15 @@ export function CallLog({
                     timestamps instead.
                   */}
                   <td style={{ padding: CELL, color: "var(--print-2)", maxWidth: 420 }}>
-                    {c.recap ?? <span style={{ color: "var(--print-3)" }}>—</span>}
+                    {/*
+                      A call that never connected has no recap and used to show
+                      a bare em-dash, which reads as "we have nothing" when in
+                      fact we know exactly what happened. What the network did
+                      is the row's content when the patient never spoke.
+                    */}
+                    {c.recap ?? failureReason(c.failureCode) ?? (
+                      <span style={{ color: "var(--print-3)" }}>—</span>
+                    )}
                     {c.whatElse ? (
                       <span
                         style={{
@@ -195,18 +208,22 @@ export function CallLog({
           <span style={{ color: "var(--print-2)", fontSize: 14 }}>
             {full ? (
               <>
-                Showing every attempt, including {silent.length} that went
-                unanswered.
+                Showing every attempt, including {silent.length} that{" "}
+                {allRefused ? "the network refused" : "went unanswered"}.
               </>
             ) : (
               <>
-                {dayRange}: {silent.length} attempt{silent.length === 1 ? "" : "s"}, no
-                answer.
+                {dayRange}: {silent.length} attempt{silent.length === 1 ? "" : "s"},{" "}
+                {allRefused ? "refused by the network" : "no answer"}.
               </>
             )}
           </span>
           <Button variant="onLabel" onClick={() => setFull(!full)}>
-            {full ? "Hide the unanswered attempts" : "Show every attempt"}
+            {full
+              ? allRefused
+                ? "Hide the refused attempts"
+                : "Hide the unanswered attempts"
+              : "Show every attempt"}
           </Button>
         </div>
       ) : null}

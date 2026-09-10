@@ -15,6 +15,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { Badge, Panel } from "@/components/ui";
+import { failureReason, networkRefused } from "@/lib/calle/failure";
 import { getCall } from "@/lib/db/calls";
 import { getTriage } from "@/lib/db/triage";
 import { escalationRef, formatStamp } from "@/lib/format";
@@ -110,6 +111,33 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
         </Panel>
       ) : null}
 
+      {/*
+        What the network did.
+
+        A real call came back 480 and this page said "No answers were extracted
+        from this call" — true, and useless. The patient never heard a ring, and
+        a clinician reading "no answer" would reasonably conclude she chose not
+        to pick up. Those need opposite responses.
+      */}
+      {failureReason(call.failureCode) ? (
+        <Panel
+          title={networkRefused(call.failureCode) ? "This call never rang" : "Nobody answered"}
+          aside={
+            <span className="caps mono" style={{ color: "var(--print-3)" }}>
+              {call.failureCode}
+            </span>
+          }
+          style={{ marginBottom: "calc(var(--cell) * 2)" }}
+        >
+          <p
+            className="measure"
+            style={{ margin: 0, padding: "calc(var(--cell) * 3)", color: "var(--print)" }}
+          >
+            {failureReason(call.failureCode)}
+          </p>
+        </Panel>
+      ) : null}
+
       {call.escalations.length > 0 ? (
         <Panel
           title="Escalated"
@@ -145,12 +173,24 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
         title="Answers"
         aside={
           <span className="caps mono" style={{ color: "var(--print-3)" }}>
-            {call.resultStatus === "null_result" ? "no result" : `${call.slots.length} answers`}
+            {networkRefused(call.failureCode)
+              ? "did not connect"
+              : call.resultStatus === "null_result"
+                ? "no result"
+                : `${call.slots.length} answers`}
           </span>
         }
         style={{ marginBottom: "calc(var(--cell) * 2)" }}
       >
-        {call.slots.length === 0 ? (
+        {/*
+          A refused call still comes back with a full result object, every key
+          filled in as unknown — so this table printed eight rows of "could not
+          be mapped" for a call that never rang. That reads as "we asked and
+          could not understand her", which is a claim about the patient, on a
+          call she never received. They are placeholders, not answers, and the
+          honest thing is to show none of them.
+        */}
+        {call.slots.length === 0 || networkRefused(call.failureCode) ? (
           <p
             style={{
               margin: 0,
@@ -159,9 +199,11 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
               fontSize: 14,
             }}
           >
-            {call.failureCode === "no_answer"
-              ? "Nobody answered, so there is nothing to record. That is itself the signal — three of these in a row raises an escalation."
-              : "No answers were extracted from this call."}
+            {networkRefused(call.failureCode)
+              ? "The call never connected, so there was nothing to record. See above for what the network reported."
+              : call.failureCode === "no_answer"
+                ? "Nobody answered, so there is nothing to record. That is itself the signal — three of these in a row raises an escalation."
+                : "No answers were extracted from this call."}
           </p>
         ) : (
           /*

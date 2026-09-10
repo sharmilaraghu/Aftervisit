@@ -52,6 +52,19 @@ export interface EvaluationInput {
   reached: boolean;
   /** Nobody spoke on any attempt for this occurrence. */
   noAnswerExhausted: boolean;
+  /**
+   * Whether every one of those attempts was ended by the destination network
+   * rather than going unanswered.
+   *
+   * It changes what the escalation says, not whether it fires. A ladder that
+   * exhausted because the number could not be dialled and one that exhausted
+   * because a patient did not pick up are the same row in the queue and two
+   * completely different jobs for the clinician who opens it.
+   *
+   * Optional because the floor must still work when nobody tells it: absent,
+   * the wording stays the one it has always used.
+   */
+  networkRefusedAll?: boolean;
   /** Attempts actually made for this occurrence. */
   attemptsMade: number;
   /** Injected. The engine never reads a clock. */
@@ -154,6 +167,17 @@ function evaluateRule(rule: Rule, input: EvaluationInput): RuleHit[] {
 
     case "no_answer_exhausted": {
       if (!input.noAnswerExhausted || input.attemptsMade < rule.attempts) return [];
+
+      /* Never say "nobody answered" about a call that never rang. */
+      if (input.networkRefusedAll) {
+        return [
+          hit({
+            ruleLabel: "This number could not be reached",
+            reason: `${input.attemptsMade} attempts and the network refused every one — none of them rang. This is a problem with the number, not a patient who did not pick up. Check it before the next course.`,
+          }),
+        ];
+      }
+
       return [
         hit({
           reason: `${input.attemptsMade} attempts and nobody spoke on any of them. Nobody has heard from this patient.`,
