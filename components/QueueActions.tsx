@@ -77,14 +77,12 @@ export function QueueActions({
         >
           {closing ? (
             <>
-              <strong>Ending the follow-up stops every remaining call for {patientName}.</strong>{" "}
-              Their calls, answers and escalations are all kept. There is no undo — starting
-              again means writing a new note.
+              <strong>Every remaining call for {patientName} is dropped.</strong> The
+              record is kept. No undo — starting again means a new note.
             </>
           ) : pausedPlan ? (
             <>
-              This restarts the follow-up. Calls missed while it was stopped are skipped, not
-              dialled all at once.
+              Calls missed while it was stopped are skipped, not dialled all at once.
             </>
           ) : (
             <>The follow-up is still running and stays running.</>

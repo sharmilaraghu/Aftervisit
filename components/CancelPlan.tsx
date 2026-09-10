@@ -51,8 +51,8 @@ export function CancelPlan({
         }}
       >
         {draft
-          ? "Nothing was ever dialled from this draft, so nothing is lost. The note stays on the patient's record."
-          : "No further calls will be placed. The calls already made, and anything they raised, stay in the record."}
+          ? "Nothing was dialled from this draft. The note stays on the record."
+          : "No further calls will be placed. Everything already recorded is kept."}
       </span>
       <Button
         variant={draft ? "ghost" : "onLabel"}

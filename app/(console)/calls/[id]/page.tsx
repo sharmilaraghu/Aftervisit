@@ -111,7 +111,7 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
 
       {call.escalations.length > 0 ? (
         <Panel
-          title="What it escalated"
+          title="Escalated"
           aside={<Badge tone="danger">{call.escalations.length}</Badge>}
           style={{ marginBottom: "calc(var(--cell) * 2)" }}
         >
@@ -139,7 +139,7 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
       ) : null}
 
       <Panel
-        title="What it heard"
+        title="Answers"
         aside={
           <span className="caps mono" style={{ color: "var(--print-3)" }}>
             {call.resultStatus === "null_result" ? "no result" : `${call.slots.length} answers`}
@@ -281,7 +281,7 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
       */}
       {triage ? (
         <Panel
-          title="What the assistant made of it"
+          title="Assessment"
           aside={
             <Badge
               tone={
@@ -505,7 +505,7 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
 
       {call.transcriptGuardFindings && call.transcriptGuardFindings.length > 0 ? (
         <Panel
-          title="The guard flagged what the agent said"
+          title="Guard check"
           aside={<Badge tone="danger">{call.transcriptGuardFindings.length}</Badge>}
           style={{ marginBottom: "calc(var(--cell) * 2)" }}
         >
@@ -535,7 +535,7 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
         actually told to say" is a real question, just not the first one.
       */}
       {call.task ? (
-        <Panel title="Exactly what it was told to say">
+        <Panel title="The script">
           <details>
             <summary
               className="caps"

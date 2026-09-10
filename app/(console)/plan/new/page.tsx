@@ -335,7 +335,7 @@ export default async function PlanWizardPage({
                       fontSize: 13,
                     }}
                   >
-                    Asking someone whether they would like a callback invites a polite
+                    Asking whether someone would like a callback invites a polite
                     yes; noticing that they asked for one is the thing the rule is for.
                   </p>
                 </div>

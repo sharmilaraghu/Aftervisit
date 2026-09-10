@@ -434,7 +434,7 @@ export default async function PatientPage({
 
       {summary.notes.length > 0 ? (
         <Panel
-          title={summary.notes.length === 1 ? "The note this came from" : "Every note you have written"}
+          title={summary.notes.length === 1 ? "The note" : "Notes"}
           aside={
             summary.notes.length > 1 ? (
               <span className="caps mono" style={{ color: "var(--print-3)" }}>

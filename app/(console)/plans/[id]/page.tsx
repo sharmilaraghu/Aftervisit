@@ -248,9 +248,8 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
             plan to keep going until it got them.
           */}
           <p style={{ margin: 0, color: "var(--print-2)", fontSize: 14, lineHeight: 1.55 }}>
-            <strong>Seven days means seven calendar days from approval</strong>, not
-            seven answered calls. A day nobody picks up still uses up a day. Retries
-            may land after the end date; a new day&rsquo;s call may not.
+            <strong>Calendar days from approval</strong>, not answered calls. A day
+            nobody picks up still uses one up.
           </p>
 
           {awaiting ? <PlanDraftControls
@@ -333,9 +332,9 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
                 className="measure"
                 style={{ margin: "calc(var(--cell) * 1.5) 0 0", color: "var(--print-3)", fontSize: 13 }}
               >
-                The agent listens for these rather than putting them to the patient.
-                Asking someone whether they would like a callback invites a polite
-                yes; noticing that they asked for one is the thing the rule is for.
+                Listened for, never asked. Asking whether someone would like a
+                callback invites a polite yes; noticing that they asked for one is
+                the thing the rule is for.
               </p>
             </div>
           ) : null}
@@ -350,10 +349,9 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
         >
           <div style={{ padding: "calc(var(--cell) * 3)" }}>
             <p style={{ margin: "0 0 calc(var(--cell) * 2)", color: "var(--print-2)", fontSize: 14 }}>
-              These will never be asked. They are shown rather than deleted,
-              because a model attempting to give advice is something you should
-              see. Rewriting one puts it back through the guard; nothing here can
-              be approved any other way.
+              Shown rather than deleted, because a model attempting to give
+              advice is something you should see. Rewriting one puts it back
+              through the guard.
             </p>
             <p style={{ margin: "0 0 calc(var(--cell) * 2)", color: "var(--print-2)", fontSize: 14 }}>
               {/*

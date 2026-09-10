@@ -54,8 +54,7 @@ export default async function EditPatientPage({
           Edit {patient.name}.
         </h1>
         <p className="measure" style={{ margin: 0, color: "var(--bench-ink-2)" }}>
-          Changing the number changes who Care Loop dials next. Consent is what
-          authorises that call, and it stays as it is recorded here.
+          Changing the number changes who gets dialled next.
         </p>
       </header>
 

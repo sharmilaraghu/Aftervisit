@@ -38,7 +38,7 @@ const GROUPS: { source: RedFlagTerm["source"]; heading: string; caption: string 
     source: "note",
     heading: "Taken from your note",
     caption:
-      "The compiler read these out of what you wrote. Delete any that do not belong — they are its reading, not your instruction.",
+      "Read out of your note. Delete any that do not belong.",
   },
   {
     source: "clinician",
@@ -48,7 +48,7 @@ const GROUPS: { source: RedFlagTerm["source"]; heading: string; caption: string 
   {
     source: "default",
     heading: "The standard list for this condition",
-    caption: "Seeded on every plan for this condition, before anything was compiled.",
+    caption: "Standard for this condition.",
   },
 ];
 
@@ -153,8 +153,8 @@ export function EscalationSetup({
             className="measure"
             style={{ margin: "0 0 calc(var(--cell) * 1.5)", color: "var(--print-2)", fontSize: 14 }}
           >
-            You have not said. Write what would make you want to know about this
-            patient before their next appointment, in your own words.
+            Nothing yet. Write what would make you want to know before their next
+            appointment.
           </p>
           <Button variant="onLabel" onClick={() => setWriting(true)}>
             Write it down
@@ -199,10 +199,9 @@ export function EscalationSetup({
         className="measure"
         style={{ margin: "0 0 calc(var(--cell) * 2)", color: "var(--print-2)", fontSize: 14 }}
       >
-        Heard in the patient&rsquo;s own words, these escalate. Matching is
-        case-insensitive and will over-match — &ldquo;no vomiting&rdquo; fires too,
-        so that a person reads the sentence rather than the system deciding what it
-        meant.
+        Escalate when the patient says them. Deliberately over-matches — &ldquo;no
+        vomiting&rdquo; fires too, so a person reads the sentence rather than the
+        system deciding what it meant.
       </p>
 
       {shown.length === 0 ? (
@@ -300,7 +299,13 @@ export function EscalationSetup({
           lineHeight: 1.6,
         }}
       >
-        {`Three rules are always on and cannot be removed, by the compiler or by you: ${LOCKED}. Each of them pauses the plan and puts the patient in front of a person.`}
+        {/*
+          "Each of them pauses the plan" was wrong. `unmappable_response` carries
+          urgent: false precisely so it does not — pausing on attempt 1 of 3
+          disabled the retry ladder for the commonest reason a call is useless.
+          Two of the three pause; all three reach a person.
+        */}
+        {`Three rules are always on and cannot be removed: ${LOCKED}. Each puts the patient in front of a person. An answer nobody could map keeps the follow-up dialling; the other two pause it.`}
       </p>
     </div>
   );
