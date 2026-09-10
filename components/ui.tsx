@@ -26,6 +26,12 @@ const TONE: Record<Tone, { fill: string; ink: string; wash: string }> = {
 /**
  * An adhesive auxiliary strip. Solid by default, because colour in this world
  * arrives as a printed band and not as a tint behind a card.
+ *
+ * `quiet` is a washed chip carrying the tone as an index bar down its left
+ * edge. It used to be boxed in a 1px outline of the tone, which made every
+ * secondary badge read as a form control sitting in the page — the default
+ * framework look this world is not. The bar puts the colour where it means
+ * something and leaves the text as print, which holds 16.5:1 on every wash.
  */
 export function Badge({
   tone = "plain",
@@ -44,10 +50,11 @@ export function Badge({
       className="caps"
       style={{
         display: "inline-block",
-        padding: "3px 7px",
+        padding: quiet ? "3px 7px 3px 10px" : "3px 7px",
         background: quiet ? t.wash : t.fill,
         color: quiet ? "var(--print)" : t.ink,
-        boxShadow: quiet ? `inset 0 0 0 1px ${t.fill}` : undefined,
+        /* An index bar, not a border. Inset so the chip's box never shifts. */
+        boxShadow: quiet ? `inset 3px 0 0 ${t.fill}` : undefined,
         whiteSpace: "nowrap",
         ...style,
       }}

@@ -16,9 +16,12 @@
 
 :root {
   /* the bench — graphite with printing-ink warmth, never a "dark mode" grey */
-  --bench: #1c1a18;
-  --bench-2: #262320;
-  --bench-3: #322e2a;
+  /* Lifted from #1c1a18. The sheets carry a black shadow and the old ground was
+     within a few points of black, so nothing could fall on it and every sheet
+     read as a flat rectangle rather than stock lying on a bench. */
+  --bench: #221f1c;
+  --bench-2: #2c2825;
+  --bench-3: #383430;
   --bench-line: #3d3833;
   /* A hairline you can actually see on graphite — the divider tone fails as a control edge. */
   --bench-line-strong: #6b635a;
@@ -260,11 +263,10 @@ select {
  */
 .today-band {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: calc(var(--cell) * 2);
+  align-items: center;
+  gap: calc(var(--cell) * 1.5);
   margin: 0;
-  padding: calc(var(--cell) * 1.25) calc(var(--cell) * 3);
+  padding: calc(var(--cell) * 1.5) calc(var(--cell) * 3);
   background: var(--print);
   color: var(--label);
   font-family: var(--sans);
@@ -275,16 +277,37 @@ select {
   text-transform: uppercase;
 }
 
-.today-band[data-tone="needs"] {
+/*
+ * The tone is a chip, not the whole bar.
+ *
+ * A full-bleed saturated band is the cheapest-looking thing a page can have,
+ * and two of them stacked read as default framework alerts. An auxiliary strip
+ * on a dispensing sleeve is small — it is stuck on, not printed edge to edge.
+ * So the ink carries the heading and the colour is a struck square beside it,
+ * which also gives red back its meaning: it marks danger, it is not upholstery.
+ */
+.today-band::before {
+  content: "";
+  width: calc(var(--cell) * 1.25);
+  height: calc(var(--cell) * 1.25);
+  flex-shrink: 0;
+  background: currentColor;
+}
+
+.today-band[data-tone="needs"]::before {
   background: var(--danger);
 }
 
-.today-band[data-tone="read"] {
-  background: var(--amber-deep);
+.today-band[data-tone="read"]::before {
+  background: var(--amber);
 }
 
-.today-band[data-tone="running"] {
+.today-band[data-tone="running"]::before {
   background: var(--clear);
+}
+
+.today-band-label {
+  flex: 1 1 auto;
 }
 
 .today-band-count {
@@ -298,11 +321,31 @@ select {
   font-weight: 400;
 }
 
-.today-cleared {
-  margin: 0;
-  padding: calc(var(--cell) * 1.5) 0 0;
-  color: var(--bench-ink-3);
+/*
+ * The tear-off stub.
+ *
+ * Today ends early on a good day — five rows on a 1200px screen left ~450px of
+ * bare bench under them, and a worklist that simply stops reads as a page that
+ * failed to load rather than as a day under control. The stub closes the sheet
+ * and carries the one live fact the rows cannot: when the agent next dials.
+ */
+.today-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: calc(var(--cell) * 1.5);
+  padding: calc(var(--cell) * 2.5) calc(var(--cell) * 2);
   font-size: 14px;
+  color: var(--print-2);
+}
+
+.today-foot-key {
+  color: var(--print-3);
+}
+
+.today-foot-end {
+  margin-left: auto;
+  color: var(--print-3);
 }
 
 .today-row {
@@ -312,10 +355,13 @@ select {
   align-items: baseline;
   gap: calc(var(--cell) * 2);
   width: 100%;
-  min-height: calc(var(--cell) * 5.5);
-  padding: calc(var(--cell) * 1.75) calc(var(--cell) * 3);
+  min-height: calc(var(--cell) * 6);
+  /* More air than the 1.75 it had. Rows this dense read as a spreadsheet, and
+     the thing being scanned is people. */
+  padding: calc(var(--cell) * 2) calc(var(--cell) * 3);
   cursor: pointer;
   font-size: 15px;
+  transition: background 120ms ease-out;
 }
 
 /*
@@ -333,6 +379,30 @@ select {
 
 .today-row:hover {
   background: var(--label-2);
+}
+
+/*
+ * The name leads the row.
+ *
+ * Everything sat at one size and one weight, so a row was five equal things and
+ * the eye had nowhere to land. The name is what a doctor is looking for.
+ */
+.today-name {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--print);
+}
+
+.today-age {
+  font-weight: 400;
+  color: var(--print-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .today-row {
+    transition: none;
+  }
 }
 
 .today-row:focus-visible {
@@ -657,6 +727,18 @@ a.stepper-step[data-state="ahead"] .stepper-mark {
   background-size: calc(var(--cell) * 1.5) calc(var(--cell) * 1.5);
   background-repeat: repeat-y;
   background-position: center top;
+}
+
+/* The same punch, turned across a top edge rather than down a side. */
+.perf-x {
+  background-image: radial-gradient(
+    circle at center,
+    var(--bench) 0 2px,
+    transparent 2.4px
+  );
+  background-size: calc(var(--cell) * 1.5) calc(var(--cell) * 1.5);
+  background-repeat: repeat-x;
+  background-position: left top;
 }
 
 /* Composition ------------------------------------------------------------- */

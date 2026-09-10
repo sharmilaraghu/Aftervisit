@@ -83,18 +83,11 @@ function Row({ row }: { row: TodayRow }) {
         </span>
 
         <span
-          style={{
-            width: "calc(var(--cell) * 20)",
-            flexShrink: 0,
-            color: "var(--print)",
-            fontWeight: 700,
-          }}
+          className="today-name"
+          style={{ width: "calc(var(--cell) * 20)", flexShrink: 0 }}
         >
           {row.name}
-          <span className="mono" style={{ color: "var(--print-3)", fontWeight: 400 }}>
-            {" "}
-            {row.age}
-          </span>
+          <span className="mono today-age"> {row.age}</span>
         </span>
 
         <span
@@ -238,9 +231,12 @@ const BANDS = [
 export function TodayList({
   rows,
   clearedToday,
+  nextCall,
 }: {
   rows: TodayRow[];
   clearedToday: number;
+  /** The soonest call the agent has queued, in the patient's own zone. */
+  nextCall: { at: Date; name: string; timezone: string } | null;
 }) {
   return (
     /*
@@ -261,7 +257,7 @@ export function TodayList({
         return (
           <section key={key} className="sheet">
             <h2 className="today-band" data-tone={key}>
-              <span>{label}</span>
+              <span className="today-band-label">{label}</span>
               <span className="mono today-band-count">{group.length}</span>
             </h2>
             <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
@@ -273,12 +269,26 @@ export function TodayList({
         );
       })}
 
-      {/* A cleared board should read as work done, not as an empty screen. */}
-      {clearedToday > 0 ? (
-        <p className="today-cleared">
-          <span className="mono">{clearedToday}</span>{" "}
-          {clearedToday === 1 ? "escalation" : "escalations"} settled today
-        </p>
+      {/*
+        The stub the sheet tears off at. It says what the agent does next, and
+        a cleared board reads as work done rather than as an empty screen.
+      */}
+      {nextCall || clearedToday > 0 ? (
+        <footer className="sheet perf-x today-foot">
+          {nextCall ? (
+            <>
+              <span className="caps today-foot-key">Next call</span>
+              <span className="mono">{formatStamp(nextCall.at, nextCall.timezone)}</span>
+              <span>{nextCall.name}</span>
+            </>
+          ) : null}
+          {clearedToday > 0 ? (
+            <span className="today-foot-end">
+              <span className="mono">{clearedToday}</span>{" "}
+              {clearedToday === 1 ? "escalation" : "escalations"} settled today
+            </span>
+          ) : null}
+        </footer>
       ) : null}
     </div>
   );

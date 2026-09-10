@@ -31,6 +31,19 @@ export default async function TodayPage() {
   const practiceZone = rows[0]?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   const waiting = rows.filter((r) => r.band === "needs").length;
+
+  /*
+   * The soonest queued call. Every row already carries its plan's next
+   * occurrence, so this is a min over what the page has rather than a query —
+   * and it is the one thing Today could not otherwise say: that the agent is
+   * still holding the calendar.
+   */
+  const upcoming = rows
+    .filter((r) => r.nextCallAt !== null)
+    .sort((a, b) => (a.nextCallAt as Date).getTime() - (b.nextCallAt as Date).getTime())[0];
+  const nextCall = upcoming
+    ? { at: upcoming.nextCallAt as Date, name: upcoming.name, timezone: upcoming.timezone }
+    : null;
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
 
@@ -97,7 +110,7 @@ export default async function TodayPage() {
           </p>
         </Panel>
       ) : (
-        <TodayList rows={rows} clearedToday={clearedToday} />
+        <TodayList rows={rows} clearedToday={clearedToday} nextCall={nextCall} />
       )}
     </div>
   );
