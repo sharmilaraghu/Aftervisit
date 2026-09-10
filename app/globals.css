@@ -197,6 +197,92 @@ a {
  * different hint lengths sit at different heights and the sheet reads as
  * drifting rather than ruled.
  */
+/*
+ * One row of Today.
+ *
+ * A button, because it opens something — but it must read as a table row, so
+ * every browser default a button brings has to be undone. The height is the
+ * tap target: 44px at the narrow end, which is what a thumb needs.
+ */
+.today-row {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: baseline;
+  gap: calc(var(--cell) * 2);
+  width: 100%;
+  min-height: calc(var(--cell) * 5.5);
+  padding: calc(var(--cell) * 1.75) calc(var(--cell) * 3);
+  cursor: pointer;
+  font-size: 15px;
+}
+
+.today-row:hover {
+  background: var(--label-2);
+}
+
+.today-row:focus-visible {
+  outline: 2px solid var(--amber-deep);
+  outline-offset: -2px;
+}
+
+/*
+ * On a phone the row stacks and the timing drops below the name, because a
+ * truncated clause is worth more than a right-aligned timestamp.
+ */
+@media (max-width: 720px) {
+  .today-row {
+    flex-wrap: wrap;
+    gap: calc(var(--cell) * 1);
+  }
+
+  .today-row .col-when {
+    width: 100%;
+  }
+}
+
+/*
+ * Motion, in the three places it carries meaning.
+ *
+ * Today re-reads itself every 15s, so rows change under the cursor with nothing
+ * to mark the change. These say "this just happened" and then stop. Anything
+ * that only made the page feel designed was left out.
+ */
+@keyframes row-settle {
+  from {
+    background: var(--amber-wash);
+  }
+  to {
+    background: var(--label);
+  }
+}
+
+.row-landed {
+  animation: row-settle 1400ms ease-out both;
+}
+
+@keyframes badge-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.badge-new {
+  animation: badge-arrive 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row-landed,
+  .badge-new {
+    animation: none;
+  }
+}
+
 .field-grid {
   display: grid;
   grid-template-columns: 1fr;
