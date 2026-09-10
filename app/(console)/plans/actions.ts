@@ -11,6 +11,7 @@
 
 import { revalidatePath } from "next/cache";
 import { readConfig } from "@/lib/config";
+import { runTickOnPageLoad } from "@/lib/schedule/trigger";
 import { redirect } from "next/navigation";
 import { sql } from "drizzle-orm";
 
@@ -361,6 +362,21 @@ export async function approvePlanAction(
   // A refusal is returned to the button, not swallowed by a redirect that would
   // look exactly like success.
   if (!result.ok) return { ok: false, reason: result.reason };
+
+  /*
+   * Dial anything this approval just made due.
+   *
+   * Expansion is calendar-anchored, so approving at 09:16 a plan whose local
+   * time is 09:15 produces a row that is already due. Without this it sits
+   * there until some tick happens to run — which, with no console tab open and
+   * no cron configured, was overnight. Approving is one of the three honest
+   * triggers, and it is the one the doctor is actually present for.
+   *
+   * It cannot break the approval: the tick is bounded to one call, never waits
+   * for it to complete, and swallows its own failures into `tick_runs.error`.
+   * A plan approved and a dial refused is a real state the call row records.
+   */
+  await runTickOnPageLoad();
 
   /*
    * Success lands somewhere, and somewhere specific.

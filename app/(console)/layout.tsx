@@ -19,12 +19,13 @@
 import { SideNav } from "@/components/SideNav";
 import { getDashboardStats } from "@/lib/db/calls";
 import { readConfig } from "@/lib/config";
+import { SchedulerWarning } from "@/components/SchedulerWarning";
 
 export default async function ConsoleLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   const stats = await getDashboardStats();
-  const { practiceName, clinicianName } = readConfig();
+  const { practiceName, clinicianName, liveCallsEnabled } = readConfig();
 
   return (
     <div className="console-shell">
@@ -34,7 +35,14 @@ export default async function ConsoleLayout({
         clinicianName={clinicianName}
       />
 
-      <main style={{ minWidth: 0 }}>{children}</main>
+      <main style={{ minWidth: 0 }}>
+        <SchedulerWarning
+          overdueCalls={stats.overdueCalls}
+          minutesSinceTick={stats.minutesSinceTick}
+          liveCallsEnabled={liveCallsEnabled}
+        />
+        {children}
+      </main>
     </div>
   );
 }

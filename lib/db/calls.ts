@@ -9,6 +9,7 @@
 import { sql } from "drizzle-orm";
 
 import { getDb } from "@/lib/db/client";
+import { MAX_CALL_DELAY_MINUTES } from "@/lib/schedule/store";
 import type { StoredTurn } from "@/lib/db/schema";
 import type { GuardFinding } from "@/lib/script/guard";
 
@@ -151,7 +152,25 @@ export interface DashboardStats {
   openEscalations: number;
   urgentEscalations: number;
   callsMade: number;
+  /**
+   * Calls that are due and still undialled, inside the window a tick would
+   * claim them in.
+   *
+   * The half of "is the scheduler alive?" that says whether it matters. A
+   * console with nothing overdue does not care when the last tick ran; one with
+   * calls waiting and no recent tick is a practice whose patients are not being
+   * phoned, and that must not look like a quiet day.
+   */
+  overdueCalls: number;
   lastTick: { at: Date; trigger: string; dialed: number } | null;
+  /**
+   * Whole minutes since the last finished tick, or null if none ever ran.
+   *
+   * Derived here rather than in a component: a clock read during render is
+   * impure and produces a different answer every time React happens to
+   * re-render.
+   */
+  minutesSinceTick: number | null;
 }
 
 export async function getDashboardStats(): Promise<DashboardStats> {
@@ -169,7 +188,21 @@ export async function getDashboardStats(): Promise<DashboardStats> {
       (select count(*) from escalations where status in ('open','acknowledged'))       as open_esc,
       (select count(*) from escalations
         where status in ('open','acknowledged') and urgent)                            as urgent_esc,
-      (select count(*) from scheduled_calls where finished_at is not null)             as calls_made
+      (select count(*) from scheduled_calls where finished_at is not null)             as calls_made,
+      -- The same predicate claimDueCalls uses, deliberately. A row this query
+      -- counts but a tick would not claim is a false alarm: a paused plan's
+      -- calls are not waiting on the scheduler, they are waiting on a
+      -- clinician, and past the delay window a tick retires the row rather
+      -- than dialling it.
+      (select count(*)
+        from scheduled_calls c
+        join follow_up_plans p on p.id = c.plan_id
+        join patients pt on pt.id = c.patient_id
+        where c.status = 'scheduled'
+          and c.scheduled_for <= now()
+          and c.scheduled_for >= now() - make_interval(mins => ${MAX_CALL_DELAY_MINUTES}::int)
+          and p.status = 'active'
+          and pt.archived_at is null)                                                  as overdue
   `);
   const r = (rows.rows as Record<string, unknown>[])[0] ?? {};
 
@@ -188,8 +221,12 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     openEscalations: Number(r.open_esc ?? 0),
     urgentEscalations: Number(r.urgent_esc ?? 0),
     callsMade: Number(r.calls_made ?? 0),
+    overdueCalls: Number(r.overdue ?? 0),
     lastTick: t
       ? { at: new Date(String(t.started_at)), trigger: String(t.trigger), dialed: Number(t.dialed) }
+      : null,
+    minutesSinceTick: t
+      ? Math.max(0, Math.floor((Date.now() - new Date(String(t.started_at)).getTime()) / 60_000))
       : null,
   };
 }
