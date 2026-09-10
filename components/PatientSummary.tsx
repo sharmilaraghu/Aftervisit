@@ -19,6 +19,7 @@
  */
 
 import Link from "next/link";
+import type { ReactNode } from "react";
 
 import { Badge, Panel, WeekBand } from "@/components/ui";
 import { formatStamp } from "@/lib/format";
@@ -52,6 +53,9 @@ export function PatientSummary({
   lastHeard,
   week,
   reason,
+  planLine,
+  escalationActions,
+  footer,
 }: {
   summary: Summary;
   timezone: string;
@@ -59,6 +63,18 @@ export function PatientSummary({
   lastHeard: Date | null;
   week: DayState[];
   reason: string | null;
+  /** The cadence line, which used to be a whole panel wrapping one button. */
+  planLine?: ReactNode;
+  /**
+   * What to do about the escalation, in the place it is printed.
+   *
+   * This panel used to list what was waiting on a clinician and then send them
+   * to `/dashboard` to act on it — the console asking a doctor to go somewhere
+   * else to deal with the patient they already have open.
+   */
+  escalationActions?: ReactNode;
+  /** Plan controls, inside this sheet rather than in one of their own. */
+  footer?: ReactNode;
 }) {
   const open = summary.escalations.filter(
     (e) => e.status === "open" || e.status === "acknowledged",
@@ -164,23 +180,44 @@ export function PatientSummary({
                 </p>
               );
             })}
-            <p style={{ margin: "calc(var(--cell) * 1.5) 0 0" }}>
-              <Link
-                href="/dashboard"
-                style={{ color: "var(--print)", fontSize: 14, textUnderlineOffset: 3 }}
-              >
-                Work these in Today
-              </Link>
-            </p>
+            {open.length > 1 ? (
+              <p style={{ margin: "calc(var(--cell) * 1.5) 0 0" }}>
+                <Link
+                  href="/dashboard"
+                  style={{ color: "var(--print)", fontSize: 14, textUnderlineOffset: 3 }}
+                >
+                  Work the rest in Today
+                </Link>
+              </p>
+            ) : null}
           </div>
         ) : null}
 
-        {/*
-          The model's account of the last call it could read. One, not three —
-          this is a summary, and a list of paragraphs is the thing it exists to
-          save a doctor from.
-        */}
+        {planLine ? (
+          <p
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "calc(var(--cell) * 2)",
+              margin: "calc(var(--cell) * 3) 0 0",
+              paddingTop: "calc(var(--cell) * 2.5)",
+              borderTop: "1px solid var(--rule)",
+              color: "var(--print-3)",
+              fontSize: 12,
+            }}
+          >
+            {/* Labelled, or it is an orphan string of settings under a rule.
+                A caps word costs less than the panel this used to be. */}
+            <span className="caps">The plan</span>
+            <span className="mono">{planLine}</span>
+          </p>
+        ) : null}
+
+        {footer ? <div style={{ marginTop: "calc(var(--cell) * 2)" }}>{footer}</div> : null}
       </div>
+
+      {/* Full-bleed, because it is a decision strip and not body copy. */}
+      {escalationActions}
     </Panel>
   );
 }

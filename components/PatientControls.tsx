@@ -112,10 +112,6 @@ export function PatientControls({
         </>
       ) : null}
 
-      <Button variant="ghost" href={`/patients/${id}/edit`}>
-        Edit patient
-      </Button>
-
       {hasPendingCalls ? (
         <Button
           variant="ghost"
