@@ -52,12 +52,12 @@ doctor's free-text note
   → review UI     defaults visibly marked; the doctor edits and approves
   → expand.ts     approved plan → one scheduled_calls row per occurrence, dated
   → tick.ts       reconcile → atomic batch claim → guard → dial → persist call id
-                  → after() waiter → retry.ts schedules the next attempt if unanswered
+                  → after() waiter → store.ts schedules the next attempt if unanswered
   → extract.ts    CALL-E's structuredResult → typed slots; unmappable is a real status
   → engine.ts     PURE evaluation of four locked conditions. No model. The floor
   → triage.ts     a model reads the transcript on top: severity, summary, the doctor's
                   own escalating conditions. Fails closed; never speaks to a patient
-  → queue         a clinician sees the rule, the reason, and the patient's own words
+  → Today         a clinician sees the rule, the reason, and the patient's own words
 ```
 
 ## Hard rules (always)
@@ -134,7 +134,7 @@ Care Loop/
   CLAUDE.md               ← imports this, then adds the Claude-only tables
   app/
     page.tsx              landing — the pitch
-    (console)/            patients, plans, calls, queue
+    (console)/            Today, patients, one plan, one call
     api/tick/             the scheduler door for an external cron
     api/calle/webhook/    CALL-E's callback — takes a call id, re-fetches, never trusts
   lib/
@@ -145,8 +145,8 @@ Care Loop/
     script/guard.ts       the three-phase clinical guard
     rules/                the closed rule DSL, the catalog, the pure evaluator
     triage/               the model's reading of a finished call — fails closed
-    schedule/             expand · retry · select (pure) + tick · dispatch · reconcile (IO)
-    patients/kpi.ts       contact rate, adherence, drift — pure
+    schedule/             expand (pure) + store · tick · trigger (IO)
+    patients/parameters.ts  what the patient said, day by day — pure
     phone/normalize.ts    E.164, or an explicit refusal — never a guess
     db/                   Drizzle schema, queries, Neon client
   data/                   seeded patients, demo notes, red-flag term lists

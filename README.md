@@ -44,7 +44,7 @@ silence.
 ./start.sh                      # dev server on :3001, with the dial banner
 ./start.sh --migrate --seed     # fresh clone: migrate, seed, then run
 ./demo-tick.sh --every 5        # drive the scheduler during a demo
-pnpm run verify                 # 162 tests, typecheck, lint
+pnpm run verify                 # 272 tests, typecheck, lint
 ```
 
 Configuration lives in `.env` (copy `.env.example`). Every credential is
@@ -74,12 +74,12 @@ doctor's free-text note
   → review UI     defaults visibly marked; the doctor edits and approves
   → expand.ts     approved plan → one scheduled_calls row per occurrence, dated
   → tick.ts       reconcile → atomic batch claim → guard → dial → persist call id
-                  → retry.ts schedules the next attempt if unanswered
+                  → store.ts   schedules the next attempt if unanswered
   → extract.ts    CALL-E's structuredResult → typed slots; unmappable is a real status
   → engine.ts     PURE evaluation of four locked conditions. No model. The floor
   → triage.ts     a model reads the transcript on top: severity, summary, the doctor's
                   own escalating conditions. Fails closed; never speaks to a patient
-  → queue         a clinician sees the rule, the reason, and the patient's own words
+  → Today         a clinician sees the rule, the reason, and the patient's own words
 ```
 
 ## The safety model
@@ -139,7 +139,7 @@ rows are ever seeded.
 ```
 app/
   page.tsx              landing — the pitch
-  (console)/            dashboard · patients · plans · calls · queue
+  (console)/            Today · patients · one plan · one call
   api/tick/             the scheduler door for an external cron
 lib/
   calle/port.ts         the ONLY place that talks to CALL-E
@@ -152,7 +152,7 @@ lib/
   db/                   Drizzle schema, queries, Neon client
   time/clock.ts         injected time; zone-correct wall-clock arithmetic
 data/                   seeded patients, demo notes, red-flag term lists
-skill/                  the installable Care Loop agent skill + worked examples
+skill/                  the installable agent skill: SKILL.md + references/
 ```
 
 ## Stack
@@ -164,7 +164,7 @@ component library, no icon package.
 
 ## Tests
 
-162, running on **zero credentials** — `lib/calle/fake-server.ts` fakes CALL-E's
+272, running on **zero credentials** — `lib/calle/fake-server.ts` fakes CALL-E's
 HTTP API as an injectable `fetch`, so the whole pipeline is exercised without
 placing a call or touching a database.
 
