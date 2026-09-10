@@ -18,6 +18,10 @@
 import type { AnswerType, SlotStatus } from "@/lib/db/enums";
 import type { StoredTurn } from "@/lib/db/schema";
 import { UNKNOWN } from "@/lib/plan/result-schema";
+import {
+  OBSERVED_QUESTION_IDS,
+  UNSPOKEN_RESULT_KEYS,
+} from "@/lib/plan/universal-questions";
 
 export interface ExtractQuestion {
   questionId: string;
@@ -50,6 +54,20 @@ export interface ExtractInput {
   transcript: StoredTurn[] | null;
 }
 
+function isPatient(turn: StoredTurn): boolean {
+  return !["agent", "assistant", "bot", "ai"].includes(turn.speaker.toLowerCase());
+}
+
+/**
+ * Where in the transcript the agent asked this question, or -1.
+ *
+ * A prefix match, because the agent is told to use this wording but is not
+ * bound to it character for character.
+ */
+function askedAt(transcript: StoredTurn[], prompt: string): number {
+  return transcript.findIndex((t) => !isPatient(t) && t.text.includes(prompt.slice(0, 40)));
+}
+
 /**
  * Find what the patient said in reply to one question.
  *
@@ -72,20 +90,18 @@ function findUtterance(
 ): { text: string; offsetSeconds: number } | null {
   if (!transcript || transcript.length === 0 || !prompt) return null;
 
-  const isPatient = (t: StoredTurn) =>
-    !["agent", "assistant", "bot", "ai"].includes(t.speaker.toLowerCase());
+  const at = askedAt(transcript, prompt);
+  if (at === -1) return null;
 
-  /* A prefix, because the agent is told to use this wording but is not bound to
-     it character for character. */
-  const askedAt = transcript.findIndex(
-    (t) => !isPatient(t) && t.text.includes(prompt.slice(0, 40)),
-  );
-  if (askedAt === -1) return null;
-
-  const reply = transcript.slice(askedAt + 1).find(isPatient);
+  const reply = transcript.slice(at + 1).find(isPatient);
   return reply ? { text: reply.text, offsetSeconds: reply.offsetSeconds } : null;
 }
 
+/**
+ * Ids the agent records without ever saying them out loud, so their absence
+ * from the transcript proves nothing.
+ */
+const NEVER_SPOKEN = new Set<string>([...OBSERVED_QUESTION_IDS, ...UNSPOKEN_RESULT_KEYS]);
 
 /**
  * Coerce one raw value against its declared type, or refuse to.
@@ -162,11 +178,38 @@ export function extractSlots(input: ExtractInput): ExtractedValue[] {
       ? coerce(raw, question)
       : { status: "missing" as SlotStatus, valueBool: null, valueNumber: null, valueText: null };
 
+    /*
+     * The transcript is the check on the extraction, not a second source of it.
+     *
+     * A real call came back with `consent_given: "yes"` for a question the agent
+     * never asked — the patient had volunteered "Yes, we can discuss now" before
+     * being asked, and it was read as the answer. The task text says in those
+     * words: never record an answer to a question you did not actually ask. That
+     * instruction is not enforceable at the far end, so it is enforced here.
+     *
+     * An answered slot whose question is nowhere in the transcript becomes
+     * `unmappable`, which is the honest state and the one that routes to a
+     * person. Only when there is a transcript to check against: a call nobody
+     * answered has nothing to prove anything with, and questions the agent
+     * records rather than asks are absent by design.
+     */
+    const unasked =
+      coerced.status === "answered" &&
+      Boolean(question.prompt) &&
+      !NEVER_SPOKEN.has(question.questionId) &&
+      input.transcript !== null &&
+      input.transcript.length > 0 &&
+      askedAt(input.transcript, question.prompt as string) === -1;
+
+    const checked = unasked
+      ? { status: "unmappable" as SlotStatus, valueBool: null, valueNumber: null, valueText: null }
+      : coerced;
+
     const utterance = findUtterance(input.transcript, question.prompt);
 
     return {
       questionId: question.questionId,
-      ...coerced,
+      ...checked,
       rawValue: present ? (raw as unknown) : null,
       utterance: utterance?.text ?? null,
       utteranceOffsetSeconds: utterance?.offsetSeconds ?? null,

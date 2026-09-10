@@ -371,3 +371,61 @@ describe("foldOutcome", () => {
     ).toBe("answered");
   });
 });
+
+describe("extractSlots — an answer to a question nobody asked", () => {
+  /*
+   * A real call came back with consent_given "yes" for a question the agent
+   * never put. The patient had volunteered "Yes, we can discuss now" in their
+   * opening breath and the platform read it as the answer. The task text tells
+   * the agent never to record an answer to a question it did not ask; that
+   * instruction is not enforceable at the far end, so it is checked here.
+   */
+  it("refuses an answer when the transcript never asked the question", () => {
+    const slots = extractSlots({
+      structuredResult: { symptom_severity: "severe" },
+      questions: [QUESTIONS[1]],
+      transcript: [
+        { attemptId: "a1", offsetSeconds: 2, speaker: "bot", text: "Am I speaking with the patient?" },
+        { attemptId: "a1", offsetSeconds: 6, speaker: "user", text: "Yes, and it has been severe." },
+      ],
+    });
+    expect(byId(slots, "symptom_severity").status).toBe("unmappable");
+    expect(byId(slots, "symptom_severity").valueText).toBeNull();
+  });
+
+  it("keeps the answer when the question was actually asked", () => {
+    const slots = extractSlots({
+      structuredResult: { symptom_severity: "severe" },
+      questions: [QUESTIONS[1]],
+      transcript: TRANSCRIPT,
+    });
+    expect(byId(slots, "symptom_severity").status).toBe("answered");
+  });
+
+  /* Some ids are recorded rather than asked, so their absence proves nothing. */
+  it("leaves a question the agent never speaks alone", () => {
+    const slots = extractSlots({
+      structuredResult: { requests_clinician: "no" },
+      questions: [
+        {
+          questionId: "requests_clinician",
+          prompt: "Did they ask to speak to a person?",
+          answerType: "boolean",
+          required: true,
+        },
+      ],
+      transcript: TRANSCRIPT,
+    });
+    expect(byId(slots, "requests_clinician").status).toBe("answered");
+  });
+
+  /* A call nobody answered has no transcript to check anything against. */
+  it("does not downgrade when there is no transcript", () => {
+    const slots = extractSlots({
+      structuredResult: { symptom_severity: "severe" },
+      questions: [QUESTIONS[1]],
+      transcript: null,
+    });
+    expect(byId(slots, "symptom_severity").status).toBe("answered");
+  });
+});
