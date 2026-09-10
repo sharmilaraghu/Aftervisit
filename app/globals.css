@@ -246,8 +246,17 @@ select {
 }
 
 /*
- * A band heading. The world's own device: a printed word on a full-width strip
- * with a colour edge, rather than a tint behind a card.
+ * A band heading, as an adhesive strip rather than a tint.
+ *
+ * It was `--label-2` sitting on rows of `--label` — a three percent difference,
+ * so the heading read as one more row and the groups blurred into each other.
+ * The rule this world is built on says it plainly: colour arrives as a full
+ * band with a printed word on it, never as a tint behind a card. So the band is
+ * the colour, the word is reversed out of it, and the coloured edge that was
+ * standing in for all this is gone.
+ *
+ * Every tone here clears 4.5:1 against the reversed word at this size —
+ * danger 5.9, amber-deep 5.0, clear 6.8.
  */
 .today-band {
   display: flex;
@@ -256,21 +265,37 @@ select {
   gap: calc(var(--cell) * 2);
   margin: 0;
   padding: calc(var(--cell) * 1.25) calc(var(--cell) * 3);
-  border-left: 4px solid var(--print);
-  border-bottom: 1px solid var(--rule-ink);
-  background: var(--label-2);
+  background: var(--print);
+  color: var(--label);
   font-family: var(--sans);
   font-stretch: 88%;
   font-weight: 700;
   font-size: 12px;
   letter-spacing: 0.13em;
   text-transform: uppercase;
-  color: var(--print);
+}
+
+.today-band[data-tone="needs"] {
+  background: var(--danger);
+}
+
+.today-band[data-tone="read"] {
+  background: var(--amber-deep);
+}
+
+.today-band[data-tone="running"] {
+  background: var(--clear);
 }
 
 .today-band-count {
-  color: var(--print-3);
+  /*
+   * Full strength, not held back. Fading it to 72% dropped it to 3.1:1 on
+   * amber-deep and 3.3:1 on danger — under the 4.5 a 13px number needs. It is
+   * the count that separates it from the word, not the ink.
+   */
+  color: var(--label);
   font-size: 13px;
+  font-weight: 400;
 }
 
 .today-cleared {

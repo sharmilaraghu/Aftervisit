@@ -230,9 +230,9 @@ function Row({ row }: { row: TodayRow }) {
  * A band per state gives the page its structure and says what each group is.
  */
 const BANDS = [
-  { key: "needs", label: "Needs you now", tone: "var(--danger)" },
-  { key: "read", label: "Read, not yet done", tone: "var(--amber-deep)" },
-  { key: "running", label: "Running", tone: "var(--clear)" },
+  { key: "needs", label: "Needs you now" },
+  { key: "read", label: "Read, not yet done" },
+  { key: "running", label: "Running" },
 ] as const;
 
 export function TodayList({
@@ -255,12 +255,12 @@ export function TodayList({
         gap: "calc(var(--cell) * 2)",
       }}
     >
-      {BANDS.map(({ key, label, tone }) => {
+      {BANDS.map(({ key, label }) => {
         const group = rows.filter((r) => r.band === key);
         if (group.length === 0) return null;
         return (
           <section key={key} className="sheet">
-            <h2 className="today-band" style={{ borderLeftColor: tone }}>
+            <h2 className="today-band" data-tone={key}>
               <span>{label}</span>
               <span className="mono today-band-count">{group.length}</span>
             </h2>
