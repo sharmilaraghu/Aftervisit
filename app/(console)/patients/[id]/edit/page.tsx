@@ -6,9 +6,9 @@
  * rendered HTML for someone to change on the way back.
  */
 
+import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { Button } from "@/components/ui";
 
 import { PatientForm } from "@/components/PatientForm";
 import { updatePatientAction } from "@/app/(console)/patients/actions";
@@ -39,9 +39,9 @@ export default async function EditPatientPage({
         {/* The same way out, in the same place, on every screen under a
             patient. This one only had Cancel at the foot of a form. */}
         <p style={{ margin: "0 0 calc(var(--cell) * 1)" }}>
-          <Button variant="ghost" href={`/patients/${id}`}>
+          <Link href={`/patients/${id}`} className="backlink">
             Back to {patient.name}
-          </Button>
+          </Link>
         </p>
         <h1
           className="display"
@@ -54,8 +54,7 @@ export default async function EditPatientPage({
           Edit {patient.name}.
         </h1>
         <p className="measure" style={{ margin: 0, color: "var(--bench-ink-2)" }}>
-          Changing the number changes who Care Loop dials next. Consent is what
-          authorises that call, and it stays as it is recorded here.
+          Changing the number changes who gets dialled next.
         </p>
       </header>
 

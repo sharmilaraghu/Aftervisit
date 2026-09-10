@@ -15,11 +15,12 @@
  * owns the workflow cannot have its workflow stop when someone closes a
  * browser.
  *
- * **One honest limitation.** Vercel's Hobby plan runs crons at most once a day,
- * which is enough to prove the mechanism and not enough to drive a follow-up
- * schedule. On that plan the poller is still what moves a demo along; a Pro
- * deployment, or any external cron pointed at `POST /api/tick`, gets real
- * minute-level scheduling.
+ * **One honest limitation.** Vercel's Hobby plan runs crons at most once a day —
+ * and fails the deployment outright on a sub-daily expression, so `vercel.json`
+ * declares a daily one. That is enough to prove the mechanism and not enough to
+ * drive a follow-up schedule: with a 90-minute tolerance, nearly every call
+ * between ticks is retired `too_late`. On Hobby the real scheduler is an
+ * external cron pointed at `POST /api/tick`; see DEPLOYMENT.md.
  */
 
 import { readConfig } from "@/lib/config";

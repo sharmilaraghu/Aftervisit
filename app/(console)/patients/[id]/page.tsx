@@ -16,6 +16,7 @@ import { CallLog } from "@/components/CallLog";
 import { PatientControls } from "@/components/PatientControls";
 import { TreatmentControls } from "@/components/TreatmentControls";
 import { AmendNote } from "@/components/AmendNote";
+import { QueueActions } from "@/components/QueueActions";
 import { Badge, Button, Panel } from "@/components/ui";
 import { getPatientDetail } from "@/lib/db/patients";
 import { getPatientSummary } from "@/lib/db/summary";
@@ -30,6 +31,41 @@ import { formatDay, formatStamp } from "@/lib/format";
 import { maskPhone } from "@/lib/phone/normalize";
 
 export const dynamic = "force-dynamic";
+
+/** One note, as written. Repeated for the folded ones, so they read the same. */
+function Note({
+  note,
+  timezone,
+}: {
+  note: { id: string; createdAt: Date; body: string; escalationNote: string | null };
+  timezone: string;
+}) {
+  return (
+    <div style={{ padding: "calc(var(--cell) * 3)", borderTop: "1px solid var(--rule)" }}>
+      <p className="caps" style={{ margin: "0 0 calc(var(--cell) * 1)", color: "var(--print-3)" }}>
+        {formatDay(note.createdAt, timezone)}
+      </p>
+      <p
+        className="mono measure"
+        style={{
+          margin: 0,
+          whiteSpace: "pre-wrap",
+          color: "var(--print-2)",
+          fontSize: 13,
+          lineHeight: 1.7,
+        }}
+      >
+        {note.body}
+      </p>
+      {note.escalationNote ? (
+        <p style={{ margin: "calc(var(--cell) * 1.5) 0 0", color: "var(--print-2)", fontSize: 14 }}>
+          <span className="caps" style={{ color: "var(--print-3)" }}>Escalate to me if</span>{" "}
+          {note.escalationNote}
+        </p>
+      ) : null}
+    </div>
+  );
+}
 
 
 export default async function PatientPage({
@@ -47,7 +83,33 @@ export default async function PatientPage({
   const summary = await getPatientSummary(id);
 
   const { patient, calls } = detail;
-  const rate = detail.due === 0 ? null : Math.round((detail.contacted / detail.due) * 100);
+
+  const planLive = ["active", "paused"].includes(detail.planStatus ?? "");
+  const editable = !patient.archivedAt;
+
+  /*
+   * One primary action, chosen by state.
+   *
+   * It used to be a whole Panel each — "No plan yet" and "Waiting on you" —
+   * wrapping a sentence and a button, above a sheet that says the same thing
+   * in a badge. The button is the only part a doctor uses.
+   */
+  const primary =
+    !editable
+      ? null
+      : detail.planStatus === "awaiting_approval" && detail.planId
+        ? { href: `/plans/${detail.planId}`, label: "Review and approve" }
+        : planLive
+          ? null
+          : {
+              href: `/plan/new?patient=${patient.id}`,
+              label: detail.planId ? "Start another follow-up" : "Write the follow-up note",
+            };
+
+  /* The newest escalation still open. The rest keep the link to Today. */
+  const waiting = summary.escalations.find(
+    (e) => e.status === "open" || e.status === "acknowledged",
+  );
 
   return (
     <div
@@ -59,9 +121,9 @@ export default async function PatientPage({
     >
       <header style={{ marginBottom: "calc(var(--cell) * 4)" }}>
         <p style={{ margin: "0 0 calc(var(--cell) * 1)" }}>
-          <Button variant="ghost" href="/patients">
+          <Link href="/patients" className="backlink">
             All patients
-          </Button>
+          </Link>
         </p>
 
         <div
@@ -118,6 +180,45 @@ export default async function PatientPage({
             )}
           </div>
         </div>
+
+        {/*
+          The actions, beside the name they act on.
+          They were scattered across four panels and the page foot — the one
+          primary buried inside a sheet at the top, Edit 1,800px below it. What
+          is irreversible stays at the foot; what is navigation lives here.
+        */}
+        {editable ? (
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "calc(var(--cell) * 1.5)",
+              marginTop: "calc(var(--cell) * 2.5)",
+            }}
+          >
+            {primary ? (
+              <Button variant="primary" href={primary.href}>
+                {primary.label}
+              </Button>
+            ) : null}
+            {/*
+              The doctor's own phone. `tel:` was on Today and nowhere here,
+              though the number is printed two lines up — so the one screen that
+              holds everything about a patient could not ring them.
+            */}
+            <Button variant="ghost" href={`tel:${patient.phoneE164}`}>
+              Call {patient.name.split(" ")[0]}
+            </Button>
+            {detail.planId ? (
+              <Button variant="ghost" href={`/plans/${detail.planId}`}>
+                The whole plan
+              </Button>
+            ) : null}
+            <Button variant="ghost" href={`/patients/${patient.id}/edit`}>
+              Edit
+            </Button>
+          </div>
+        ) : null}
       </header>
 
       {/*
@@ -164,149 +265,86 @@ export default async function PatientPage({
       ) : null}
 
       {/*
-        The next step, stated as an action rather than left for the doctor to
-        deduce. This page used to offer only Edit and Archive — so a patient
-        with no plan was a dead end, and the compile flow was reachable only by
-        typing a URL.
-      */}
-      {/*
-        A *live* plan is what blocks writing a new note, not any plan at all.
-        This used to test `!detail.planId`, so the moment a plan completed the
-        patient became a dead end forever: the compile flow stayed reachable
-        only by typing the URL, and a finished course of treatment could never
-        be followed by another one.
-      */}
-      {!patient.archivedAt &&
-      !["awaiting_approval", "active", "paused"].includes(detail.planStatus ?? "") ? (
-        <Panel title="No plan yet" style={{ marginBottom: "calc(var(--cell) * 2)" }}>
-          <div style={{ padding: "calc(var(--cell) * 3)" }}>
-            <p
-              className="measure"
-              style={{ margin: "0 0 calc(var(--cell) * 3)", color: "var(--print-2)", fontSize: 15 }}
-            >
-              {detail.planId
-                ? `That course of follow-up has ended. Nobody is calling ${patient.name} now.`
-                : `Nobody is following ${patient.name} up.`}
-            </p>
-            <Button variant="primary" href={`/plan/new?patient=${patient.id}`}>
-              {detail.planId ? "Start another follow-up" : "Write the follow-up note"}
-            </Button>
-          </div>
-        </Panel>
-      ) : null}
+        Where things stand — and, folded into the same sheet, what the plan is
+        set to and what to do about anything waiting.
 
-
-      {!patient.archivedAt && detail.planStatus === "awaiting_approval" && detail.planId ? (
-        <Panel title="Waiting on you" style={{ marginBottom: "calc(var(--cell) * 2)" }}>
-          <div style={{ padding: "calc(var(--cell) * 3)" }}>
-            <p
-              className="measure"
-              style={{ margin: "0 0 calc(var(--cell) * 3)", color: "var(--print-2)", fontSize: 15 }}
-            >
-              A plan has been compiled for {patient.name} but no call is scheduled
-              until you approve it.
-            </p>
-            <Button variant="primary" href={`/plans/${detail.planId}`}>
-              Review and approve the plan
-            </Button>
-          </div>
-        </Panel>
-      ) : null}
-
-      {/*
-        Where things stand, first. Everything below it is evidence for it.
+        This was three sheets: a one-line "Follow-up ended" panel wrapping a
+        button, this one, and a "The plan" panel wrapping one more button and a
+        badge. `COMPLETED` was printed three times on one screen — the header
+        badge, a panel title and the plan's own badge — and the actions were
+        more chrome than content.
       */}
       <PatientSummary
         summary={summary}
         timezone={patient.timezone}
         quietFor={detail.quietFor}
         lastHeard={detail.lastHeard}
-        contactRate={rate}
         week={detail.week}
         reason={detail.reason}
-      />
-
-      {detail.planId ? (
-        <Panel
-          title="The plan"
-          /*
-            The cadence, local time, attempt ceiling and window used to be four
-            labelled figures and a paragraph on calendar anchoring — on a page a
-            doctor opens to read outcomes, about settings they almost never
-            change mid-course. The same four values fit one mono line, and the
-            editable version is one click away on the plan itself.
-          */
-          aside={
-            <span className="mono" style={{ color: "var(--print-3)", fontSize: 12 }}>
+        planLine={
+          detail.planId ? (
+            <>
               Daily · {detail.localTime} {patient.timezone} · up to {detail.maxAttempts}/day
               {detail.startsAt && detail.endsAt
                 ? ` · ${formatDay(detail.startsAt, patient.timezone)} → ${formatDay(detail.endsAt, patient.timezone)}`
                 : " · not approved yet"}
-            </span>
-          }
-          style={{ marginBottom: "calc(var(--cell) * 2)" }}
-        >
-          <div style={{ padding: "calc(var(--cell) * 2.5) calc(var(--cell) * 3)" }}>
-            {["active", "paused"].includes(detail.planStatus ?? "") && !patient.archivedAt ? (
-              <>
-                <TreatmentControls
-                  planId={detail.planId}
-                  patientId={patient.id}
-                  patientName={patient.name}
-                />
-                {/*
-                  Reviewing a patient mid-course and wanting one more thing
-                  watched is not a new episode. A second plan would dial the
-                  same person twice a day — and cannot exist anyway, since one
-                  live plan per patient is a unique index. This adds to the note
-                  the questions were compiled from, so the addition is grounded
-                  the same way everything else is.
-                */}
-                <AmendNote planId={detail.planId} live />
-              </>
-            ) : (
-              <div style={{ display: "grid", gap: "calc(var(--cell) * 1.5)" }}>
-                <div
+            </>
+          ) : undefined
+        }
+        escalationActions={
+          waiting && detail.planId ? (
+            <QueueActions
+              escalationId={waiting.id}
+              planId={detail.planId}
+              patientName={patient.name}
+              pausedPlan={waiting.urgent}
+              status={waiting.status}
+              planLive={planLive}
+            />
+          ) : undefined
+        }
+        footer={
+          detail.planId && planLive && editable ? (
+            <>
+              <TreatmentControls
+                planId={detail.planId}
+                patientId={patient.id}
+                patientName={patient.name}
+              />
+              {/*
+                Reviewing a patient mid-course and wanting one more thing
+                watched is not a new episode. A second plan would dial the same
+                person twice a day — and cannot exist anyway, since one live
+                plan per patient is a unique index. This adds to the note the
+                questions were compiled from, so the addition is grounded the
+                same way everything else is.
+              */}
+              <AmendNote planId={detail.planId} live />
+            </>
+          ) : (
+            /* How it resolved, on the episode it belongs to. It moves down to
+               "Earlier follow-ups" only once a newer plan exists. */
+            (() => {
+              const course = summary.courses.find((c) => c.planId === detail.planId);
+              return course?.closingSummary ? (
+                <p
                   style={{
-                    display: "flex",
-                    flexWrap: "wrap",
-                    gap: "calc(var(--cell) * 1.5)",
-                    alignItems: "center",
+                    margin: 0,
+                    paddingLeft: "calc(var(--cell) * 1.5)",
+                    borderLeft: "2px solid var(--rule-2)",
+                    color: "var(--print)",
+                    fontSize: 14,
+                    lineHeight: 1.6,
+                    maxWidth: "72ch",
                   }}
                 >
-                  <Button variant="onLabel" href={`/plans/${detail.planId}`}>
-                    See the whole plan
-                  </Button>
-                  <Badge tone="plain" quiet>
-                    {detail.planStatus}
-                  </Badge>
-                </div>
-
-                {/* How it resolved, on the episode it belongs to. It moves down
-                    to "Earlier follow-ups" only once a newer plan exists. */}
-                {(() => {
-                  const course = summary.courses.find((c) => c.planId === detail.planId);
-                  return course?.closingSummary ? (
-                    <p
-                      style={{
-                        margin: 0,
-                        paddingLeft: "calc(var(--cell) * 1.5)",
-                        borderLeft: "2px solid var(--rule-2)",
-                        color: "var(--print)",
-                        fontSize: 14,
-                        lineHeight: 1.6,
-                        maxWidth: "72ch",
-                      }}
-                    >
-                      {course.closingSummary}
-                    </p>
-                  ) : null;
-                })()}
-              </div>
-            )}
-          </div>
-        </Panel>
-      ) : null}
+                  {course.closingSummary}
+                </p>
+              ) : undefined;
+            })()
+          )
+        }
+      />
 
       {/*
         The treatment record.
@@ -427,7 +465,7 @@ export default async function PatientPage({
 
       {summary.notes.length > 0 ? (
         <Panel
-          title={summary.notes.length === 1 ? "The note this came from" : "Every note you have written"}
+          title={summary.notes.length === 1 ? "The note" : "Notes"}
           aside={
             summary.notes.length > 1 ? (
               <span className="caps mono" style={{ color: "var(--print-3)" }}>
@@ -444,37 +482,27 @@ export default async function PatientPage({
             follow-up was started three weeks ago simply vanished. `idx_notes_patient`
             was built for exactly this read and nothing performed it.
           */}
-          {summary.notes.map((n, i) => (
-            <div
-              key={n.id}
-              style={{
-                padding: "calc(var(--cell) * 3)",
-                borderTop: i === 0 ? undefined : "1px solid var(--rule)",
-              }}
-            >
-              <p className="caps" style={{ margin: "0 0 calc(var(--cell) * 1)", color: "var(--print-3)" }}>
-                {formatDay(n.createdAt, patient.timezone)}
-              </p>
-              <p
-                className="mono measure"
-                style={{
-                  margin: 0,
-                  whiteSpace: "pre-wrap",
-                  color: "var(--print-2)",
-                  fontSize: 13,
-                  lineHeight: 1.7,
-                }}
-              >
-                {n.body}
-              </p>
-              {n.escalationNote ? (
-                <p style={{ margin: "calc(var(--cell) * 1.5) 0 0", color: "var(--print-2)", fontSize: 14 }}>
-                  <span className="caps" style={{ color: "var(--print-3)" }}>Escalate to me if</span>{" "}
-                  {n.escalationNote}
-                </p>
-              ) : null}
-            </div>
+          {summary.notes.slice(0, 1).map((n) => (
+            <Note key={n.id} note={n} timezone={patient.timezone} />
           ))}
+
+          {/*
+            The rest folded away. An amendment appends rather than replaces, so
+            two near-identical notes print in full one under the other — ~250px
+            each of the same paragraph, on a page a doctor opens to read
+            outcomes.
+          */}
+          {summary.notes.length > 1 ? (
+            <details className="disclosure">
+              <summary>
+                {summary.notes.length - 1} earlier{" "}
+                {summary.notes.length === 2 ? "note" : "notes"}
+              </summary>
+              {summary.notes.slice(1).map((n) => (
+                <Note key={n.id} note={n} timezone={patient.timezone} />
+              ))}
+            </details>
+          ) : null}
         </Panel>
       ) : null}
 

@@ -16,9 +16,12 @@
 
 :root {
   /* the bench — graphite with printing-ink warmth, never a "dark mode" grey */
-  --bench: #1c1a18;
-  --bench-2: #262320;
-  --bench-3: #322e2a;
+  /* Lifted from #1c1a18. The sheets carry a black shadow and the old ground was
+     within a few points of black, so nothing could fall on it and every sheet
+     read as a flat rectangle rather than stock lying on a bench. */
+  --bench: #221f1c;
+  --bench-2: #2c2825;
+  --bench-3: #383430;
   --bench-line: #3d3833;
   /* A hairline you can actually see on graphite — the divider tone fails as a control edge. */
   --bench-line-strong: #6b635a;
@@ -150,6 +153,42 @@ a {
   background: var(--amber-deep);
 }
 
+/*
+ * The same treatment on label stock, where the bench thumb reads as a black bar
+ * lying across a white sheet — a textarea on a phone was the giveaway.
+ */
+.sheet ::-webkit-scrollbar-track,
+textarea::-webkit-scrollbar-track,
+.table-scroll::-webkit-scrollbar-track {
+  background: var(--label-2);
+}
+
+.sheet ::-webkit-scrollbar-thumb,
+textarea::-webkit-scrollbar-thumb,
+.table-scroll::-webkit-scrollbar-thumb {
+  background: var(--rule);
+  border: 3px solid var(--label-2);
+}
+
+.sheet ::-webkit-scrollbar-thumb:hover,
+textarea::-webkit-scrollbar-thumb:hover,
+.table-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--print-3);
+}
+
+/* The caret is a browser default nobody themes. Amber on the bench, ink on
+   stock — it is the one mark that is always exactly where the eye is. */
+:root {
+  caret-color: var(--amber);
+}
+
+.sheet,
+input,
+textarea,
+select {
+  caret-color: var(--print);
+}
+
 /* Typographic primitives -------------------------------------------------- */
 
 /*
@@ -197,6 +236,507 @@ a {
  * different hint lengths sit at different heights and the sheet reads as
  * drifting rather than ruled.
  */
+/*
+ * One row of Today.
+ *
+ * A button, because it opens something — but it must read as a table row, so
+ * every browser default a button brings has to be undone. The height is the
+ * tap target: 44px at the narrow end, which is what a thumb needs.
+ */
+/* Wide content scrolls inside its own box; the page body never does. */
+.table-scroll {
+  overflow-x: auto;
+}
+
+/*
+ * A band heading, as an adhesive strip rather than a tint.
+ *
+ * It was `--label-2` sitting on rows of `--label` — a three percent difference,
+ * so the heading read as one more row and the groups blurred into each other.
+ * The rule this world is built on says it plainly: colour arrives as a full
+ * band with a printed word on it, never as a tint behind a card. So the band is
+ * the colour, the word is reversed out of it, and the coloured edge that was
+ * standing in for all this is gone.
+ *
+ * Every tone here clears 4.5:1 against the reversed word at this size —
+ * danger 5.9, amber-deep 5.0, clear 6.8.
+ */
+.today-band {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--cell) * 1.5);
+  margin: 0;
+  padding: calc(var(--cell) * 1.5) calc(var(--cell) * 3);
+  background: var(--print);
+  color: var(--label);
+  font-family: var(--sans);
+  font-stretch: 88%;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+/*
+ * The tone is a chip, not the whole bar.
+ *
+ * A full-bleed saturated band is the cheapest-looking thing a page can have,
+ * and two of them stacked read as default framework alerts. An auxiliary strip
+ * on a dispensing sleeve is small — it is stuck on, not printed edge to edge.
+ * So the ink carries the heading and the colour is a struck square beside it,
+ * which also gives red back its meaning: it marks danger, it is not upholstery.
+ */
+.today-band::before {
+  content: "";
+  width: calc(var(--cell) * 1.25);
+  height: calc(var(--cell) * 1.25);
+  flex-shrink: 0;
+  background: currentColor;
+}
+
+.today-band[data-tone="needs"]::before {
+  background: var(--danger);
+}
+
+.today-band[data-tone="read"]::before {
+  background: var(--amber);
+}
+
+.today-band[data-tone="running"]::before {
+  background: var(--clear);
+}
+
+.today-band-label {
+  flex: 1 1 auto;
+}
+
+.today-band-count {
+  /*
+   * Full strength, not held back. Fading it to 72% dropped it to 3.1:1 on
+   * amber-deep and 3.3:1 on danger — under the 4.5 a 13px number needs. It is
+   * the count that separates it from the word, not the ink.
+   */
+  color: var(--label);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+/*
+ * The tear-off stub.
+ *
+ * Today ends early on a good day — five rows on a 1200px screen left ~450px of
+ * bare bench under them, and a worklist that simply stops reads as a page that
+ * failed to load rather than as a day under control. The stub closes the sheet
+ * and carries the one live fact the rows cannot: when the agent next dials.
+ */
+.today-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: calc(var(--cell) * 1.5);
+  padding: calc(var(--cell) * 2.5) calc(var(--cell) * 2);
+  font-size: 14px;
+  color: var(--print-2);
+}
+
+.today-foot-key {
+  color: var(--print-3);
+}
+
+.today-foot-end {
+  margin-left: auto;
+  color: var(--print-3);
+}
+
+/*
+ * The opened row.
+ *
+ * A ledger before a paragraph: whether anyone picked up, which try it was, and
+ * what happens next. The panel used to lead with the patient's name and repeat
+ * the clause already printed on the closed row above it.
+ */
+.today-open {
+  padding: 0 calc(var(--cell) * 3) calc(var(--cell) * 3);
+}
+
+/* Stacked on a phone: two columns put "day 1, attempt 3 of 3" into a 150px
+   well where it broke across three lines and pushed the outcome badge onto a
+   line of its own. */
+.today-ledger {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: calc(var(--cell) * 0.5);
+  margin: 0 0 calc(var(--cell) * 2);
+  font-size: 13px;
+}
+
+@media (min-width: 620px) {
+  .today-ledger {
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: calc(var(--cell) * 0.75) calc(var(--cell) * 2);
+  }
+}
+
+.today-ledger dt {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--print-3);
+}
+
+.today-ledger dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--cell) * 1.5);
+  margin: 0 0 calc(var(--cell) * 1);
+  color: var(--print);
+}
+
+@media (min-width: 620px) {
+  .today-ledger dd {
+    margin-bottom: 0;
+  }
+}
+
+.today-ledger-dim {
+  color: var(--print-3);
+}
+
+.today-summary {
+  margin: 0 0 calc(var(--cell) * 2);
+  color: var(--print);
+  font-size: 15px;
+}
+
+/* The escalation actions keep their own full-bleed strip inside the row. The
+   negative bottom margin cancels the panel's padding, so the strip ends where
+   the row does rather than floating above a band of empty stock. */
+.today-queue {
+  margin: calc(var(--cell) * 2) calc(var(--cell) * -3) calc(var(--cell) * -3);
+}
+
+.today-row {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: baseline;
+  gap: calc(var(--cell) * 2);
+  width: 100%;
+  min-height: calc(var(--cell) * 6);
+  /* More air than the 1.75 it had. Rows this dense read as a spreadsheet, and
+     the thing being scanned is people. */
+  padding: calc(var(--cell) * 2) calc(var(--cell) * 3);
+  cursor: pointer;
+  font-size: 15px;
+  transition: background 120ms ease-out;
+}
+
+/*
+ * The clause. It has to be allowed to shrink below its content or a long
+ * sentence pushes the row wider than the viewport — `min-width: 0` is what lets
+ * a flex item do that, and the ellipsis needs the overflow hidden to show.
+ */
+.today-lede {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.today-row:hover {
+  background: var(--label-2);
+}
+
+/*
+ * The name leads the row.
+ *
+ * Everything sat at one size and one weight, so a row was five equal things and
+ * the eye had nowhere to land. The name is what a doctor is looking for.
+ */
+.today-name {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--print);
+}
+
+.today-age {
+  font-weight: 400;
+  color: var(--print-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .today-row {
+    transition: none;
+  }
+}
+
+.today-row:focus-visible {
+  outline: 2px solid var(--amber-deep);
+  outline-offset: -2px;
+}
+
+/*
+ * On a phone the row stacks and the timing drops below the name, because a
+ * truncated clause is worth more than a right-aligned timestamp.
+ */
+@media (max-width: 720px) {
+  .today-row {
+    flex-wrap: wrap;
+    gap: calc(var(--cell) * 1);
+  }
+
+  /* Stacked: every part takes its own line, so nothing has to shrink. */
+  .today-row > * {
+    flex: 0 0 100%;
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+/*
+ * Motion, in the three places it carries meaning.
+ *
+ * Today re-reads itself every 15s, so rows change under the cursor with nothing
+ * to mark the change. These say "this just happened" and then stop. Anything
+ * that only made the page feel designed was left out.
+ */
+@keyframes row-settle {
+  from {
+    background: var(--amber-wash);
+  }
+  to {
+    background: var(--label);
+  }
+}
+
+.row-landed {
+  animation: row-settle 1400ms ease-out both;
+}
+
+@keyframes badge-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.badge-new {
+  animation: badge-arrive 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row-landed,
+  .badge-new {
+    animation: none;
+  }
+}
+
+/*
+ * The wizard's progress track.
+ *
+ * One row that cannot wrap. Five bordered chips with full step names needed
+ * ~1,100px and broke onto a second line at any ordinary window, which reads as
+ * a fault rather than a sequence. The rule under the row is the track; the
+ * finished part of it is green.
+ */
+/*
+ * The way back, as a link rather than a boxed control.
+ *
+ * These were `ghost` buttons sitting above the page title — a bordered chip
+ * with the same weight as the primary action, on a screen that already has a
+ * navigation rail. A back affordance is a signpost, not a decision.
+ */
+.backlink {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--cell) * 0.75);
+  color: var(--bench-ink-2);
+  text-decoration: none;
+  font-family: var(--sans);
+  font-stretch: 88%;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.backlink::before {
+  content: "\2039";
+  font-size: 16px;
+  line-height: 1;
+}
+
+.backlink:hover {
+  color: var(--bench-ink);
+}
+
+.backlink:focus-visible {
+  outline: 2px solid var(--amber-deep);
+  outline-offset: 3px;
+}
+
+/*
+ * A disclosure, with a marker we drew.
+ *
+ * The default is `list-style-type: disclosure-open`, which sets the triangle as
+ * a list marker hard against the label — "▾WHAT THE PLATFORM MADE OF IT", no
+ * space, because a marker is not a character you can put a gap after. So it is
+ * turned off and redrawn as a caret that turns when the panel opens.
+ */
+.disclosure > summary {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--cell) * 1.25);
+  list-style: none;
+}
+
+.disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.disclosure > summary::before {
+  content: "";
+  width: 0;
+  height: 0;
+  flex-shrink: 0;
+  border-left: 5px solid currentColor;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.disclosure[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.disclosure > summary:hover {
+  color: var(--print);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .disclosure > summary::before {
+    transition: none;
+  }
+}
+
+.stepper {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  list-style: none;
+  margin: 0 0 calc(var(--cell) * 3);
+  padding: 0;
+  overflow-x: auto;
+}
+
+.stepper li {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.stepper-step {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--cell) * 1);
+  width: 100%;
+  padding: calc(var(--cell) * 1.25) calc(var(--cell) * 1.5);
+  border-bottom: 3px solid var(--bench-line);
+  color: var(--bench-ink-3);
+  text-decoration: none;
+  white-space: nowrap;
+  font: inherit;
+  background: none;
+  border-left: 0;
+  border-right: 0;
+  border-top: 0;
+  text-align: left;
+}
+
+button.stepper-step {
+  cursor: pointer;
+}
+
+.stepper-step[data-state="done"] {
+  color: var(--bench-ink-2);
+  border-bottom-color: var(--clear);
+}
+
+.stepper-step[data-state="current"] {
+  color: var(--bench-ink);
+  border-bottom-color: var(--amber);
+}
+
+/* Available but not yet filled in: brighter than a locked step, but no tick
+   and no green — nothing has been done there. */
+button.stepper-step[data-state="ahead"],
+a.stepper-step[data-state="ahead"] {
+  color: var(--bench-ink-2);
+  border-bottom-color: var(--bench-line-strong);
+}
+
+button.stepper-step[data-state="ahead"] .stepper-mark,
+a.stepper-step[data-state="ahead"] .stepper-mark {
+  background: var(--bench-line-strong);
+  color: var(--bench);
+}
+
+.stepper-step:focus-visible {
+  outline: 2px solid var(--amber-deep);
+  outline-offset: -2px;
+}
+
+/* The number sits in the mark; a tick replaces it once the step is behind you. */
+.stepper-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(var(--cell) * 2.5);
+  height: calc(var(--cell) * 2.5);
+  flex-shrink: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--bench);
+  background: var(--bench-ink-3);
+}
+
+.stepper-step[data-state="done"] .stepper-mark {
+  background: var(--clear);
+  color: var(--label);
+}
+
+.stepper-step[data-state="current"] .stepper-mark {
+  background: var(--amber);
+  color: var(--print);
+}
+
+.stepper-name {
+  font-family: var(--sans);
+  font-stretch: 88%;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* On a phone the names go and the marks carry the sequence alone. */
+@media (max-width: 720px) {
+  .stepper-name {
+    display: none;
+  }
+
+  .stepper-step {
+    justify-content: center;
+  }
+}
+
 .field-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -254,6 +794,18 @@ a {
   background-size: calc(var(--cell) * 1.5) calc(var(--cell) * 1.5);
   background-repeat: repeat-y;
   background-position: center top;
+}
+
+/* The same punch, turned across a top edge rather than down a side. */
+.perf-x {
+  background-image: radial-gradient(
+    circle at center,
+    var(--bench) 0 2px,
+    transparent 2.4px
+  );
+  background-size: calc(var(--cell) * 1.5) calc(var(--cell) * 1.5);
+  background-repeat: repeat-x;
+  background-position: left top;
 }
 
 /* Composition ------------------------------------------------------------- */
@@ -447,10 +999,17 @@ a {
     display: grid;
   }
 
+  /* Pinned to the foot of the rail: whose practice this is is the last thing
+     you read, not something sitting between the sections and the empty column
+     below them. */
   .rail-foot {
     display: block;
-    margin-top: calc(var(--cell) * 3);
+    margin-top: auto;
     padding-top: calc(var(--cell) * 2);
+    /* Clear of the very bottom edge — and of the dev overlay that parks in
+       this corner, which would otherwise sit across the clinician's name in
+       every screen recording made from a dev server. */
+    padding-bottom: calc(var(--cell) * 5);
     border-top: 1px solid var(--bench-line);
   }
 

@@ -9,9 +9,15 @@ import {
 import type { StoredTurn } from "@/lib/db/schema";
 
 const QUESTIONS: ExtractQuestion[] = [
-  { questionId: "taking_as_prescribed", answerType: "boolean", required: true },
+  {
+    questionId: "taking_as_prescribed",
+    prompt: "Are you taking it as prescribed?",
+    answerType: "boolean",
+    required: true,
+  },
   {
     questionId: "symptom_severity",
+    prompt: "Any side effects?",
     answerType: "enum",
     enumValues: ["none", "mild", "moderate", "severe"],
     required: true,
@@ -196,6 +202,47 @@ describe("extractSlots — the patient's own words", () => {
     expect(byId(slots, "symptom_severity").utterance).not.toContain("AI assistant");
   });
 
+  /*
+   * The regression this describes was live: every answer on a real call carried
+   * the same sentence, because the reply was chosen by length rather than by
+   * which question was asked.
+   */
+  it("gives each question its own reply, not one line copied across all of them", () => {
+    const slots = extractSlots({
+      structuredResult: { taking_as_prescribed: "yes", symptom_severity: "severe" },
+      questions: [QUESTIONS[0], QUESTIONS[1]],
+      transcript: [
+        { attemptId: "a1", offsetSeconds: 2, speaker: "bot", text: "Are you taking it as prescribed?" },
+        { attemptId: "a1", offsetSeconds: 6, speaker: "user", text: "Yes, every morning." },
+        { attemptId: "a1", offsetSeconds: 14, speaker: "bot", text: "Any side effects?" },
+        {
+          attemptId: "a1",
+          offsetSeconds: 20,
+          speaker: "user",
+          text: "I threw up twice yesterday and I couldn't keep water down.",
+        },
+      ],
+    });
+
+    expect(byId(slots, "taking_as_prescribed").utterance).toBe("Yes, every morning.");
+    expect(byId(slots, "symptom_severity").utterance).toContain("threw up twice");
+  });
+
+  /* A question the call never reached quotes nothing rather than borrowing an
+     unrelated line from somewhere else in the transcript. */
+  it("quotes nothing when the question was never answered", () => {
+    const slots = extractSlots({
+      structuredResult: { symptom_severity: "unknown" },
+      questions: [QUESTIONS[1]],
+      transcript: [
+        { attemptId: "a1", offsetSeconds: 2, speaker: "bot", text: "Hello." },
+        { attemptId: "a1", offsetSeconds: 5, speaker: "user", text: "Something unrelated." },
+        { attemptId: "a1", offsetSeconds: 9, speaker: "bot", text: "Any side effects?" },
+      ],
+    });
+    expect(byId(slots, "symptom_severity").utterance).toBeNull();
+  });
+
   it("copes with no transcript at all", () => {
     const slots = extractSlots({
       structuredResult: { symptom_severity: "mild" },
@@ -322,5 +369,63 @@ describe("foldOutcome", () => {
     expect(
       foldOutcome({ reached: true, hasUrgentHit: false, hasAnyHit: false, anyUnmappable: false }),
     ).toBe("answered");
+  });
+});
+
+describe("extractSlots — an answer to a question nobody asked", () => {
+  /*
+   * A real call came back with consent_given "yes" for a question the agent
+   * never put. The patient had volunteered "Yes, we can discuss now" in their
+   * opening breath and the platform read it as the answer. The task text tells
+   * the agent never to record an answer to a question it did not ask; that
+   * instruction is not enforceable at the far end, so it is checked here.
+   */
+  it("refuses an answer when the transcript never asked the question", () => {
+    const slots = extractSlots({
+      structuredResult: { symptom_severity: "severe" },
+      questions: [QUESTIONS[1]],
+      transcript: [
+        { attemptId: "a1", offsetSeconds: 2, speaker: "bot", text: "Am I speaking with the patient?" },
+        { attemptId: "a1", offsetSeconds: 6, speaker: "user", text: "Yes, and it has been severe." },
+      ],
+    });
+    expect(byId(slots, "symptom_severity").status).toBe("unmappable");
+    expect(byId(slots, "symptom_severity").valueText).toBeNull();
+  });
+
+  it("keeps the answer when the question was actually asked", () => {
+    const slots = extractSlots({
+      structuredResult: { symptom_severity: "severe" },
+      questions: [QUESTIONS[1]],
+      transcript: TRANSCRIPT,
+    });
+    expect(byId(slots, "symptom_severity").status).toBe("answered");
+  });
+
+  /* Some ids are recorded rather than asked, so their absence proves nothing. */
+  it("leaves a question the agent never speaks alone", () => {
+    const slots = extractSlots({
+      structuredResult: { requests_clinician: "no" },
+      questions: [
+        {
+          questionId: "requests_clinician",
+          prompt: "Did they ask to speak to a person?",
+          answerType: "boolean",
+          required: true,
+        },
+      ],
+      transcript: TRANSCRIPT,
+    });
+    expect(byId(slots, "requests_clinician").status).toBe("answered");
+  });
+
+  /* A call nobody answered has no transcript to check anything against. */
+  it("does not downgrade when there is no transcript", () => {
+    const slots = extractSlots({
+      structuredResult: { symptom_severity: "severe" },
+      questions: [QUESTIONS[1]],
+      transcript: null,
+    });
+    expect(byId(slots, "symptom_severity").status).toBe("answered");
   });
 });

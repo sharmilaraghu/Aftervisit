@@ -164,7 +164,7 @@ export function Wizard({
       {/* ------------------------------------------- step 1: the patient and the note */}
       <div ref={pane1} hidden={step !== 1}>
         <Panel title={WIZARD_STEPS[0]} style={{ marginBottom: "calc(var(--cell) * 2)" }}>
-          <div style={{ padding: "calc(var(--cell) * 3)" }}>
+          <div style={{ padding: "calc(var(--cell) * 3) calc(var(--cell) * 3) calc(var(--cell) * 2)" }}>
             {state.errors.form ? (
               <p
                 role="alert"
@@ -310,7 +310,12 @@ export function Wizard({
             </div>
           </div>
 
-          <div style={{ padding: "calc(var(--cell) * 3)", borderTop: "1px solid var(--rule)" }}>
+          <div
+            style={{
+              padding: "calc(var(--cell) * 2.5) calc(var(--cell) * 3) calc(var(--cell) * 3)",
+              borderTop: "1px solid var(--rule)",
+            }}
+          >
             {!canCompile ? (
               <p
                 style={{
@@ -337,7 +342,7 @@ export function Wizard({
               <Textarea
                 id="note"
                 name="note"
-                rows={7}
+                rows={5}
                 defaultValue={v.note}
                 style={{ fontFamily: "var(--mono)", fontSize: 14, lineHeight: 1.7 }}
                 placeholder={

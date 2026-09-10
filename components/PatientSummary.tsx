@@ -19,6 +19,7 @@
  */
 
 import Link from "next/link";
+import type { ReactNode } from "react";
 
 import { Badge, Panel, WeekBand } from "@/components/ui";
 import { formatStamp } from "@/lib/format";
@@ -50,25 +51,36 @@ export function PatientSummary({
   timezone,
   quietFor,
   lastHeard,
-  contactRate,
   week,
   reason,
+  planLine,
+  escalationActions,
+  footer,
 }: {
   summary: Summary;
   timezone: string;
   quietFor: number | null;
   lastHeard: Date | null;
-  contactRate: number | null;
   week: DayState[];
   reason: string | null;
+  /** The cadence line, which used to be a whole panel wrapping one button. */
+  planLine?: ReactNode;
+  /**
+   * What to do about the escalation, in the place it is printed.
+   *
+   * This panel used to list what was waiting on a clinician and then send them
+   * to `/dashboard` to act on it — the console asking a doctor to go somewhere
+   * else to deal with the patient they already have open.
+   */
+  escalationActions?: ReactNode;
+  /** Plan controls, inside this sheet rather than in one of their own. */
+  footer?: ReactNode;
 }) {
   const open = summary.escalations.filter(
     (e) => e.status === "open" || e.status === "acknowledged",
   );
   /* The most recent thing the assistant actually managed to read. A fail-closed
      row has no summary worth printing — it says so instead. */
-  const reading = summary.readings.find((r) => r.status === "ok" && r.summary);
-  const courses = summary.courses.length;
 
   return (
     <Panel
@@ -115,8 +127,11 @@ export function PatientSummary({
               <WeekBand week={week} />
             </dd>
           </div>
-          <Figure label="Contact rate" value={contactRate === null ? "—" : `${contactRate}%`} />
-          <Figure label="Calls answered" value={`${summary.totals.reached}/${summary.totals.calls}`} />
+          {/* One number, not two. "Contact rate 100%" printed beside "Calls
+              answered 1/4" reads as a contradiction — the first counts
+              occurrences reached, the second attempts, and nothing on the sheet
+              said so. The fraction is the one a clinician can act on. */}
+          <Figure label="Days reached" value={`${summary.totals.reached}/${summary.totals.calls}`} />
           <Figure
             label="Quiet for"
             value={
@@ -127,11 +142,6 @@ export function PatientSummary({
             label="Last heard"
             value={lastHeard ? formatStamp(lastHeard, timezone) : "—"}
           />
-          {/* Computed on every page load since this page was built, and
-              rendered nowhere: the count of calls where the patient brought up
-              something none of the questions covered. */}
-          <Figure label="Raised off-script" value={String(summary.totals.raisedSomething)} />
-          {courses > 1 ? <Figure label="Courses" value={String(courses)} /> : null}
         </dl>
 
         {open.length > 0 ? (
@@ -170,70 +180,44 @@ export function PatientSummary({
                 </p>
               );
             })}
-            <p style={{ margin: "calc(var(--cell) * 1.5) 0 0" }}>
-              <Link
-                href="/dashboard"
-                style={{ color: "var(--print)", fontSize: 14, textUnderlineOffset: 3 }}
-              >
-                Work these in Today
-              </Link>
-            </p>
+            {open.length > 1 ? (
+              <p style={{ margin: "calc(var(--cell) * 1.5) 0 0" }}>
+                <Link
+                  href="/dashboard"
+                  style={{ color: "var(--print)", fontSize: 14, textUnderlineOffset: 3 }}
+                >
+                  Work the rest in Today
+                </Link>
+              </p>
+            ) : null}
           </div>
         ) : null}
 
-        {/*
-          The model's account of the last call it could read. One, not three —
-          this is a summary, and a list of paragraphs is the thing it exists to
-          save a doctor from.
-        */}
-        {reading ? (
-          <div
+        {planLine ? (
+          <p
             style={{
-              marginTop: "calc(var(--cell) * 3)",
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "calc(var(--cell) * 2)",
+              margin: "calc(var(--cell) * 3) 0 0",
               paddingTop: "calc(var(--cell) * 2.5)",
               borderTop: "1px solid var(--rule)",
+              color: "var(--print-3)",
+              fontSize: 12,
             }}
           >
-            <p className="caps" style={{ margin: "0 0 calc(var(--cell) * 1)", color: "var(--print-3)" }}>
-              What the assistant made of the last call
-            </p>
-            <p style={{ margin: 0, color: "var(--print)", fontSize: 15, lineHeight: 1.55 }}>
-              {reading.summary}
-            </p>
-            {reading.matchedConcerns.length > 0 ? (
-              <p
-                style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: "calc(var(--cell) * 1)",
-                  alignItems: "baseline",
-                  margin: "calc(var(--cell) * 1.5) 0 0",
-                }}
-              >
-                {/* The doctor's own conditions, named back to them. Written on
-                    every triaged call and read by nothing until now. */}
-                <span className="caps" style={{ color: "var(--print-3)" }}>
-                  Touched what you asked about
-                </span>
-                {reading.matchedConcerns.map((c) => (
-                  <Badge key={c} tone="amber" quiet>
-                    {c}
-                  </Badge>
-                ))}
-              </p>
-            ) : null}
-            <p className="mono" style={{ margin: "calc(var(--cell) * 1.5) 0 0", fontSize: 11, color: "var(--print-3)" }}>
-              {formatStamp(reading.createdAt, timezone)}
-              {reading.callId ? " · " : ""}
-              {reading.callId ? (
-                <Link href={`/calls/${reading.callId}`} style={{ color: "var(--print-3)" }}>
-                  read the whole call
-                </Link>
-              ) : null}
-            </p>
-          </div>
+            {/* Labelled, or it is an orphan string of settings under a rule.
+                A caps word costs less than the panel this used to be. */}
+            <span className="caps">The plan</span>
+            <span className="mono">{planLine}</span>
+          </p>
         ) : null}
+
+        {footer ? <div style={{ marginTop: "calc(var(--cell) * 2)" }}>{footer}</div> : null}
       </div>
+
+      {/* Full-bleed, because it is a decision strip and not body copy. */}
+      {escalationActions}
     </Panel>
   );
 }

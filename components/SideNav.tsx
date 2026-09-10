@@ -153,12 +153,7 @@ export function SideNav({
         })}
       </ul>
 
-      {/*
-        The practice and the clinician. It sits directly under the sections
-        rather than pinned to the bottom of the viewport: pinning it opened a
-        700px void down the middle of the rail on a tall screen, and there is
-        nothing here worth crossing that gap for.
-      */}
+      {/* The practice and the clinician, at the foot of the rail. */}
       <div className="rail-foot">
         {/*
           The quiet ink clears 4.5:1 on `bench`, but the rail is the lighter

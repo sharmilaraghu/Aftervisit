@@ -1,0 +1,52 @@
+# The scheduler, driven from outside the deployment.
+#
+# Vercel's Hobby plan runs crons at most once a day, and Care Loop retires any
+# call more than MAX_CALL_DELAY_MINUTES (90) late rather than dialling it — so a
+# daily tick means nearly every call is missed. This is the external cron that
+# DEPLOYMENT.md describes, using the same `POST /api/tick` door as `--ticker`.
+#
+# Two repository secrets, under Settings → Secrets and variables → Actions:
+#   CARELOOP_TICK_URL    https://<your-host>/api/tick
+#   CARELOOP_TICK_TOKEN  the same value as the deployment's CARELOOP_TICK_TOKEN
+#
+# GitHub's scheduler is best-effort and drifts several minutes under load. That
+# is harmless here — the tolerance is 90 minutes, not 5. It also stops running
+# after 60 days without a push to the default branch, so for anything that has
+# to be reliable use cron-job.org instead and keep this as the fallback.
+#
+# Ticks place real calls whenever the deployment has CALLE_API_KEY set.
+
+name: tick
+
+on:
+  schedule:
+    # Every five minutes — GitHub's finest granularity.
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+# A slow tick must never have a second one pile up behind it.
+concurrency:
+  group: careloop-tick
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Run the scheduler
+        env:
+          URL: ${{ secrets.CARELOOP_TICK_URL }}
+          TOKEN: ${{ secrets.CARELOOP_TICK_TOKEN }}
+        run: |
+          if [ -z "$URL" ] || [ -z "$TOKEN" ]; then
+            echo "CARELOOP_TICK_URL and CARELOOP_TICK_TOKEN must both be set as repository secrets."
+            exit 1
+          fi
+          # `tick()` returns its counters, so the run log says what happened
+          # rather than just 200. --fail-with-body keeps the body on a 4xx/5xx.
+          curl --fail-with-body --silent --show-error \
+            --max-time 120 \
+            --request POST "$URL" \
+            --header "x-careloop-tick: $TOKEN"
+          echo

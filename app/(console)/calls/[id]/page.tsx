@@ -11,9 +11,10 @@
  * the answer is stored before the dial rather than reconstructed after it.
  */
 
+import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { Badge, Button, Panel } from "@/components/ui";
+import { Badge, Panel } from "@/components/ui";
 import { getCall } from "@/lib/db/calls";
 import { getTriage } from "@/lib/db/triage";
 import { escalationRef, formatStamp } from "@/lib/format";
@@ -77,9 +78,9 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
     >
       <header style={{ marginBottom: "calc(var(--cell) * 4)" }}>
         <p style={{ margin: "0 0 calc(var(--cell) * 1)" }}>
-          <Button variant="ghost" href={`/patients/${call.patientId}`}>
+          <Link href={`/patients/${call.patientId}`} className="backlink">
             Back to {call.patientName}
-          </Button>
+          </Link>
         </p>
         <h1
           className="display"
@@ -111,7 +112,7 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
 
       {call.escalations.length > 0 ? (
         <Panel
-          title="What it escalated"
+          title="Escalated"
           aside={<Badge tone="danger">{call.escalations.length}</Badge>}
           style={{ marginBottom: "calc(var(--cell) * 2)" }}
         >
@@ -131,7 +132,9 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
                     {escalationRef(e.ref)}
                   </Badge>
                 </div>
-                <p style={{ margin: 0, color: "var(--print-2)", fontSize: 14 }}>{e.reason}</p>
+                <p className="measure" style={{ margin: 0, color: "var(--print-2)", fontSize: 14 }}>
+                  {e.reason}
+                </p>
               </div>
             ))}
           </div>
@@ -139,7 +142,7 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
       ) : null}
 
       <Panel
-        title="What it heard"
+        title="Answers"
         aside={
           <span className="caps mono" style={{ color: "var(--print-3)" }}>
             {call.resultStatus === "null_result" ? "no result" : `${call.slots.length} answers`}
@@ -161,70 +164,101 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
               : "No answers were extracted from this call."}
           </p>
         ) : (
-          <div style={{ padding: "calc(var(--cell) * 3)" }}>
-            {call.slots.map((slot) => {
-              const tone = SLOT_TONE[slot.status] ?? SLOT_TONE.refused;
-              return (
-                <div
-                  key={slot.questionId}
-                  style={{
-                    paddingBottom: "calc(var(--cell) * 2)",
-                    marginBottom: "calc(var(--cell) * 2)",
-                    borderBottom: "1px solid var(--rule-2)",
-                  }}
-                >
-                  <p
-                    className="caps"
-                    style={{
-                      margin: "0 0 calc(var(--cell) * 0.75)",
-                      color: "var(--print-3)",
-                      display: "flex",
-                      gap: "calc(var(--cell) * 1)",
-                      alignItems: "center",
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    {slot.questionId}
-                    <Badge tone={tone.tone} quiet={tone.quiet}>
-                      {tone.label}
-                    </Badge>
-                  </p>
-
-                  {slot.prompt ? (
-                    <p style={{ margin: "0 0 calc(var(--cell) * 0.75)", color: "var(--print-2)", fontSize: 14 }}>
-                      {slot.prompt}
-                    </p>
-                  ) : null}
-
-                  <p
-                    className="mono"
-                    style={{ margin: "0 0 calc(var(--cell) * 1)", color: "var(--print)", fontSize: 16 }}
-                  >
-                    {slotValue(slot)}
-                  </p>
-
-                  {/*
-                    The patient's own words, beside the typed value. This pairing
-                    is the point of the page: a clinician can see what was
-                    recorded and judge for themselves whether it is right.
-                  */}
-                  {slot.utterance ? (
-                    <blockquote
+          /*
+            A table, not eight stacked blocks.
+            Each answer was a heading, a prompt, a value and a quote in its own
+            bordered card — about 95px for a yes. Eight of those made this page
+            six thousand pixels tall for a call that lasted fifty-four seconds.
+            The question, what was recorded, and whether it could be mapped are
+            three columns, and the words the patient used sit under the row they
+            belong to.
+          */
+          <div className="table-scroll">
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid var(--rule-ink)" }}>
+                  {["Asked", "Recorded", ""].map((h, i) => (
+                    <th
+                      key={h || i}
+                      className="caps"
                       style={{
-                        margin: 0,
-                        padding: "0 0 0 calc(var(--cell) * 2)",
-                        borderLeft: "1px solid var(--rule-ink)",
-                        fontSize: 17,
-                        lineHeight: 1.5,
-                        color: "var(--print)",
+                        textAlign: "left",
+                        padding: "calc(var(--cell) * 1.25) calc(var(--cell) * 2)",
+                        color: "var(--print-3)",
+                        fontWeight: 700,
                       }}
                     >
-                      &ldquo;{slot.utterance}&rdquo;
-                    </blockquote>
-                  ) : null}
-                </div>
-              );
-            })}
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {call.slots.map((slot) => {
+                  const tone = SLOT_TONE[slot.status] ?? SLOT_TONE.refused;
+                  return (
+                    <tr key={slot.questionId} style={{ borderBottom: "1px solid var(--rule-2)" }}>
+                      <td
+                        style={{
+                          padding: "calc(var(--cell) * 1.5) calc(var(--cell) * 2)",
+                          color: "var(--print-2)",
+                          fontSize: 14,
+                          verticalAlign: "top",
+                        }}
+                      >
+                        {/*
+                          The wording the patient heard. The slug that used to
+                          head this row — reached_patient, taking_as_prescribed —
+                          is an internal identifier and had no business on a
+                          clinical screen.
+                        */}
+                        {slot.prompt ?? slot.questionId}
+                        {slot.utterance ? (
+                          <blockquote
+                            style={{
+                              margin: "calc(var(--cell) * 0.75) 0 0",
+                              padding: "0 0 0 calc(var(--cell) * 1.5)",
+                              borderLeft: "2px solid var(--rule-2)",
+                              color: "var(--print)",
+                              fontSize: 15,
+                            }}
+                          >
+                            &ldquo;{slot.utterance}&rdquo;
+                          </blockquote>
+                        ) : null}
+                      </td>
+                      <td
+                        className="mono"
+                        style={{
+                          padding: "calc(var(--cell) * 1.5) calc(var(--cell) * 2)",
+                          color: "var(--print)",
+                          fontSize: 15,
+                          whiteSpace: "nowrap",
+                          verticalAlign: "top",
+                        }}
+                      >
+                        {slotValue(slot)}
+                      </td>
+                      <td
+                        style={{
+                          padding: "calc(var(--cell) * 1.5) calc(var(--cell) * 2)",
+                          verticalAlign: "top",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {/* Green on every answered row is a wall of green. The
+                            status is only worth a badge when it is not "answered". */}
+                        {slot.status === "answered" ? null : (
+                          <Badge tone={tone.tone} quiet={tone.quiet}>
+                            {tone.label}
+                          </Badge>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </Panel>
@@ -250,7 +284,7 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
       */}
       {triage ? (
         <Panel
-          title="What the assistant made of it"
+          title="Assessment"
           aside={
             <Badge
               tone={
@@ -292,6 +326,7 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
 
             {triage.summary ? (
               <p
+                className="measure"
                 style={{
                   margin: "0 0 calc(var(--cell) * 2)",
                   color: "var(--print)",
@@ -309,7 +344,15 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
               one thing, which reads like a bug rather than a rationale. Printed
               only when it is actually saying something else.
             */}
-            {triage.reason && !nearlySame(triage.reason, triage.summary) ? (
+            {/*
+              The reason says why this was routed to a person, which is exactly
+              what the escalation panel at the top of the page already says —
+              usually in the same words, because both come from the same triage
+              row. Printed only when there is no escalation to have said it.
+            */}
+            {triage.reason &&
+            call.escalations.length === 0 &&
+            !nearlySame(triage.reason, triage.summary) ? (
               <p style={{ margin: 0, color: "var(--print-2)", fontSize: 14, lineHeight: 1.5 }}>
                 {triage.reason}
               </p>
@@ -360,9 +403,33 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
         </Panel>
       ) : null}
 
+      {call.transcript && call.transcript.length > 0 ? (
+        <Panel title="The whole call" style={{ marginBottom: "calc(var(--cell) * 2)" }}>
+          <div style={{ padding: "calc(var(--cell) * 3)" }}>
+            {call.transcript.map((turn, i) => (
+              <p
+                key={i}
+                className="measure"
+                style={{
+                  margin: "0 0 calc(var(--cell) * 1.5)",
+                  color: isAgent(turn.speaker) ? "var(--print-3)" : "var(--print)",
+                  fontSize: 15,
+                  lineHeight: 1.55,
+                }}
+              >
+                <span className="caps mono" style={{ marginRight: "calc(var(--cell) * 1.5)" }}>
+                  {isAgent(turn.speaker) ? "Agent" : "Patient"} · {turn.offsetSeconds}s
+                </span>
+                {turn.text}
+              </p>
+            ))}
+          </div>
+        </Panel>
+      ) : null}
+
       {call.summary || call.evidence?.length || call.completionConfidence ? (
         <Panel
-          title="What the call platform reported"
+          title="Platform check"
           aside={
             call.taskCompleted === null ? undefined : (
               <Badge tone={call.taskCompleted ? "clear" : "amber"} quiet>
@@ -372,9 +439,29 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
           }
           style={{ marginBottom: "calc(var(--cell) * 2)" }}
         >
-          <div style={{ padding: "calc(var(--cell) * 3)" }}>
+          {/*
+            Shut by default. This is CALL-E's own read of the call, and it sat
+            open underneath ours — two machines assessing one conversation, in
+            full, one after the other. Our verdict leads; theirs is a check you
+            can pull up when the two might disagree.
+          */}
+          <details className="disclosure">
+            <summary
+              className="caps"
+              style={{
+                cursor: "pointer",
+                padding: "calc(var(--cell) * 2) calc(var(--cell) * 3)",
+                color: "var(--print-2)",
+              }}
+            >
+              What the platform made of it
+            </summary>
+          <div style={{ padding: "0 calc(var(--cell) * 3) calc(var(--cell) * 3)" }}>
             {call.summary ? (
-              <p style={{ margin: 0, color: "var(--print)", fontSize: 15, lineHeight: 1.55 }}>
+              <p
+                className="measure"
+                style={{ margin: 0, color: "var(--print)", fontSize: 15, lineHeight: 1.55 }}
+              >
                 {call.summary}
               </p>
             ) : null}
@@ -390,7 +477,7 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
                 >
                   What it based that on
                 </p>
-                <ul style={{ margin: 0, paddingLeft: "calc(var(--cell) * 2.5)" }}>
+                <ul className="measure" style={{ margin: 0, paddingLeft: "calc(var(--cell) * 2.5)" }}>
                   {call.evidence.map((item, i) => (
                     <li
                       key={i}
@@ -419,35 +506,14 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
               </p>
             ) : null}
           </div>
+          </details>
         </Panel>
       ) : null}
 
-      {call.transcript && call.transcript.length > 0 ? (
-        <Panel title="The whole call" style={{ marginBottom: "calc(var(--cell) * 2)" }}>
-          <div style={{ padding: "calc(var(--cell) * 3)" }}>
-            {call.transcript.map((turn, i) => (
-              <p
-                key={i}
-                style={{
-                  margin: "0 0 calc(var(--cell) * 1.5)",
-                  color: isAgent(turn.speaker) ? "var(--print-3)" : "var(--print)",
-                  fontSize: 15,
-                  lineHeight: 1.55,
-                }}
-              >
-                <span className="caps mono" style={{ marginRight: "calc(var(--cell) * 1.5)" }}>
-                  {isAgent(turn.speaker) ? "Agent" : "Patient"} · {turn.offsetSeconds}s
-                </span>
-                {turn.text}
-              </p>
-            ))}
-          </div>
-        </Panel>
-      ) : null}
 
       {call.transcriptGuardFindings && call.transcriptGuardFindings.length > 0 ? (
         <Panel
-          title="The guard flagged what the agent said"
+          title="Guard check"
           aside={<Badge tone="danger">{call.transcriptGuardFindings.length}</Badge>}
           style={{ marginBottom: "calc(var(--cell) * 2)" }}
         >
@@ -477,8 +543,8 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
         actually told to say" is a real question, just not the first one.
       */}
       {call.task ? (
-        <Panel title="Exactly what it was told to say">
-          <details>
+        <Panel title="The script">
+          <details className="disclosure">
             <summary
               className="caps"
               style={{

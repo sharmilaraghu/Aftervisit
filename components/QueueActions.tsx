@@ -42,6 +42,7 @@ export function QueueActions({
   patientName,
   pausedPlan,
   status,
+  planLive,
 }: {
   escalationId: string;
   planId: string;
@@ -49,6 +50,15 @@ export function QueueActions({
   pausedPlan: boolean;
   /** `open` means nobody has looked at it yet. */
   status: string;
+  /**
+   * Whether there is still a follow-up to end.
+   *
+   * An escalation outlives the plan that raised it — a completed course keeps
+   * its unresolved escalations, and this strip was offering "End the
+   * follow-up" and printing "The plan is still running" on a course that had
+   * already finished, two lines under a ledger saying it had.
+   */
+  planLive: boolean;
 }) {
   const [armed, setArmed] = useState<Armed>(null);
   const [note, setNote] = useState("");
@@ -77,14 +87,12 @@ export function QueueActions({
         >
           {closing ? (
             <>
-              <strong>Ending the follow-up stops every remaining call for {patientName}.</strong>{" "}
-              Their calls, answers and escalations are all kept. There is no undo — starting
-              again means writing a new note.
+              <strong>Every remaining call for {patientName} is dropped.</strong> The
+              record is kept. No undo — starting again means a new note.
             </>
           ) : pausedPlan ? (
             <>
-              This restarts the follow-up. Calls missed while it was stopped are skipped, not
-              dialled all at once.
+              Calls missed while it was stopped are skipped, not dialled all at once.
             </>
           ) : (
             <>The follow-up is still running and stays running.</>
@@ -153,9 +161,11 @@ export function QueueActions({
       <Button variant="onLabel" disabled={pending} onClick={() => setArmed("resolve")}>
         {pausedPlan ? "Done — restart the follow-up" : "Done with this"}
       </Button>
-      <Button variant="onLabel" disabled={pending} onClick={() => setArmed("close")}>
-        End the follow-up
-      </Button>
+      {planLive ? (
+        <Button variant="onLabel" disabled={pending} onClick={() => setArmed("close")}>
+          End the follow-up
+        </Button>
+      ) : null}
 
       {/*
         Reading is not deciding. A clinician who has looked at an escalation but
@@ -177,7 +187,11 @@ export function QueueActions({
       )}
 
       <span className="caps" style={{ marginLeft: "auto", color: "var(--print-3)" }}>
-        {pausedPlan ? "Nothing is dialling until you decide" : "The plan is still running"}
+        {!planLive
+          ? "This follow-up has ended"
+          : pausedPlan
+            ? "Nothing is dialling until you decide"
+            : "The plan is still running"}
       </span>
     </div>
   );

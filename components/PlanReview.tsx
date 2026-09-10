@@ -42,7 +42,7 @@ export function PlanDraftControls({
           being about something else entirely. Name the three things.
         */}
         <Button variant="onLabel" onClick={() => setOpen(true)}>
-          Change how often, when, and how many tries
+          Change the schedule
         </Button>
       </p>
     );
@@ -370,9 +370,8 @@ export function ApprovePlan({
                 }}
               >
                 <strong>This plan would schedule nothing.</strong> Every call in the
-                window lands in the past — the local time has already gone today.
-                Use <em>Change how often, when, and how many tries</em> above to set a later time, or a
-                longer window.
+                window lands in the past. Use <em>Change the schedule</em> above to
+                set a later time, or a longer window.
               </p>
             ) : null}
 
