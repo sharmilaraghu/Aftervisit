@@ -33,10 +33,12 @@ import { inspectTranscript } from "@/lib/script/guard";
 import { calendarDaysBetween } from "@/lib/time/clock";
 import { newId } from "@/lib/db/ids";
 import { readConfig } from "@/lib/config";
+import { isTransientRefusal } from "@/lib/calle/failure";
 import {
   beginTick,
   claimDueCalls,
   closeElapsedPlans,
+  deferCall,
   endTick,
   finishCall,
   findAbandonedCalls,
@@ -70,6 +72,7 @@ const EMPTY: TickCounters = {
   claimed: 0,
   dialed: 0,
   refused: 0,
+  deferred: 0,
   finished: 0,
   escalated: 0,
 };
@@ -564,7 +567,28 @@ async function dialOne(
   });
 
   if (!outcome.ok) {
-    await recordRefusal(ctx.id, outcome.refusal, `${REFUSAL_TEXT[outcome.refusal]} ${outcome.detail}`);
+    /*
+     * A hiccup goes back in the queue; a decision is final.
+     *
+     * CALL-E rejects any dial that would exceed the account's concurrency
+     * limit — one, on a shared line, counting the dashboard — and its own
+     * message says to wait and retry. That was being recorded as a terminal
+     * refusal, and since no retry is ever scheduled for a refusal, a patient
+     * lost that day's call because somebody had the dashboard open.
+     *
+     * Bounded by `skipStaleCalls`, which runs before every claim: the row
+     * keeps its original `scheduled_for`, so ninety minutes past due it is
+     * retired `too_late` rather than deferring forever. No attempt is spent —
+     * nothing about the patient failed.
+     */
+    const detail = `${REFUSAL_TEXT[outcome.refusal]} ${outcome.detail}`;
+
+    if (isTransientRefusal(outcome.refusal) && (await deferCall(ctx.id, detail))) {
+      counters.deferred += 1;
+      return;
+    }
+
+    await recordRefusal(ctx.id, outcome.refusal, detail);
     counters.refused += 1;
     return;
   }

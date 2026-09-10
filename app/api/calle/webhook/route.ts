@@ -36,6 +36,7 @@ const EMPTY: TickCounters = {
   claimed: 0,
   dialed: 0,
   refused: 0,
+  deferred: 0,
   finished: 0,
   escalated: 0,
   expanded: 0,

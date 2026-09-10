@@ -70,3 +70,22 @@ export function failureShort(code: string | null | undefined): string | null {
   if (!REASON[code]) return null;
   return code === "404" ? "not in service" : networkRefused(code) ? "network refused" : null;
 }
+
+/**
+ * Whether a refused dial is worth trying again shortly.
+ *
+ * Only `api_error`, and only because CALL-E says so in the rejection itself:
+ * *"Your default shared line is at its account concurrency limit of 1 … wait
+ * for an active task to finish, then retry."* On a one-concurrency account any
+ * overlap — another call, or somebody using the dashboard — otherwise costs the
+ * patient that day's call outright.
+ *
+ * Every other refusal is a decision, not a hiccup. `no_consent` means the
+ * patient never agreed, `not_allowlisted` means this deployment may not reach
+ * them, `guard_violation` means the script failed inspection, `invalid_phone`
+ * means we will not guess a number. Retrying any of those would be re-asking a
+ * question that has already been answered no.
+ */
+export function isTransientRefusal(reason: string): boolean {
+  return reason === "api_error";
+}

@@ -134,6 +134,39 @@ export async function recordDialed(callId: string, calleCallId: string): Promise
   return result.rows.length > 0;
 }
 
+/**
+ * Put a claimed call back in the queue instead of killing it.
+ *
+ * For a refusal that is a hiccup rather than a decision — see
+ * `isTransientRefusal`. A one-concurrency CALL-E account rejects any
+ * overlapping dial, and treating that as terminal cost a real patient a whole
+ * day's call: `dialOne` recorded the refusal and returned, and no retry is ever
+ * scheduled for a refusal.
+ *
+ * **`scheduled_for` is deliberately not moved.** That is what bounds this: the
+ * row becomes due again immediately, the next tick tries again, and
+ * `skipStaleCalls` — which runs before every claim — retires it `too_late` once
+ * it is more than `MAX_CALL_DELAY_MINUTES` past its original due time. Pushing
+ * the time forward would reset that window and let a row defer forever.
+ *
+ * The attempt number is untouched too. Nothing about the patient failed, so
+ * this must not consume one of their three attempts.
+ *
+ * `refusal_detail` records why, while `refusal_reason` stays null: a deferred
+ * call is not a refused one, and the console keys its refusal panel off the
+ * reason.
+ */
+export async function deferCall(callId: string, detail: string): Promise<boolean> {
+  const result = await getDb().execute(sql`
+    update scheduled_calls
+    set status = 'scheduled', claimed_at = null, claimed_by = null,
+        refusal_detail = ${detail}, updated_at = now()
+    where id = ${callId} and status in ('claimed', 'dialing')
+    returning id
+  `);
+  return result.rows.length > 0;
+}
+
 /** A refused dial is a visible row with a reason. Never a silent skip. */
 export async function recordRefusal(
   callId: string,
@@ -589,6 +622,14 @@ export interface TickCounters {
   claimed: number;
   dialed: number;
   refused: number;
+  /**
+   * Calls put back in the queue rather than refused — CALL-E was busy.
+   *
+   * Reported in the tick's result so a cron log says what happened, but not a
+   * column on `tick_runs`: it would need a migration to record a number that is
+   * only interesting for the minutes it takes the line to free up.
+   */
+  deferred: number;
   finished: number;
   escalated: number;
   expanded: number;

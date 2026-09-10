@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { failureReason, failureShort, networkRefused } from "@/lib/calle/failure";
+import {
+  failureReason,
+  failureShort,
+  isTransientRefusal,
+  networkRefused,
+} from "@/lib/calle/failure";
 
 describe("failureReason", () => {
   /* The code that actually came back on a production call. */
@@ -53,5 +58,30 @@ describe("failureShort", () => {
   it("says nothing rather than something wrong", () => {
     expect(failureShort("799")).toBeNull();
     expect(failureShort(null)).toBeNull();
+  });
+});
+
+describe("isTransientRefusal", () => {
+  /*
+   * A one-concurrency account refuses any overlapping dial, and CALL-E's own
+   * message says to wait and retry. Treating that as terminal cost a patient a
+   * whole day's call in production.
+   */
+  it("is true for an API error", () => {
+    expect(isTransientRefusal("api_error")).toBe(true);
+  });
+
+  /* Each of these is a decision already taken. Retrying re-asks a question
+     that has been answered no. */
+  it("is false for every refusal that is a decision", () => {
+    for (const reason of [
+      "no_consent",
+      "not_allowlisted",
+      "guard_violation",
+      "invalid_phone",
+      "missing_api_key",
+    ]) {
+      expect(isTransientRefusal(reason)).toBe(false);
+    }
   });
 });
