@@ -4,6 +4,10 @@
 .env.*
 !.env.example
 
+# `docs/TESTING.md` holds the real numbers the live scenarios dial. The rest of
+# docs/ is publishable, but one file in a directory is not a thing .gitignore
+# expresses well, so the directory stays out and DEPLOYMENT.md / DATABASE.md /
+# schema.sql live at the root instead.
 docs/
 
 node_modules/
@@ -25,7 +29,11 @@ next-env.d.ts
 .cursor/
 .next/
 .remember/
-skill/
-scripts/
+# `misc/` is a working clone of CALLE-AI/awesome-phone-call-agents, kept for
+# reference. It is someone else's repository and never ours to commit.
+#
+# `skill/` and `scripts/` used to be listed here, which meant the installable
+# skill the submission is built around and the seed the README tells a reader to
+# run were both absent from every clone. Both are tracked now.
 misc/
 
