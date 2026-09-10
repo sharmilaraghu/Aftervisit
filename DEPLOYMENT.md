@@ -64,9 +64,16 @@ cannot serve that** — the demo clock and a real deployment are different modes
 
 ### Hobby
 
-`vercel.json` declares `*/5 * * * *`, which is correct on Pro. **Hobby runs crons at most
-once a day**, and a once-daily tick means nearly every call is retired as `too_late`. So on
-Hobby, drive the scheduler externally:
+**Hobby runs crons at most once a day**, and Vercel *fails the deployment* on a sub-daily
+expression rather than quietly downgrading it — `*/5 * * * *` returns *"Hobby accounts are
+limited to daily cron jobs."* So `vercel.json` declares `0 9 * * *`, which deploys on every
+plan. Hobby timing is also only accurate to the hour (±59 min), so that tick lands
+somewhere between 09:00 and 09:59.
+
+One daily tick is a safety net, not a scheduler: with a 90-minute tolerance nearly every
+call would still be retired as `too_late`.
+
+The scheduler on Hobby is an external cron, hitting the same door `--ticker` uses:
 
 ```
 POST https://<your-host>/api/tick
@@ -74,18 +81,31 @@ Header: x-careloop-tick: <CARELOOP_TICK_TOKEN>
 Every 5 minutes
 ```
 
-Use cron-job.org, EasyCron, or a GitHub Actions `schedule:`. GitHub's scheduler is
-best-effort and can drift several minutes under load — harmless here, since the tolerance
-is 90 minutes.
+**cron-job.org** (free) is the reliable option:
 
-Leave the `crons` block in `vercel.json`: it costs nothing, contributes one extra daily
-tick, and is already right if you upgrade. **Check at deploy that Vercel does not reject
-the schedule on your plan** — if it does, delete the block and rely on the external cron.
+1. Create a job, URL `https://<your-host>/api/tick`
+2. Method **POST**
+3. Add a header — key `x-careloop-tick`, value your `CARELOOP_TICK_TOKEN`
+4. Schedule: every 5 minutes
+5. Save, then **Test run** — a healthy tick returns `200` with the counters as JSON.
+   `503` means `CARELOOP_TICK_TOKEN` is unset on the deployment; `401` means the header
+   value does not match it.
+
+**GitHub Actions** is wired as a fallback in `.github/workflows/tick.yml`. Set two
+repository secrets — `CARELOOP_TICK_URL` and `CARELOOP_TICK_TOKEN` — and it runs every five
+minutes. Its scheduler is best-effort and drifts several minutes under load, which is
+harmless here since the tolerance is 90 minutes; it also stops after 60 days with no push
+to the default branch, which is why it is the fallback and not the primary.
+
+Whichever you use, **one is enough**. Two crons ticking at once are safe — every claim is a
+single conditional `UPDATE … RETURNING`, so a call is dispatched once — but the second one
+buys nothing.
 
 ### Pro
 
-`vercel.json` works as written. Set `CRON_SECRET` in the Vercel dashboard and Vercel
-injects it as `Authorization: Bearer …` automatically. Nothing else to do.
+Change the schedule in `vercel.json` back to `*/5 * * * *`, set `CRON_SECRET` in the Vercel
+dashboard, and Vercel injects it as `Authorization: Bearer …` automatically. Nothing else
+to do, and no external cron is needed.
 
 ## Environment
 
