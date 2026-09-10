@@ -12,6 +12,7 @@
  * nothing clinical comes with it.
  */
 
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { Badge, Button, Panel } from "@/components/ui";
@@ -96,11 +97,6 @@ export default async function PlanWizardPage({
     return (
       <div style={SHELL}>
         <header style={{ marginBottom: "calc(var(--cell) * 3)" }}>
-          <p style={{ margin: "0 0 calc(var(--cell) * 1)" }}>
-            <Button variant="ghost" href={patient ? `/patients/${patient.id}` : "/patients"}>
-              {patient ? `Back to ${patient.name}` : "All patients"}
-            </Button>
-          </p>
           <h1
             className="display"
             style={{
@@ -155,9 +151,9 @@ export default async function PlanWizardPage({
       <div style={SHELL}>
         <header style={{ marginBottom: "calc(var(--cell) * 3)" }}>
           <p style={{ margin: "0 0 calc(var(--cell) * 1)" }}>
-            <Button variant="ghost" href={`/plan/new?plan=${plan.id}&step=4`}>
+            <Link href={`/plan/new?plan=${plan.id}&step=4`} className="backlink">
               Back to the questions
-            </Button>
+            </Link>
           </p>
           <h1
             className="display"
@@ -232,9 +228,9 @@ export default async function PlanWizardPage({
     <div style={SHELL}>
       <header style={{ marginBottom: "calc(var(--cell) * 3)" }}>
         <p style={{ margin: "0 0 calc(var(--cell) * 1)" }}>
-          <Button variant="ghost" href={`/patients/${plan.patientId}`}>
+          <Link href={`/patients/${plan.patientId}`} className="backlink">
             Back to {plan.patientName}
-          </Button>
+          </Link>
         </p>
         <h1
           className="display"
@@ -517,9 +513,9 @@ export default async function PlanWizardPage({
               marginTop: "calc(var(--cell) * 2)",
             }}
           >
-            <Button variant="ghost" href={`/plan/new?plan=${plan.id}&step=4`}>
+            <Link href={`/plan/new?plan=${plan.id}&step=4`} className="backlink">
               Back to the questions
-            </Button>
+            </Link>
             <CancelPlan planId={plan.id} patientId={plan.patientId} draft />
           </div>
         </>

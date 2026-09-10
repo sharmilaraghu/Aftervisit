@@ -11,9 +11,10 @@
  * note when it did not.
  */
 
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
-import { Badge, Button, Panel } from "@/components/ui";
+import { Badge, Panel } from "@/components/ui";
 import { ApprovePlan, PlanDraftControls } from "@/components/PlanReview";
 import { AddQuestion, QuestionRow } from "@/components/QuestionEditor";
 import { EscalationSetup } from "@/components/EscalationSetup";
@@ -121,9 +122,9 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
         <p style={{ margin: "0 0 calc(var(--cell) * 1)" }}>
           {/* Where it goes, not just what it is. A patient's name alone in a
               box is a label; a doctor scanning for the way out reads a verb. */}
-          <Button variant="ghost" href={`/patients/${plan.patientId}`}>
+          <Link href={`/patients/${plan.patientId}`} className="backlink">
             Back to {plan.patientName}
-          </Button>
+          </Link>
         </p>
         <h1
           className="display"

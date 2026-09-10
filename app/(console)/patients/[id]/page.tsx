@@ -58,9 +58,9 @@ export default async function PatientPage({
     >
       <header style={{ marginBottom: "calc(var(--cell) * 4)" }}>
         <p style={{ margin: "0 0 calc(var(--cell) * 1)" }}>
-          <Button variant="ghost" href="/patients">
+          <Link href="/patients" className="backlink">
             All patients
-          </Button>
+          </Link>
         </p>
 
         <div

@@ -11,9 +11,10 @@
  * the answer is stored before the dial rather than reconstructed after it.
  */
 
+import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { Badge, Button, Panel } from "@/components/ui";
+import { Badge, Panel } from "@/components/ui";
 import { getCall } from "@/lib/db/calls";
 import { getTriage } from "@/lib/db/triage";
 import { escalationRef, formatStamp } from "@/lib/format";
@@ -77,9 +78,9 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
     >
       <header style={{ marginBottom: "calc(var(--cell) * 4)" }}>
         <p style={{ margin: "0 0 calc(var(--cell) * 1)" }}>
-          <Button variant="ghost" href={`/patients/${call.patientId}`}>
+          <Link href={`/patients/${call.patientId}`} className="backlink">
             Back to {call.patientName}
-          </Button>
+          </Link>
         </p>
         <h1
           className="display"
