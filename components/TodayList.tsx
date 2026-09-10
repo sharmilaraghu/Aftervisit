@@ -20,14 +20,19 @@
  */
 
 import { useState } from "react";
-import Link from "next/link";
 
 import { Badge, Button } from "@/components/ui";
 import { QueueActions } from "@/components/QueueActions";
 import type { TodayRow } from "@/lib/db/dashboard";
-import { HEALTH_LABEL, HEALTH_TONE, SEVERITY_LABEL, SEVERITY_TONE } from "@/lib/patients/labels";
+import {
+  HEALTH_LABEL,
+  HEALTH_TONE,
+  SEVERITY_LABEL,
+  SEVERITY_TONE,
+  outcomeLabel,
+  outcomeTone,
+} from "@/lib/patients/labels";
 import { formatStamp } from "@/lib/format";
-import { maskPhone } from "@/lib/phone/normalize";
 
 /**
  * The one clause the row shows.
@@ -51,6 +56,28 @@ function when(row: TodayRow): string {
   return "never called";
 }
 
+/** "day 1, attempt 3 of 3" — the same phrasing the call page's own heading uses. */
+function ladder(occurrence: number | null, attempt: number | null, max: number | null): string | null {
+  if (occurrence === null || attempt === null) return null;
+  const of = max ? ` of ${max}` : "";
+  return `day ${occurrence}, attempt ${attempt}${of}`;
+}
+
+/**
+ * Why nothing is scheduled.
+ *
+ * A blank second line leaves the doctor to work out whether the agent is
+ * holding the calendar or has stopped — which is the one thing they came here
+ * to know. Silence is never the answer; the reason is.
+ */
+function noNextReason(row: TodayRow): string {
+  if (!row.planId) return "no plan yet";
+  if (row.planStatus === "awaiting_approval") return "waiting on your approval";
+  if (row.planStatus === "paused" || row.pausedPlan) return "plan paused";
+  if (row.planStatus === "completed" || row.planStatus === "cancelled") return "follow-up ended";
+  return "nothing scheduled";
+}
+
 function Row({ row }: { row: TodayRow }) {
   const [open, setOpen] = useState(false);
   const tone = row.severity
@@ -60,6 +87,8 @@ function Row({ row }: { row: TodayRow }) {
     ? (SEVERITY_LABEL[row.severity] ?? row.severity)
     : HEALTH_LABEL[row.health];
   const line = lede(row);
+  const ladderLine = ladder(row.lastCallOccurrence, row.lastCallAttempt, row.maxAttempts);
+  const outTone = outcomeTone(row.lastCallOutcome);
 
   return (
     <li
@@ -106,73 +135,70 @@ function Row({ row }: { row: TodayRow }) {
       </button>
 
       {open ? (
-        <div style={{ padding: "0 calc(var(--cell) * 3) calc(var(--cell) * 2.5)" }}>
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: "calc(var(--cell) * 2)",
-              alignItems: "baseline",
-              marginBottom: "calc(var(--cell) * 1.5)",
-            }}
-          >
-            <Link
-              href={`/patients/${row.patientId}`}
-              style={{ color: "var(--print)", fontWeight: 700, textUnderlineOffset: 3 }}
-            >
-              {row.name}
-            </Link>
-            <span className="mono" style={{ color: "var(--print-3)", fontSize: 13 }}>
-              {maskPhone(row.phoneE164)} · {row.reason}
-            </span>
-            {row.pausedPlan ? (
-              <Badge tone="amber" quiet>
-                Plan paused
-              </Badge>
-            ) : null}
-          </div>
+        <div className="today-open">
+          {/*
+            The ledger first.
 
+            The panel used to open with the patient's name — the one you had
+            just clicked — and then repeat the sentence already printed on the
+            closed row, before finally offering the model's paragraph. None of
+            that is the question. The question is whether anyone picked up and
+            what happens next, and neither was on this page at all.
+          */}
+          <dl className="today-ledger mono">
+            <dt>Last call</dt>
+            <dd>
+              {row.lastCallAt ? (
+                <>
+                  {formatStamp(row.lastCallAt, row.timezone)}
+                  {ladderLine ? <span className="today-ledger-dim">{ladderLine}</span> : null}
+                  {/* Always quiet here. A solid red `Red flag` beside an amber
+                      `Medium` is one row saying two different things about how
+                      bad this is — the severity badge owns the alarm, this
+                      states what the call did. */}
+                  <Badge tone={outTone.tone} quiet>
+                    {outcomeLabel(
+                      row.lastCallStatus ?? "",
+                      row.lastCallOutcome,
+                      row.lastCallFailureCode,
+                    )}
+                  </Badge>
+                </>
+              ) : (
+                <span className="today-ledger-dim">never called</span>
+              )}
+            </dd>
+
+            <dt>Next</dt>
+            <dd>
+              {row.nextCallAt ? (
+                <>
+                  {formatStamp(row.nextCallAt, row.timezone)}
+                  {row.nextOccurrence && row.totalOccurrences ? (
+                    <span className="today-ledger-dim">
+                      day {row.nextOccurrence} of {row.totalOccurrences}
+                    </span>
+                  ) : null}
+                </>
+              ) : (
+                <span className="today-ledger-dim">{noNextReason(row)}</span>
+              )}
+            </dd>
+          </dl>
+
+          {/* The model's reading, under the facts rather than in place of them. */}
           {row.severitySummary ? (
-            <p
-              className="measure"
-              style={{ margin: "0 0 calc(var(--cell) * 1.5)", color: "var(--print)", fontSize: 15 }}
-            >
-              {row.severitySummary}
-            </p>
+            <p className="measure today-summary">{row.severitySummary}</p>
           ) : null}
 
           {row.matchedConcerns.length > 0 ? (
-            <p style={{ margin: "0 0 calc(var(--cell) * 1.5)", fontSize: 14 }}>
+            <p style={{ margin: "0 0 calc(var(--cell) * 2)", fontSize: 14 }}>
               <span className="caps" style={{ color: "var(--print-3)" }}>
                 Matched your note:{" "}
               </span>
               <span style={{ color: "var(--print)" }}>{row.matchedConcerns.join(" · ")}</span>
             </p>
           ) : null}
-
-          {row.quote ? (
-            <blockquote
-              style={{
-                margin: "0 0 calc(var(--cell) * 1.5)",
-                paddingLeft: "calc(var(--cell) * 1.5)",
-                borderLeft: "2px solid var(--rule-2)",
-                color: "var(--print)",
-                fontSize: 15,
-              }}
-            >
-              &ldquo;{row.quote}&rdquo;
-            </blockquote>
-          ) : null}
-
-          <p
-            className="mono"
-            style={{ margin: "0 0 calc(var(--cell) * 2)", fontSize: 13, color: "var(--print-3)" }}
-          >
-            {row.lastCallAt
-              ? `Last call ${formatStamp(row.lastCallAt, row.timezone)}`
-              : "Never called"}
-            {row.nextCallAt ? ` · next ${formatStamp(row.nextCallAt, row.timezone)}` : ""}
-          </p>
 
           <div style={{ display: "flex", flexWrap: "wrap", gap: "calc(var(--cell) * 1.5)" }}>
             {/*
@@ -187,24 +213,31 @@ function Row({ row }: { row: TodayRow }) {
             ) : null}
             {row.lastCallId ? (
               <Button variant="onLabel" href={`/calls/${row.lastCallId}`}>
-                Read the transcript
+                Transcript
               </Button>
             ) : null}
-            {!row.planId ? (
+            {row.planId ? (
+              <Button variant="onLabel" href={`/patients/${row.patientId}`}>
+                Patient record
+              </Button>
+            ) : (
+              /* No plan is the one state with a single way out, so it is the
+                 only button offered rather than one of three. */
               <Button variant="onLabel" href={`/plan/new?patient=${row.patientId}`}>
                 Write a plan
               </Button>
-            ) : null}
+            )}
           </div>
 
           {row.escalationId && row.planId ? (
-            <div style={{ margin: "calc(var(--cell) * 2) calc(var(--cell) * -3) 0" }}>
+            <div className="today-queue">
               <QueueActions
                 escalationId={row.escalationId}
                 planId={row.planId}
                 patientName={row.name}
                 pausedPlan={row.pausedPlan}
                 status={row.escalationStatus ?? "open"}
+                planLive={row.planStatus === "active" || row.planStatus === "paused"}
               />
             </div>
           ) : null}

@@ -20,7 +20,7 @@ import { useState } from "react";
 
 import { Badge, Button } from "@/components/ui";
 import { formatStamp } from "@/lib/format";
-import type { Tone } from "@/components/ui";
+import { outcomeLabel, outcomeTone } from "@/lib/patients/labels";
 
 export interface CallRow {
   id: string;
@@ -33,25 +33,6 @@ export interface CallRow {
   whatElse: string | null;
   scheduledFor: Date;
   finishedAt: Date | null;
-}
-
-/** What an occurrence ended as, in words. `—` while it is still ahead of us. */
-function outcomeLabel(status: string, outcome: string | null, failureCode: string | null) {
-  if (outcome === "flagged") return "Red flag";
-  if (outcome === "answered") return "Answered";
-  if (outcome === "unmappable") return "Could not be mapped";
-  if (outcome === "no_answer") return failureCode === "no_answer" ? "No answer" : "Failed";
-  if (outcome === "refused") return "Refused";
-  if (status === "skipped") return "Held";
-  if (status === "scheduled") return "Scheduled";
-  return status;
-}
-
-function outcomeTone(outcome: string | null): { tone: Tone; quiet: boolean } {
-  if (outcome === "flagged") return { tone: "danger", quiet: false };
-  if (outcome === "answered") return { tone: "clear", quiet: true };
-  if (outcome === "unmappable" || outcome === "no_answer") return { tone: "amber", quiet: true };
-  return { tone: "plain", quiet: true };
 }
 
 const CELL = "calc(var(--cell) * 1.5) calc(var(--cell) * 2)";

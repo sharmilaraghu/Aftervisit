@@ -348,6 +348,73 @@ select {
   color: var(--print-3);
 }
 
+/*
+ * The opened row.
+ *
+ * A ledger before a paragraph: whether anyone picked up, which try it was, and
+ * what happens next. The panel used to lead with the patient's name and repeat
+ * the clause already printed on the closed row above it.
+ */
+.today-open {
+  padding: 0 calc(var(--cell) * 3) calc(var(--cell) * 3);
+}
+
+/* Stacked on a phone: two columns put "day 1, attempt 3 of 3" into a 150px
+   well where it broke across three lines and pushed the outcome badge onto a
+   line of its own. */
+.today-ledger {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: calc(var(--cell) * 0.5);
+  margin: 0 0 calc(var(--cell) * 2);
+  font-size: 13px;
+}
+
+@media (min-width: 620px) {
+  .today-ledger {
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: calc(var(--cell) * 0.75) calc(var(--cell) * 2);
+  }
+}
+
+.today-ledger dt {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--print-3);
+}
+
+.today-ledger dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--cell) * 1.5);
+  margin: 0 0 calc(var(--cell) * 1);
+  color: var(--print);
+}
+
+@media (min-width: 620px) {
+  .today-ledger dd {
+    margin-bottom: 0;
+  }
+}
+
+.today-ledger-dim {
+  color: var(--print-3);
+}
+
+.today-summary {
+  margin: 0 0 calc(var(--cell) * 2);
+  color: var(--print);
+  font-size: 15px;
+}
+
+/* The escalation actions keep their own full-bleed strip inside the row. The
+   negative bottom margin cancels the panel's padding, so the strip ends where
+   the row does rather than floating above a band of empty stock. */
+.today-queue {
+  margin: calc(var(--cell) * 2) calc(var(--cell) * -3) calc(var(--cell) * -3);
+}
+
 .today-row {
   all: unset;
   box-sizing: border-box;

@@ -114,3 +114,36 @@ export const SEVERITY_ORDER: Record<string, number> = {
   escalate: 1,
   low: 2,
 };
+
+/**
+ * What a call ended as, in words a doctor reads.
+ *
+ * It lived privately inside `CallLog` until Today's expanded row needed to say
+ * the same thing about the same call. Two copies of a status vocabulary is how
+ * two surfaces come to disagree about what happened on one phone call, which
+ * is the failure this file exists to prevent.
+ *
+ * `failureCode` separates "nobody picked up" from "the call never went out".
+ * Without it both read as `Failed`, which blames the patient for our outage.
+ */
+export function outcomeLabel(
+  status: string,
+  outcome: string | null,
+  failureCode: string | null,
+): string {
+  if (outcome === "flagged") return "Red flag";
+  if (outcome === "answered") return "Answered";
+  if (outcome === "unmappable") return "Could not be mapped";
+  if (outcome === "no_answer") return failureCode === "no_answer" ? "No answer" : "Failed";
+  if (outcome === "refused") return "Refused";
+  if (status === "skipped") return "Held";
+  if (status === "scheduled") return "Scheduled";
+  return status;
+}
+
+export function outcomeTone(outcome: string | null): { tone: Tone; quiet: boolean } {
+  if (outcome === "flagged") return { tone: "danger", quiet: false };
+  if (outcome === "answered") return { tone: "clear", quiet: true };
+  if (outcome === "unmappable" || outcome === "no_answer") return { tone: "amber", quiet: true };
+  return { tone: "plain", quiet: true };
+}

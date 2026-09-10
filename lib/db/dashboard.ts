@@ -118,6 +118,14 @@ interface LastCall {
   at: Date;
   /** Null when the row finished without a mapped outcome. */
   outcome: string | null;
+  status: string;
+  /** Which day of the plan, and which try on that day. */
+  occurrence: number;
+  attempt: number;
+  /** The plan's ceiling, so a row can say "3 of 3" rather than "3". */
+  maxAttempts: number | null;
+  /** Separates "nobody picked up" from "the call never went out". */
+  failureCode: string | null;
 }
 
 /**
@@ -127,13 +135,22 @@ interface LastCall {
  * *answered*. A patient dialled three times into silence has a recent last
  * call and no last heard, and the gap between those two is the thing this
  * product exists to make visible.
+ *
+ * It selects the ladder's position too — occurrence, attempt, the plan's
+ * ceiling — because "we have tried three times and nobody picked up" is what
+ * decides whether a doctor rings the patient themselves, and a summary
+ * sentence cannot say it. Widening this select costs nothing: the query
+ * already runs, and `transcript` and `calle_raw` stay unnamed so no TOASTed
+ * column is read.
  */
 async function getLastCalls(): Promise<Map<string, LastCall>> {
   const db = getDb();
   const result = await db.execute(sql`
     select distinct on (c.patient_id)
-           c.patient_id, c.id, c.finished_at, c.outcome
+           c.patient_id, c.id, c.finished_at, c.outcome, c.status,
+           c.occurrence, c.attempt, c.calle_failure_code, p.max_attempts
     from scheduled_calls c
+    left join follow_up_plans p on p.id = c.plan_id
     where c.finished_at is not null
     order by c.patient_id, c.finished_at desc
   `);
@@ -144,6 +161,13 @@ async function getLastCalls(): Promise<Map<string, LastCall>> {
       callId: String(r.id),
       at: new Date(String(r.finished_at)),
       outcome: r.outcome ? String(r.outcome) : null,
+      status: String(r.status),
+      occurrence: Number(r.occurrence ?? 0),
+      attempt: Number(r.attempt ?? 0),
+      maxAttempts: r.max_attempts === null || r.max_attempts === undefined
+        ? null
+        : Number(r.max_attempts),
+      failureCode: r.calle_failure_code ? String(r.calle_failure_code) : null,
     });
   }
   return out;
@@ -182,10 +206,20 @@ export interface TodayRow {
   lastCallId: string | null;
   lastCallAt: Date | null;
   lastCallOutcome: string | null;
+  lastCallStatus: string | null;
+  /** Where in the ladder that call sat: day `n`, attempt `k` of `maxAttempts`. */
+  lastCallOccurrence: number | null;
+  lastCallAttempt: number | null;
+  maxAttempts: number | null;
+  /** Tells "nobody picked up" apart from "the call never went out". */
+  lastCallFailureCode: string | null;
   /** Calendar days since anyone last answered, in the patient's own zone. */
   quietFor: number | null;
 
   nextCallAt: Date | null;
+  /** Which day of the plan the next call is, and how many days the plan has. */
+  nextOccurrence: number | null;
+  totalOccurrences: number | null;
 
   /**
    * Which band of Today this row belongs in.
@@ -317,9 +351,18 @@ export async function getToday(): Promise<Today> {
       lastCallId: last?.callId ?? e?.callId ?? t?.callId ?? null,
       lastCallAt: last?.at ?? null,
       lastCallOutcome: last?.outcome ?? null,
+      lastCallStatus: last?.status ?? null,
+      lastCallOccurrence: last?.occurrence ?? null,
+      lastCallAttempt: last?.attempt ?? null,
+      maxAttempts: last?.maxAttempts ?? null,
+      lastCallFailureCode: last?.failureCode ?? null,
       quietFor: p.quietFor,
 
       nextCallAt: next?.scheduledFor ?? null,
+      /* Zero means "nothing scheduled" in `getPlanProgress`, which is an
+         absence rather than day zero. */
+      nextOccurrence: next?.occurrence ? next.occurrence : null,
+      totalOccurrences: next?.total ? next.total : null,
 
       band: bandFor(e?.status ?? null, p.health, e?.severity ?? t?.verdict ?? null),
     };
