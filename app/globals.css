@@ -204,6 +204,11 @@ a {
  * every browser default a button brings has to be undone. The height is the
  * tap target: 44px at the narrow end, which is what a thumb needs.
  */
+/* Wide content scrolls inside its own box; the page body never does. */
+.table-scroll {
+  overflow-x: auto;
+}
+
 .today-row {
   all: unset;
   box-sizing: border-box;
