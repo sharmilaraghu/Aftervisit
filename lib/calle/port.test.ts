@@ -40,6 +40,24 @@ describe("createCallePort — the happy path", () => {
     if (outcome.ok) expect(outcome.call.id).toMatch(/^call_fake_[a-z0-9]+_1$/);
   });
 
+  /*
+   * Three calls to a valid +91 mobile came back `region: null`, SIP 404 and
+   * zero seconds of call duration. The number was right and the account could
+   * reach it — the recipient carried no routing country, so the call had
+   * nowhere to go. CALL-E's own schema calls `region` the code "used for
+   * routing and compliance checks".
+   */
+  it("sends the routing region, derived from the number", async () => {
+    const fake = createFakeCalleFetch();
+    await port(fake).dial(request());
+
+    const body = fake.createdCalls()[0] as {
+      recipients?: { region?: string; phones?: string[] }[];
+    };
+    expect(body.recipients?.[0]?.region).toBe("US");
+    expect(body.recipients?.[0]?.phones?.[0]).toBe(ARMED);
+  });
+
   it("passes the idempotency key through as a header", async () => {
     const fake = createFakeCalleFetch();
     await port(fake).dial(request({ idempotencyKey: "plan_7:o3:a2" }));

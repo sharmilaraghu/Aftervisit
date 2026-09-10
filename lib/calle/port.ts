@@ -36,6 +36,7 @@ import { CalleClient, type Call, type JsonObject } from "@call-e/calle";
 import { inspectTask, type GuardFinding } from "@/lib/script/guard";
 import { readConfig } from "@/lib/config";
 import { RECIPIENT_RESULT_SCHEMA } from "@/lib/plan/result-schema";
+import { regionForPhone } from "@/lib/phone/normalize";
 
 export interface CallePortConfig {
   apiKey: string;
@@ -187,6 +188,8 @@ export function createCallePort(config: CallePortConfig): CallePort {
         };
       }
 
+      const region = regionForPhone(request.phone);
+
       try {
         const call = await client().calls.create(
           {
@@ -198,6 +201,21 @@ export function createCallePort(config: CallePortConfig): CallePort {
                 ...((request.locale ?? config.locale)
                   ? { locale: request.locale ?? config.locale }
                   : {}),
+                /*
+                 * The country to route through, derived from the number itself.
+                 *
+                 * Omitting this is not a missing hint, it is a missing route.
+                 * CALL-E's schema calls `region` the code "used for routing and
+                 * compliance checks"; without one it resolved nothing, and three
+                 * calls to a valid +91 mobile came back region null, SIP 404 and
+                 * zero seconds of call duration. The same number dialled from
+                 * CALL-E's dashboard, which supplies a region, connected.
+                 *
+                 * Derived here rather than taken from the caller so that no
+                 * dial site can forget it — the same reason the guard, the
+                 * E.164 check and the consent gate all live inside `dial()`.
+                 */
+                ...(region ? { region } : {}),
               },
             ],
             resultSchema: request.resultSchema,

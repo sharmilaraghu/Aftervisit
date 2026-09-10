@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizePhone, maskPhone } from "./normalize";
+import { normalizePhone, maskPhone, regionForPhone } from "./normalize";
 
 // Every number here is US fiction-reserved 555-01xx. India publishes no
 // reserved range, so a plausible +91 number in a test file would probably be
@@ -66,5 +66,34 @@ describe("maskPhone — this UI ends up in a published video", () => {
   it("renders an em dash when there is no number", () => {
     expect(maskPhone(null)).toBe("—");
     expect(maskPhone("")).toBe("—");
+  });
+});
+
+describe("regionForPhone", () => {
+  /*
+   * The bug this exists for: Care Loop sent CALL-E a recipient with no region,
+   * so three calls to a valid +91 mobile came back region null, SIP 404 and
+   * zero seconds of call duration. The number was right and the account could
+   * reach it; the call had nowhere to route.
+   */
+  it("reads the routing country from the number", () => {
+    /* Fiction-reserved ranges only, per the note at the top of this file. The
+       +91 case that provoked this is proven by the call itself, not here. */
+    expect(regionForPhone("+14155550100")).toBe("US");
+    expect(regionForPhone(FICTION)).toBe("US");
+  });
+
+  /*
+   * Null, never a guess: a wrong region routes the call to the wrong country.
+   *
+   * Note that a reserved range gives null too — Ofcom's 07700 900xxx drama
+   * block is deliberately unassigned, so libphonenumber will not name a country
+   * for it. Real patient numbers are allocatable and resolve; a number that
+   * does not is one CALL-E would have had no route for either.
+   */
+  it("refuses to guess", () => {
+    expect(regionForPhone("4155550100")).toBeNull();
+    expect(regionForPhone("")).toBeNull();
+    expect(regionForPhone("+9")).toBeNull();
   });
 });

@@ -68,3 +68,26 @@ export function maskPhone(e164: string | null | undefined): string {
   if (e164.length <= 5) return e164;
   return `${e164.slice(0, 3)}${"•".repeat(Math.max(0, e164.length - 5))}${e164.slice(-2)}`;
 }
+
+/**
+ * The country CALL-E should route the call through.
+ *
+ * `region` is an input on the recipient — the SDK's own schema calls it the
+ * "country or region code used for routing and compliance checks". Care Loop
+ * never sent one, so CALL-E had nothing to resolve a route from: three calls to
+ * a `+91` mobile came back `region: null`, SIP 404, and zero seconds of call
+ * duration. The number was correct and the account could reach it; the call
+ * simply had nowhere to go.
+ *
+ * Derived from the number rather than asked for, because the number already
+ * says it and a second field to keep in sync is a second field to get wrong.
+ * Null when the country cannot be determined — CALL-E is then no worse off than
+ * it was, and a guessed country is a guessed route.
+ */
+export function regionForPhone(e164: string): string | null {
+  try {
+    return parsePhoneNumberWithError(e164).country ?? null;
+  } catch {
+    return null;
+  }
+}
