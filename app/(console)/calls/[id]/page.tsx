@@ -132,7 +132,9 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
                     {escalationRef(e.ref)}
                   </Badge>
                 </div>
-                <p style={{ margin: 0, color: "var(--print-2)", fontSize: 14 }}>{e.reason}</p>
+                <p className="measure" style={{ margin: 0, color: "var(--print-2)", fontSize: 14 }}>
+                  {e.reason}
+                </p>
               </div>
             ))}
           </div>
@@ -324,6 +326,7 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
 
             {triage.summary ? (
               <p
+                className="measure"
                 style={{
                   margin: "0 0 calc(var(--cell) * 2)",
                   color: "var(--print)",
@@ -406,6 +409,7 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
             {call.transcript.map((turn, i) => (
               <p
                 key={i}
+                className="measure"
                 style={{
                   margin: "0 0 calc(var(--cell) * 1.5)",
                   color: isAgent(turn.speaker) ? "var(--print-3)" : "var(--print)",
@@ -441,7 +445,7 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
             full, one after the other. Our verdict leads; theirs is a check you
             can pull up when the two might disagree.
           */}
-          <details>
+          <details className="disclosure">
             <summary
               className="caps"
               style={{
@@ -454,7 +458,10 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
             </summary>
           <div style={{ padding: "0 calc(var(--cell) * 3) calc(var(--cell) * 3)" }}>
             {call.summary ? (
-              <p style={{ margin: 0, color: "var(--print)", fontSize: 15, lineHeight: 1.55 }}>
+              <p
+                className="measure"
+                style={{ margin: 0, color: "var(--print)", fontSize: 15, lineHeight: 1.55 }}
+              >
                 {call.summary}
               </p>
             ) : null}
@@ -470,7 +477,7 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
                 >
                   What it based that on
                 </p>
-                <ul style={{ margin: 0, paddingLeft: "calc(var(--cell) * 2.5)" }}>
+                <ul className="measure" style={{ margin: 0, paddingLeft: "calc(var(--cell) * 2.5)" }}>
                   {call.evidence.map((item, i) => (
                     <li
                       key={i}
@@ -537,7 +544,7 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
       */}
       {call.task ? (
         <Panel title="The script">
-          <details>
+          <details className="disclosure">
             <summary
               className="caps"
               style={{

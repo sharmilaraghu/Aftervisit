@@ -368,6 +368,50 @@ select {
   outline-offset: 3px;
 }
 
+/*
+ * A disclosure, with a marker we drew.
+ *
+ * The default is `list-style-type: disclosure-open`, which sets the triangle as
+ * a list marker hard against the label — "▾WHAT THE PLATFORM MADE OF IT", no
+ * space, because a marker is not a character you can put a gap after. So it is
+ * turned off and redrawn as a caret that turns when the panel opens.
+ */
+.disclosure > summary {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--cell) * 1.25);
+  list-style: none;
+}
+
+.disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.disclosure > summary::before {
+  content: "";
+  width: 0;
+  height: 0;
+  flex-shrink: 0;
+  border-left: 5px solid currentColor;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.disclosure[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.disclosure > summary:hover {
+  color: var(--print);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .disclosure > summary::before {
+    transition: none;
+  }
+}
+
 .stepper {
   display: flex;
   align-items: stretch;
