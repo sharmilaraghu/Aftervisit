@@ -188,14 +188,37 @@ export function cellTone(row: ParameterRow, reading: ParameterReading): CellTone
   return "benign";
 }
 
-/** What a cell shows: a digit, an initial, or a mark. */
+/**
+ * What a cell shows: a digit, an initial, or a mark.
+ *
+ * An enum takes as many letters as it needs to be unambiguous *within its own
+ * option list*. One letter is the right density for a grid, but `mild` and
+ * `moderate` both start with M, and a severity column reading `M M M` where one
+ * of them means moderate is worse than no grid at all. The full value is on the
+ * cell's title and in its screen-reader text either way.
+ */
 export function cellLabel(row: ParameterRow, reading: ParameterReading): string {
   if (reading.status === null) return "";
   if (reading.status === "unmappable" || reading.status === "missing") return "?";
   if (typeof reading.valueNumber === "number") return String(reading.valueNumber);
   if (reading.valueBool !== null) return reading.valueBool ? "Y" : "N";
-  if (reading.valueText) return reading.valueText.slice(0, 1).toUpperCase();
+  if (reading.valueText) return abbreviate(reading.valueText, row.enumValues ?? []);
   return "";
+}
+
+/** The shortest prefix of `value` that no sibling option shares. */
+function abbreviate(value: string, options: string[]): string {
+  const clean = (v: string) => v.replace(/_/g, " ").trim();
+  const self = clean(value);
+  const siblings = options.map(clean).filter((o) => o !== self);
+
+  for (let n = 1; n <= self.length; n++) {
+    const prefix = self.slice(0, n);
+    if (!siblings.some((o) => o.slice(0, n).toLowerCase() === prefix.toLowerCase())) {
+      return prefix.toUpperCase();
+    }
+  }
+  return self.toUpperCase();
 }
 
 /** The full value, for a `title` and the row's `aria-label`. */

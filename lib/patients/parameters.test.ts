@@ -200,3 +200,42 @@ describe("purity", () => {
     expect(signalsFor(row)).toEqual(signalsFor(row));
   });
 });
+
+/*
+ * Added when the grid was first put on screen: a severity column rendered
+ * `mild` and `moderate` both as "M", so a doctor scanning a week could not tell
+ * which one a cell meant.
+ */
+describe("cellLabel disambiguates within the option list", () => {
+  const severity: ParameterRow = {
+    questionId: "side_effects",
+    prompt: "Any side effects?",
+    answerType: "enum",
+    enumValues: ["none", "mild", "moderate", "severe"],
+    readings: [],
+    escalatingValues: ["severe"],
+    escalatingBool: null,
+    threshold: null,
+  };
+
+  it("takes as many letters as it needs and no more", () => {
+    expect(cellLabel(severity, reading(1, { valueText: "none" }))).toBe("N");
+    expect(cellLabel(severity, reading(2, { valueText: "mild" }))).toBe("MI");
+    expect(cellLabel(severity, reading(3, { valueText: "moderate" }))).toBe("MO");
+    expect(cellLabel(severity, reading(4, { valueText: "severe" }))).toBe("S");
+  });
+
+  it("reads an underscored value as words", () => {
+    const concern: ParameterRow = {
+      ...severity,
+      enumValues: ["not_concerned", "mildly", "very"],
+    };
+    expect(cellLabel(concern, reading(1, { valueText: "not_concerned" }))).toBe("N");
+    expect(cellLabel(concern, reading(2, { valueText: "very" }))).toBe("V");
+  });
+
+  it("falls back to a plain initial when the row has no option list", () => {
+    const free: ParameterRow = { ...severity, enumValues: null };
+    expect(cellLabel(free, reading(1, { valueText: "better" }))).toBe("B");
+  });
+});

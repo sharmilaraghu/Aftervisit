@@ -17,9 +17,11 @@ import { PatientControls } from "@/components/PatientControls";
 import { TreatmentControls } from "@/components/TreatmentControls";
 import { AmendNote } from "@/components/AmendNote";
 import { QueueActions } from "@/components/QueueActions";
+import { ParameterGrid } from "@/components/ParameterGrid";
 import { Badge, Button, Panel } from "@/components/ui";
 import { getPatientDetail } from "@/lib/db/patients";
 import { getPatientSummary } from "@/lib/db/summary";
+import { getParameterGrid } from "@/lib/db/parameters";
 import { PatientSummary } from "@/components/PatientSummary";
 import {
   CONSENT_LABEL,
@@ -81,6 +83,9 @@ export default async function PatientPage({
   if (!detail) notFound();
 
   const summary = await getPatientSummary(id);
+  /* Only for the current course: a grid spanning two plans would put two
+     different sets of questions on one axis. */
+  const parameters = detail.planId ? await getParameterGrid(detail.planId) : [];
 
   const { patient, calls } = detail;
 
@@ -450,6 +455,28 @@ export default async function PatientPage({
         </Panel>
       ) : null}
 
+
+      {/*
+        What they said, before the calls that produced it.
+
+        The week band two panels up says whether we reached her; this says
+        whether the thing we were watching moved. Until now the product could
+        answer the first question and not the second — which is the one a course
+        of follow-up exists to ask.
+      */}
+      {parameters.length > 0 ? (
+        <Panel
+          title="Day by day"
+          aside={
+            <span className="caps mono" style={{ color: "var(--print-3)" }}>
+              {parameters.length} {parameters.length === 1 ? "parameter" : "parameters"}
+            </span>
+          }
+          style={{ marginBottom: "calc(var(--cell) * 2)" }}
+        >
+          <ParameterGrid rows={parameters} />
+        </Panel>
+      ) : null}
 
       <Panel
         title="Calls"

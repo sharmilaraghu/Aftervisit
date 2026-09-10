@@ -249,6 +249,115 @@ select {
 }
 
 /*
+ * The answer grid — questions down, days across.
+ *
+ * Colour here is a wash behind one character, not a badge: a fortnight of
+ * answers is 30-odd cells, and thirty chips is a mosaic nobody can read. The
+ * eye should catch the run of dark cells, then the row header, then the
+ * arithmetic at the end of the row.
+ */
+.param-grid {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 14px;
+}
+
+.param-head {
+  padding: calc(var(--cell) * 1.5) calc(var(--cell) * 2);
+  color: var(--print-3);
+  text-align: left;
+  font-weight: 400;
+  border-bottom: 1px solid var(--rule);
+}
+
+/* `min-width`, not `width`: the signal column takes the slack with `width:100%`
+   and in auto table layout that flattens a competing `width` to nothing — the
+   day columns collapsed into an unreadable `1234567`. */
+.param-day {
+  min-width: calc(var(--cell) * 4.5);
+  padding: calc(var(--cell) * 1.5) 0;
+  color: var(--print-3);
+  font-size: 12px;
+  font-weight: 400;
+  text-align: center;
+  border-bottom: 1px solid var(--rule);
+}
+
+.param-prompt {
+  padding: calc(var(--cell) * 1.5) calc(var(--cell) * 2);
+  color: var(--print);
+  font-weight: 400;
+  text-align: left;
+  border-bottom: 1px solid var(--rule-2);
+  /* The question, not the sentence it is spoken as. Narrow on a phone: the
+     days are what the grid is for, and a 272px prompt column left room for two
+     of them before the scroller took over. */
+  min-width: calc(var(--cell) * 20);
+  max-width: calc(var(--cell) * 48);
+}
+
+@media (min-width: 720px) {
+  .param-prompt {
+    min-width: calc(var(--cell) * 34);
+  }
+}
+
+.param-cell {
+  min-width: calc(var(--cell) * 4.5);
+  padding: calc(var(--cell) * 1.5) 0;
+  text-align: center;
+  color: var(--print);
+  border-bottom: 1px solid var(--rule-2);
+}
+
+/* An answer the doctor's own note called escalating. The one place red appears
+   in this grid, and it is a wash — the escalation itself is elsewhere. */
+.param-cell[data-tone="escalating"] {
+  background: var(--danger-wash);
+  font-weight: 700;
+}
+
+.param-cell[data-tone="unclear"] {
+  background: var(--label-3);
+  color: var(--print-3);
+}
+
+/* Nothing was scheduled that day. Untouched stock claims nothing happened. */
+.param-cell[data-tone="none"] {
+  color: var(--rule);
+}
+
+.param-signal {
+  /* The slack lives here, so the day columns sit against the question they
+     belong to rather than drifting to the far edge of a 1240px sheet. */
+  width: 100%;
+  padding: calc(var(--cell) * 1.5) calc(var(--cell) * 2);
+  border-bottom: 1px solid var(--rule-2);
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.param-signal [data-kind] {
+  margin-right: calc(var(--cell) * 1.5);
+}
+
+/* A climb is the headline: it is what a week of calls is for. */
+.param-signal [data-kind="rising"] {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.param-signal [data-kind="flipped"] {
+  color: var(--amber-deep);
+}
+
+/* A question that keeps not landing is usually badly worded, which is a note to
+   the doctor who wrote it rather than a finding about the patient. */
+.param-signal [data-kind="gap"] {
+  color: var(--print-3);
+}
+
+/*
  * A band heading, as an adhesive strip rather than a tint.
  *
  * It was `--label-2` sitting on rows of `--label` — a three percent difference,
