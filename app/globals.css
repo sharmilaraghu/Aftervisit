@@ -245,6 +245,41 @@ select {
   overflow-x: auto;
 }
 
+/*
+ * A band heading. The world's own device: a printed word on a full-width strip
+ * with a colour edge, rather than a tint behind a card.
+ */
+.today-band {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: calc(var(--cell) * 2);
+  margin: 0;
+  padding: calc(var(--cell) * 1.25) calc(var(--cell) * 3);
+  border-left: 4px solid var(--print);
+  border-bottom: 1px solid var(--rule-ink);
+  background: var(--label-2);
+  font-family: var(--sans);
+  font-stretch: 88%;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--print);
+}
+
+.today-band-count {
+  color: var(--print-3);
+  font-size: 13px;
+}
+
+.today-cleared {
+  margin: 0;
+  padding: calc(var(--cell) * 1.5) 0 0;
+  color: var(--bench-ink-3);
+  font-size: 14px;
+}
+
 .today-row {
   all: unset;
   box-sizing: border-box;
@@ -256,6 +291,19 @@ select {
   padding: calc(var(--cell) * 1.75) calc(var(--cell) * 3);
   cursor: pointer;
   font-size: 15px;
+}
+
+/*
+ * The clause. It has to be allowed to shrink below its content or a long
+ * sentence pushes the row wider than the viewport — `min-width: 0` is what lets
+ * a flex item do that, and the ellipsis needs the overflow hidden to show.
+ */
+.today-lede {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .today-row:hover {
@@ -277,8 +325,11 @@ select {
     gap: calc(var(--cell) * 1);
   }
 
-  .today-row .col-when {
+  /* Stacked: every part takes its own line, so nothing has to shrink. */
+  .today-row > * {
+    flex: 0 0 100%;
     width: 100%;
+    min-width: 0;
   }
 }
 

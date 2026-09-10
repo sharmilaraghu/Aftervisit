@@ -53,7 +53,6 @@ function when(row: TodayRow): string {
 
 function Row({ row }: { row: TodayRow }) {
   const [open, setOpen] = useState(false);
-  const urgent = row.severity === "severe";
   const tone = row.severity
     ? (SEVERITY_TONE[row.severity] ?? "plain")
     : HEALTH_TONE[row.health];
@@ -66,9 +65,9 @@ function Row({ row }: { row: TodayRow }) {
     <li
       style={{
         borderBottom: "1px solid var(--rule-2)",
-        /* Red is spent on escalating and nowhere else on this page. */
-        borderLeft: urgent ? "3px solid var(--danger)" : "3px solid transparent",
         background: "var(--label)",
+        /* Seen but not settled: still here, no longer shouting. */
+        opacity: row.band === "read" && !open ? 0.72 : 1,
       }}
     >
       <button
@@ -99,14 +98,8 @@ function Row({ row }: { row: TodayRow }) {
         </span>
 
         <span
-          style={{
-            flex: "1 1 auto",
-            minWidth: 0,
-            color: line ? "var(--print-2)" : "var(--print-3)",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
+          className="today-lede"
+          style={{ color: line ? "var(--print-2)" : "var(--print-3)" }}
         >
           {line ?? "nothing said yet"}
         </span>
@@ -189,6 +182,16 @@ function Row({ row }: { row: TodayRow }) {
           </p>
 
           <div style={{ display: "flex", flexWrap: "wrap", gap: "calc(var(--cell) * 1.5)" }}>
+            {/*
+              The doctor's own phone, not the agent's. `tel:` opens whatever
+              they answer calls on; Care Loop places no part of it. On an
+              escalating row it is the thing they were about to do anyway.
+            */}
+            {row.severity === "severe" || row.band === "needs" ? (
+              <Button variant="primary" href={`tel:${row.phoneE164}`}>
+                Call {row.name.split(" ")[0]}
+              </Button>
+            ) : null}
             {row.lastCallId ? (
               <Button variant="onLabel" href={`/calls/${row.lastCallId}`}>
                 Read the transcript
@@ -218,12 +221,65 @@ function Row({ row }: { row: TodayRow }) {
   );
 }
 
-export function TodayList({ rows }: { rows: TodayRow[] }) {
+/*
+ * The bands.
+ *
+ * "Colour arrives as a full band with a printed word on it, never as a tint
+ * behind a card" is the rule this world is built on, and Today never used it —
+ * one undifferentiated slab of rows, with severity carried only by a badge.
+ * A band per state gives the page its structure and says what each group is.
+ */
+const BANDS = [
+  { key: "needs", label: "Needs you now", tone: "var(--danger)" },
+  { key: "read", label: "Read, not yet done", tone: "var(--amber-deep)" },
+  { key: "running", label: "Running", tone: "var(--clear)" },
+] as const;
+
+export function TodayList({
+  rows,
+  clearedToday,
+}: {
+  rows: TodayRow[];
+  clearedToday: number;
+}) {
   return (
-    <ul className="sheet" style={{ listStyle: "none", margin: 0, padding: 0 }}>
-      {rows.map((row) => (
-        <Row key={row.patientId} row={row} />
-      ))}
-    </ul>
+    /*
+      `minmax(0, 1fr)`, not `1fr`. A grid item's default `min-width: auto`
+      refuses to shrink below its content, so a long clause pushed the whole
+      sheet wider than the phone and the page scrolled sideways.
+    */
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "minmax(0, 1fr)",
+        gap: "calc(var(--cell) * 2)",
+      }}
+    >
+      {BANDS.map(({ key, label, tone }) => {
+        const group = rows.filter((r) => r.band === key);
+        if (group.length === 0) return null;
+        return (
+          <section key={key} className="sheet">
+            <h2 className="today-band" style={{ borderLeftColor: tone }}>
+              <span>{label}</span>
+              <span className="mono today-band-count">{group.length}</span>
+            </h2>
+            <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+              {group.map((row) => (
+                <Row key={row.patientId} row={row} />
+              ))}
+            </ul>
+          </section>
+        );
+      })}
+
+      {/* A cleared board should read as work done, not as an empty screen. */}
+      {clearedToday > 0 ? (
+        <p className="today-cleared">
+          <span className="mono">{clearedToday}</span>{" "}
+          {clearedToday === 1 ? "escalation" : "escalations"} settled today
+        </p>
+      ) : null}
+    </div>
   );
 }

@@ -21,7 +21,7 @@ import { formatStamp } from "@/lib/format";
 export const dynamic = "force-dynamic";
 
 export default async function TodayPage() {
-  const rows = await getToday();
+  const { rows, clearedToday } = await getToday();
 
   /*
    * The practice's zone, taken from the patients it actually follows. There is
@@ -30,7 +30,7 @@ export default async function TodayPage() {
    */
   const practiceZone = rows[0]?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-  const waiting = rows.filter((r) => r.escalationId !== null).length;
+  const waiting = rows.filter((r) => r.band === "needs").length;
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
 
@@ -97,7 +97,7 @@ export default async function TodayPage() {
           </p>
         </Panel>
       ) : (
-        <TodayList rows={rows} />
+        <TodayList rows={rows} clearedToday={clearedToday} />
       )}
     </div>
   );

@@ -186,6 +186,17 @@ export interface TodayRow {
   quietFor: number | null;
 
   nextCallAt: Date | null;
+
+  /**
+   * Which band of Today this row belongs in.
+   *
+   * `needs` is an open escalation, or a silence nobody has looked at — a
+   * patient with no plan and one nobody has ever reached are both things the
+   * doctor must act on, and neither raises an escalation to say so.
+   * `read` is acknowledged: seen, still theirs. `running` is everything the
+   * agent is getting on with.
+   */
+  band: "needs" | "read" | "running";
 }
 
 /*
@@ -198,6 +209,35 @@ export interface TodayRow {
  * already cleared.
  */
 const SEVERITY_RANK: Record<string, number> = { severe: 0, escalate: 2, low: 5 };
+
+/**
+ * Which band a row belongs in.
+ *
+ * An acknowledged escalation recedes rather than disappearing: `open` means
+ * nobody has looked, `acknowledged` means somebody has and it is still theirs
+ * to act on. Without that middle state a half-worked queue looks identical to
+ * an untouched one.
+ */
+function bandFor(
+  escalationStatus: string | null,
+  health: PlanHealth,
+  severity: string | null,
+): TodayRow["band"] {
+  /*
+   * Acknowledging says "I have seen this", never "this got less urgent".
+   * Banding purely on status put two escalating patients below a medium one
+   * because somebody had clicked "I have read this" on them — a patient whose
+   * plan is paused for a severe finding is not further down the list than one
+   * whose follow-up is still dialling.
+   */
+  if (severity === "severe") return "needs";
+  if (escalationStatus === "acknowledged") return "read";
+  if (escalationStatus === "open") return "needs";
+  /* No escalation says so, but a patient with no plan and one nobody has ever
+     reached are both waiting on the doctor. */
+  if (health === "needs_plan" || health === "never_reached") return "needs";
+  return "running";
+}
 const HEALTH_RANK: Record<PlanHealth, number> = {
   escalated: 1,
   never_reached: 3,
@@ -215,13 +255,27 @@ const HEALTH_RANK: Record<PlanHealth, number> = {
  * Every patient, not every escalation — a patient nobody has managed to reach
  * has no escalation to their name and is exactly who this page must not lose.
  */
-export async function getToday(): Promise<TodayRow[]> {
-  const [roster, queue, triage, lastCalls, progress] = await Promise.all([
+export interface Today {
+  rows: TodayRow[];
+  /**
+   * Escalations a clinician settled today. A count, not a list: it is there so
+   * a cleared board reads as work done rather than as an empty screen.
+   */
+  clearedToday: number;
+}
+
+export async function getToday(): Promise<Today> {
+  const db = getDb();
+  const [roster, queue, triage, lastCalls, progress, cleared] = await Promise.all([
     getRoster(),
     getQueue(),
     getLatestTriage(),
     getLastCalls(),
     getPlanProgress(),
+    db.execute(sql`
+      select count(*) as n from escalations
+      where status = 'resolved' and resolved_at >= date_trunc('day', now())
+    `),
   ]);
 
   /* The newest open escalation per patient. `getQueue` already returns them in
@@ -266,10 +320,24 @@ export async function getToday(): Promise<TodayRow[]> {
       quietFor: p.quietFor,
 
       nextCallAt: next?.scheduledFor ?? null,
+
+      band: bandFor(e?.status ?? null, p.health, e?.severity ?? t?.verdict ?? null),
     };
   });
 
-  return rows.sort((a, b) => {
+  /*
+   * A finished patient leaves the board.
+   *
+   * Today answers "who needs a call back", and a completed course with nothing
+   * outstanding is not an answer to it — it stayed on the list purely because
+   * every patient started here and nothing took them off. The roster still has
+   * them; this page is a worklist, not a register.
+   */
+  const live = rows.filter(
+    (r) => r.escalationId !== null || !["completed", "cancelled"].includes(r.planStatus ?? ""),
+  );
+
+  live.sort((a, b) => {
     const ra = a.severity ? SEVERITY_RANK[a.severity] ?? 5 : HEALTH_RANK[a.health];
     const rb = b.severity ? SEVERITY_RANK[b.severity] ?? 5 : HEALTH_RANK[b.health];
     if (ra !== rb) return ra - rb;
@@ -280,4 +348,9 @@ export async function getToday(): Promise<TodayRow[]> {
     if (qa !== qb) return qb - qa;
     return a.name.localeCompare(b.name) || a.patientId.localeCompare(b.patientId);
   });
+
+  return {
+    rows: live,
+    clearedToday: Number((cleared.rows as Record<string, unknown>[])[0]?.n ?? 0),
+  };
 }
