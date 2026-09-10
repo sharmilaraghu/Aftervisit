@@ -50,7 +50,6 @@ export function PatientSummary({
   timezone,
   quietFor,
   lastHeard,
-  contactRate,
   week,
   reason,
 }: {
@@ -58,7 +57,6 @@ export function PatientSummary({
   timezone: string;
   quietFor: number | null;
   lastHeard: Date | null;
-  contactRate: number | null;
   week: DayState[];
   reason: string | null;
 }) {
@@ -67,8 +65,6 @@ export function PatientSummary({
   );
   /* The most recent thing the assistant actually managed to read. A fail-closed
      row has no summary worth printing — it says so instead. */
-  const reading = summary.readings.find((r) => r.status === "ok" && r.summary);
-  const courses = summary.courses.length;
 
   return (
     <Panel
@@ -115,8 +111,11 @@ export function PatientSummary({
               <WeekBand week={week} />
             </dd>
           </div>
-          <Figure label="Contact rate" value={contactRate === null ? "—" : `${contactRate}%`} />
-          <Figure label="Calls answered" value={`${summary.totals.reached}/${summary.totals.calls}`} />
+          {/* One number, not two. "Contact rate 100%" printed beside "Calls
+              answered 1/4" reads as a contradiction — the first counts
+              occurrences reached, the second attempts, and nothing on the sheet
+              said so. The fraction is the one a clinician can act on. */}
+          <Figure label="Days reached" value={`${summary.totals.reached}/${summary.totals.calls}`} />
           <Figure
             label="Quiet for"
             value={
@@ -127,11 +126,6 @@ export function PatientSummary({
             label="Last heard"
             value={lastHeard ? formatStamp(lastHeard, timezone) : "—"}
           />
-          {/* Computed on every page load since this page was built, and
-              rendered nowhere: the count of calls where the patient brought up
-              something none of the questions covered. */}
-          <Figure label="Raised off-script" value={String(summary.totals.raisedSomething)} />
-          {courses > 1 ? <Figure label="Courses" value={String(courses)} /> : null}
         </dl>
 
         {open.length > 0 ? (
@@ -186,53 +180,6 @@ export function PatientSummary({
           this is a summary, and a list of paragraphs is the thing it exists to
           save a doctor from.
         */}
-        {reading ? (
-          <div
-            style={{
-              marginTop: "calc(var(--cell) * 3)",
-              paddingTop: "calc(var(--cell) * 2.5)",
-              borderTop: "1px solid var(--rule)",
-            }}
-          >
-            <p className="caps" style={{ margin: "0 0 calc(var(--cell) * 1)", color: "var(--print-3)" }}>
-              What the assistant made of the last call
-            </p>
-            <p style={{ margin: 0, color: "var(--print)", fontSize: 15, lineHeight: 1.55 }}>
-              {reading.summary}
-            </p>
-            {reading.matchedConcerns.length > 0 ? (
-              <p
-                style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: "calc(var(--cell) * 1)",
-                  alignItems: "baseline",
-                  margin: "calc(var(--cell) * 1.5) 0 0",
-                }}
-              >
-                {/* The doctor's own conditions, named back to them. Written on
-                    every triaged call and read by nothing until now. */}
-                <span className="caps" style={{ color: "var(--print-3)" }}>
-                  Touched what you asked about
-                </span>
-                {reading.matchedConcerns.map((c) => (
-                  <Badge key={c} tone="amber" quiet>
-                    {c}
-                  </Badge>
-                ))}
-              </p>
-            ) : null}
-            <p className="mono" style={{ margin: "calc(var(--cell) * 1.5) 0 0", fontSize: 11, color: "var(--print-3)" }}>
-              {formatStamp(reading.createdAt, timezone)}
-              {reading.callId ? " · " : ""}
-              {reading.callId ? (
-                <Link href={`/calls/${reading.callId}`} style={{ color: "var(--print-3)" }}>
-                  read the whole call
-                </Link>
-              ) : null}
-            </p>
-          </div>
-        ) : null}
       </div>
     </Panel>
   );

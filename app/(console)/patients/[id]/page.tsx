@@ -47,7 +47,6 @@ export default async function PatientPage({
   const summary = await getPatientSummary(id);
 
   const { patient, calls } = detail;
-  const rate = detail.due === 0 ? null : Math.round((detail.contacted / detail.due) * 100);
 
   return (
     <div
@@ -176,18 +175,27 @@ export default async function PatientPage({
         only by typing the URL, and a finished course of treatment could never
         be followed by another one.
       */}
+      {/* The title matches the state. It read "No plan yet" over a body saying
+          the course had ended, under a header badge saying Completed — three
+          statements of one fact, one of them wrong. */}
       {!patient.archivedAt &&
       !["awaiting_approval", "active", "paused"].includes(detail.planStatus ?? "") ? (
-        <Panel title="No plan yet" style={{ marginBottom: "calc(var(--cell) * 2)" }}>
-          <div style={{ padding: "calc(var(--cell) * 3)" }}>
-            <p
-              className="measure"
-              style={{ margin: "0 0 calc(var(--cell) * 3)", color: "var(--print-2)", fontSize: 15 }}
-            >
-              {detail.planId
-                ? `That course of follow-up has ended. Nobody is calling ${patient.name} now.`
-                : `Nobody is following ${patient.name} up.`}
-            </p>
+        <Panel
+          title={detail.planId ? "Follow-up ended" : "No plan yet"}
+          style={{ marginBottom: "calc(var(--cell) * 2)" }}
+        >
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "center",
+              gap: "calc(var(--cell) * 2)",
+              padding: "calc(var(--cell) * 2.5) calc(var(--cell) * 3)",
+            }}
+          >
+            <span style={{ color: "var(--print-2)", fontSize: 15 }}>
+              Nobody is calling {patient.name}.
+            </span>
             <Button variant="primary" href={`/plan/new?patient=${patient.id}`}>
               {detail.planId ? "Start another follow-up" : "Write the follow-up note"}
             </Button>
@@ -221,7 +229,6 @@ export default async function PatientPage({
         timezone={patient.timezone}
         quietFor={detail.quietFor}
         lastHeard={detail.lastHeard}
-        contactRate={rate}
         week={detail.week}
         reason={detail.reason}
       />
