@@ -39,6 +39,7 @@ export function PatientControls({
   planId,
   paused,
   pausedReason,
+  escalationOpen = false,
 }: {
   id: string;
   name: string;
@@ -47,6 +48,12 @@ export function PatientControls({
   planId: string | null;
   paused: boolean;
   pausedReason: string | null;
+  /**
+   * While an escalation is open, resuming belongs to it: the strip asks what
+   * happened first. A second "Resume" down here restarted the calls on an
+   * escalated patient with no record of anyone having spoken to them.
+   */
+  escalationOpen?: boolean;
 }) {
   const [armed, setArmed] = useState<Armed>(null);
   const [stopped, setStopped] = useState<number | null>(null);
@@ -70,7 +77,7 @@ export function PatientControls({
           {explain}
         </span>
         <Button
-          variant="ghost"
+          variant="danger"
           disabled={pending}
           onClick={() => startTransition(() => deletePatientAction(id))}
         >
@@ -92,7 +99,7 @@ export function PatientControls({
         alignItems: "center",
       }}
     >
-      {paused && planId ? (
+      {paused && planId && !escalationOpen ? (
         <>
           <Button
             variant="ghost"
@@ -127,9 +134,14 @@ export function PatientControls({
         </Button>
       ) : null}
 
-      <Button variant="ghost" onClick={() => setArmed("delete")}>
-        Delete
-      </Button>
+      {/* Set apart from the brake. "Delete" sat directly beside "Stop all
+          calls", and the two are the safest and the least reversible thing on
+          the page. */}
+      <span style={{ marginLeft: "auto" }}>
+        <Button variant="danger" onClick={() => setArmed("delete")}>
+          Delete patient
+        </Button>
+      </span>
 
       {stopped !== null ? (
         <span role="status" style={{ fontSize: 14, color: "var(--bench-ink-2)", maxWidth: 460 }}>

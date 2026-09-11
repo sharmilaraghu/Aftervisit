@@ -23,6 +23,7 @@ import {
   bigserial,
   boolean,
   check,
+  date,
   doublePrecision,
   index,
   integer,
@@ -58,6 +59,8 @@ import type {
   TickTrigger,
   TriageStatus,
   TriageVerdict,
+  VisitKind,
+  VisitStatus,
 } from "@/lib/db/enums";
 import {
   ANSWER_TYPES,
@@ -80,6 +83,8 @@ import {
   TICK_TRIGGERS,
   TRIAGE_STATUSES,
   TRIAGE_VERDICTS,
+  VISIT_KINDS,
+  VISIT_STATUSES,
 } from "@/lib/db/enums";
 
 /** `col in ('a','b')`, or `col is null or col in (…)` for a nullable column. */
@@ -203,7 +208,7 @@ export const consultationNotes = pgTable(
     /** Set when a doctor adds to the note and it is re-parsed. */
     amendedAt: ts("amended_at"),
     compileStatus: text("compile_status").$type<CompileStatus>().notNull().default("pending"),
-    /** Which model actually ran. Without this, "Gemini with OpenAI fallback" is unverifiable. */
+    /** Which model actually ran. Without this, "compiled by gpt-4.1-mini" is unverifiable. */
     compileProvider: text("compile_provider").$type<CompileProvider>(),
     compileModel: text("compile_model"),
     /** The model's output verbatim, nulls and all. The evidence that code applied the defaults. */
@@ -216,6 +221,55 @@ export const consultationNotes = pgTable(
     check("notes_compile_status", oneOf("compile_status", COMPILE_STATUSES)),
     check("notes_compile_provider", oneOf("compile_provider", COMPILE_PROVIDERS, true)),
     index("idx_notes_patient").on(t.patientId, t.createdAt),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// visits
+// ---------------------------------------------------------------------------
+
+/**
+ * What the front desk booked.
+ *
+ * Registration and consultation are two roles on two screens, and this row is
+ * the hand-off between them: the desk writes it ahead of time, the doctor's
+ * list is every row still `waiting`, and writing the note flips it to `seen`
+ * in the same statement that sets `note_id`.
+ */
+export const visits = pgTable(
+  "visits",
+  {
+    id: text("id").primaryKey(),
+    patientId: text("patient_id")
+      .notNull()
+      .references(() => patients.id, { onDelete: "restrict" }),
+    kind: text("kind").$type<VisitKind>().notNull(),
+    /**
+     * A calendar day, not an instant. The desk books a day and nobody enters a
+     * wall-clock time; a `timestamptz` here would invite exactly the
+     * server-zone comparison `patients.timezone` exists to prevent.
+     */
+    visitDate: date("visit_date", { mode: "string" }).notNull(),
+    /**
+     * The complaint, in the receptionist's words. Context for the doctor and
+     * **never a grounding source**: the compiler is grounded against the note
+     * alone, at compile time and again before dialling, so a medication named
+     * only here would be refused the moment a call was due.
+     */
+    reportedSymptoms: text("reported_symptoms").notNull(),
+    status: text("status").$type<VisitStatus>().notNull().default("waiting"),
+    /** Set by the same conditional UPDATE that marks the visit `seen`. */
+    noteId: text("note_id").references(() => consultationNotes.id, { onDelete: "restrict" }),
+    seenAt: ts("seen_at"),
+    createdAt: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    check("visits_kind", oneOf("kind", VISIT_KINDS)),
+    check("visits_status", oneOf("status", VISIT_STATUSES)),
+    // The consult list's only scan.
+    index("idx_visits_waiting")
+      .on(t.visitDate, t.createdAt)
+      .where(sql`${t.status} = 'waiting'`),
   ],
 );
 
@@ -298,6 +352,19 @@ export const followUpPlans = pgTable(
      * structuredResult with today's question set.
      */
     resultSchema: jsonb("result_schema").notNull().default(sql`'{}'::jsonb`),
+    /**
+     * The note's own words behind each schedule field the compiler took from
+     * it — `{cadence, durationDays, localTime, unsupportedCadence}`. A value is
+     * only marked "From note" when its quote is found in the note by code, so
+     * the review screen can print the words rather than ask to be trusted.
+     */
+    scheduleQuotes: jsonb("schedule_quotes"),
+    /**
+     * What the note asks to be watched, `[{text, quote}]`, as the compiler read
+     * it. Kept on the plan rather than only on questions, so a watch-point no
+     * question covers is still visible to the doctor as a gap.
+     */
+    watchPoints: jsonb("watch_points"),
 
     pausedAt: ts("paused_at"),
     pausedReason: text("paused_reason"),
@@ -317,6 +384,17 @@ export const followUpPlans = pgTable(
      * close reasons are not a clinician sitting down to write.
      */
     closingSummary: text("closing_summary"),
+    /**
+     * How the patient is doing, as of the last call triage could read.
+     *
+     * Written from `call_triage.summary` only when triage succeeded — a
+     * fail-closed reading never overwrites the last good one, so an outage
+     * leaves the doctor with yesterday's words and a note that today's call
+     * needs reading, rather than with nothing.
+     */
+    conditionSummary: text("condition_summary"),
+    conditionSummaryAt: ts("condition_summary_at"),
+    conditionSummaryCallId: text("condition_summary_call_id"),
 
     createdAt: ts("created_at").notNull().defaultNow(),
     updatedAt: ts("updated_at").notNull().defaultNow(),
@@ -394,6 +472,14 @@ export const planQuestions = pgTable(
     addedAt: ts("added_at"),
     /** The exact text spoken. This string, verbatim, is what guard phase 2 masks by location. */
     prompt: text("prompt").notNull(),
+    /**
+     * The words in the note this question serves, quoted by the compiler and
+     * checked against the note by code. Null for universal and clinician-added
+     * questions — those answer to a person, not to a passage.
+     */
+    anchorQuote: text("anchor_quote"),
+    /** The doctor's watch-point this question covers, in the compiler's words. */
+    watchPoint: text("watch_point"),
     answerType: text("answer_type").$type<AnswerType>().notNull(),
     /** For `enum`. Absence from this set is what makes an answer unmappable. */
     enumValues: jsonb("enum_values").$type<string[]>(),
@@ -764,7 +850,7 @@ export const callTriage = pgTable(
     /** One line the patient actually said. Evidence, not summary. */
     quote: text("quote"),
 
-    /** Which model ran, so "Gemini with an OpenAI fallback" stays checkable here too. */
+    /** Which model ran, so the claim stays checkable here too. */
     provider: text("provider").$type<CompileProvider>(),
     model: text("model"),
     /** The model's answer verbatim — the same evidence discipline as `compile_raw`. */
@@ -831,6 +917,8 @@ export type Patient = typeof patients.$inferSelect;
 export type NewPatient = typeof patients.$inferInsert;
 export type ConsultationNote = typeof consultationNotes.$inferSelect;
 export type NewConsultationNote = typeof consultationNotes.$inferInsert;
+export type Visit = typeof visits.$inferSelect;
+export type NewVisit = typeof visits.$inferInsert;
 export type FollowUpPlan = typeof followUpPlans.$inferSelect;
 export type NewFollowUpPlan = typeof followUpPlans.$inferInsert;
 export type PlanQuestion = typeof planQuestions.$inferSelect;

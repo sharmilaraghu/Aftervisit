@@ -8,6 +8,16 @@
  * the value reaches a NOT NULL column that the scheduler depends on.
  */
 
+/**
+ * The practice's zone, and every new patient's.
+ *
+ * Care Loop is deployed in India, so the form no longer offers a choice: a
+ * zone picked wrong moves every call by hours, and the only right answer here
+ * is always the same one. Existing records keep whatever zone they were saved
+ * with until they are edited.
+ */
+export const PRACTICE_TIMEZONE = "Asia/Kolkata";
+
 export const TIMEZONE_OPTIONS = [
   { value: "Europe/London", label: "Europe/London — UK" },
   { value: "Asia/Kolkata", label: "Asia/Kolkata — India" },

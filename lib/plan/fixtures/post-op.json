@@ -1,0 +1,59 @@
+{
+  "model": "gpt-4.1-mini",
+  "recordedAt": "2026-09-11T09:36:08.789Z",
+  "raw": {
+    "reason": "post-operative follow-up",
+    "condition": "post_op_wound",
+    "durationDays": 5,
+    "durationQuote": "for five days",
+    "cadence": "daily",
+    "cadenceQuote": "each morning",
+    "localTime": "09:00",
+    "localTimeQuote": "each morning",
+    "medications": null,
+    "redFlagTerms": [
+      "wound is hot",
+      "she has a fever"
+    ],
+    "watchPoints": [
+      {
+        "text": "fever",
+        "quote": "fever"
+      },
+      {
+        "text": "any discharge from the wound",
+        "quote": "any discharge from the wound"
+      },
+      {
+        "text": "pain getting worse",
+        "quote": "pain getting worse"
+      }
+    ],
+    "questions": [
+      {
+        "questionId": "fever",
+        "prompt": "Do you have a fever?",
+        "answerType": "boolean",
+        "enumValues": null,
+        "why": "fever",
+        "watchPoint": 0
+      },
+      {
+        "questionId": "wound_discharge",
+        "prompt": "Is there any discharge coming from the wound?",
+        "answerType": "boolean",
+        "enumValues": null,
+        "why": "any discharge from the wound",
+        "watchPoint": 1
+      },
+      {
+        "questionId": "pain_worsening",
+        "prompt": "Is the pain getting worse?",
+        "answerType": "boolean",
+        "enumValues": null,
+        "why": "pain getting worse",
+        "watchPoint": 2
+      }
+    ]
+  }
+}

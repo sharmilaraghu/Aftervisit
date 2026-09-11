@@ -117,7 +117,7 @@ to do, and no external cron is needed.
 | `CARELOOP_WEBHOOK_TOKEN` | The webhook receiver, and the URL above | Receiver returns 503 |
 | `CARELOOP_CALL_ALLOWLIST` | **Set it in production** | There is no auth: anyone who can load the console can cause a dial |
 | `CALLE_API_KEY` | Dialling at all | Every dial refused `missing_api_key` |
-| `OPENAI_API_KEY` | The compiler's fallback when Gemini errors | A Gemini outage has nothing to fall back to |
+| `OPENAI_API_KEY` | The note compiler and call triage | Compiling refused; every finished call escalated unjudged |
 
 `CARELOOP_PUBLIC_URL` and `CARELOOP_WEBHOOK_TOKEN` are a pair — both, or no webhook is sent
 at all. With them, a finished call lands in seconds; without them the reconciler picks it up

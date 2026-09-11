@@ -45,7 +45,7 @@ the authenticated API before trusting anything a webhook claims.
 
 ```
 doctor's free-text note
-  → compile.ts    Gemini (OpenAI fallback), strict schema, every defaultable field NULLABLE
+  → compile.ts    OpenAI structured output, strict schema, every defaultable field NULLABLE
                   → defaults.ts stamps provenance (note | default | clinician)
                   → grounding.ts refuses any medication not present in the note
                   → guard phase 1 on each question, individually, UNMASKED
@@ -66,8 +66,9 @@ doctor's free-text note
    `@call-e/calle`. Guard re-inspection, E.164 validation and the dial allowlist all live
    inside `dial()`, so no call site can skip them.
 2. **The scheduler dials autonomously — so consent is the gate.** A doctor enrols a
-   patient, records that they agreed to automated follow-up, and approves a plan; that is
-   the human "press to call" a manual tool would have, moved earlier. `dial()` refuses any
+   patient (at the front desk, ahead of the visit), records that they agreed to automated
+   follow-up, and approves the plan compiled from the consultation note; that is the human
+   "press to call" a manual tool would have, moved earlier. `dial()` refuses any
    patient whose consent is not an explicit `granted`, with a visible reason — never
    silently skipped, never quietly simulated. `consentGranted` is a **required** field on
    `DialRequest` precisely so a new call site fails to compile rather than defaulting to
@@ -134,7 +135,7 @@ Care Loop/
   CLAUDE.md               ← imports this, then adds the Claude-only tables
   app/
     page.tsx              landing — the pitch
-    (console)/            Today, patients, one plan, one call
+    (console)/            Today, consult list, one visit, register, patients, one plan, one call
     api/tick/             the scheduler door for an external cron
     api/calle/webhook/    CALL-E's callback — takes a call id, re-fetches, never trusts
   lib/
@@ -160,10 +161,11 @@ Care Loop/
   training data (see the generated block below).
 - **Neon Postgres** + **Drizzle ORM**. Migrations are generated, never written by hand.
 - **CALL-E SDK** (`@call-e/calle`) behind `lib/calle/port.ts`.
-- **Gemini** for the note compiler only, with **OpenAI as a fallback** behind one
-  provider interface (`lib/plan/provider.ts`). Which one actually ran is persisted on
-  the note, so "Gemini with a fallback" stays a checkable claim. Screening questions are
-  never model-authored free text beyond what the doctor's note grounds.
+- **OpenAI** for the note compiler and call triage only, behind one provider
+  interface (`lib/plan/provider.ts`), as strict structured output against a hand-written
+  JSON Schema. Which model ran is persisted on the note, so the claim stays checkable.
+  Screening questions are never model-authored free text beyond what the doctor's note
+  grounds.
 - **Vitest** for the pure logic. No zod — schemas are hand-written JSON Schema objects
   with `as const satisfies JsonObject` plus a mirrored TS interface.
 - Plain CSS with tokens in `app/globals.css`; inline styles in components.

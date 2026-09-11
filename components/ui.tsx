@@ -179,13 +179,16 @@ export function WeekBand({
 }
 
 type ButtonProps = {
-  variant?: "primary" | "ghost" | "onLabel";
+  variant?: "primary" | "ghost" | "onLabel" | "danger";
   children: ReactNode;
   href?: string;
   type?: "button" | "submit";
   onClick?: () => void;
   disabled?: boolean;
   style?: CSSProperties;
+  className?: string;
+  /** For a control whose visible text needs its subject, e.g. "Write note" for whom. */
+  ariaLabel?: string;
 };
 
 /** The printed action. Primary is the amber tab; nothing else is amber-filled. */
@@ -197,6 +200,8 @@ export function Button({
   onClick,
   disabled,
   style,
+  className,
+  ariaLabel,
 }: ButtonProps) {
   const base: CSSProperties = {
     display: "inline-flex",
@@ -231,19 +236,34 @@ export function Button({
       color: "var(--print)",
       borderColor: "var(--rule-ink)",
     },
+    /* Red means danger, so it is for the acts that destroy something — never
+       for emphasis. An outline, not a fill: the act still arms before firing,
+       and a solid red button would out-shout the page's one amber. */
+    danger: {
+      background: "transparent",
+      color: "var(--bench-ink)",
+      borderColor: "var(--danger)",
+    },
   };
 
   const merged = { ...base, ...variants[variant], ...style };
 
   if (href) {
     return (
-      <Link href={href} style={merged}>
+      <Link href={href} style={merged} className={className} aria-label={ariaLabel}>
         {children}
       </Link>
     );
   }
   return (
-    <button type={type} onClick={onClick} disabled={disabled} style={merged}>
+    <button
+      type={type}
+      onClick={onClick}
+      disabled={disabled}
+      style={merged}
+      className={className}
+      aria-label={ariaLabel}
+    >
       {children}
     </button>
   );
@@ -329,6 +349,118 @@ export function Masthead() {
   );
 }
 
+/**
+ * Where this page sits, as a trail of the places above it.
+ *
+ * It replaced a numbered five-step strip that printed the whole workflow on
+ * every page. That was a set of instructions, not a location: a doctor on a
+ * consult knows they are writing a note. What they need is the way back up,
+ * and the patient's actual state — which the page carries as a badge.
+ */
+export function Breadcrumb({ items }: { items: { label: string; href?: string }[] }) {
+  return (
+    <nav aria-label="Breadcrumb" className="crumbs">
+      <ol>
+        {items.map((it, i) => (
+          <li key={i}>
+            {it.href ? (
+              <Link href={it.href}>{it.label}</Link>
+            ) : (
+              <span aria-current="page">{it.label}</span>
+            )}
+          </li>
+        ))}
+      </ol>
+    </nav>
+  );
+}
+
+/**
+ * A row of mutually exclusive views. Links when each view is its own URL, so
+ * a filter survives a reload; buttons when the filtering is local.
+ */
+export function Segmented({
+  label,
+  options,
+  current,
+  onSelect,
+}: {
+  label: string;
+  options: { key: string; label: string; count?: number; href?: string }[];
+  current: string;
+  onSelect?: (key: string) => void;
+}) {
+  return (
+    <div role="group" aria-label={label} className="seg">
+      {options.map((o) => {
+        const on = o.key === current;
+        const inner = (
+          <>
+            {o.label}
+            {o.count !== undefined ? <span className="mono seg-count">{o.count}</span> : null}
+          </>
+        );
+        return o.href ? (
+          <Link
+            key={o.key}
+            href={o.href}
+            className="seg-opt"
+            aria-current={on ? "page" : undefined}
+          >
+            {inner}
+          </Link>
+        ) : (
+          <button
+            key={o.key}
+            type="button"
+            className="seg-opt"
+            aria-pressed={on}
+            onClick={() => onSelect?.(o.key)}
+          >
+            {inner}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Initials on a square of stock. Square because nothing in this world is round. */
+export function Avatar({ name }: { name: string }) {
+  const initials = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join("");
+  return (
+    <span aria-hidden className="mono avatar">
+      {initials}
+    </span>
+  );
+}
+
+/**
+ * The confirmation after something was done. A strip with a printed word on
+ * it, then the sentence — colour arrives as a band here, never a tint alone.
+ */
+export function Notice({
+  tone = "clear",
+  label,
+  children,
+}: {
+  tone?: Tone;
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <div role="status" className="notice" style={{ background: TONE[tone].wash }}>
+      <Badge tone={tone}>{label}</Badge>
+      <span>{children}</span>
+    </div>
+  );
+}
+
 export function Field({
   label,
   htmlFor,
@@ -344,12 +476,15 @@ export function Field({
 }) {
   return (
     <div style={{ marginBottom: "calc(var(--cell) * 3)" }}>
+      {/* Sentence-case: tracked caps are kept for badges, buttons and panel
+          heads, and a form made entirely of them had no hierarchy left. */}
       <label
-        className="caps"
         htmlFor={htmlFor}
         style={{
           display: "block",
-          color: "var(--print-3)",
+          color: "var(--print-2)",
+          fontSize: 14,
+          fontWeight: 600,
           marginBottom: "calc(var(--cell) * 0.75)",
         }}
       >
@@ -377,6 +512,8 @@ export function Field({
             color: "var(--print-3)",
             fontSize: 13,
             lineHeight: 1.45,
+            /* Hints ran to 100 characters a line at desktop width. */
+            maxWidth: "75ch",
           }}
         >
           {hint}

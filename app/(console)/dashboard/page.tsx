@@ -1,50 +1,34 @@
 /**
- * Today — who needs a call back, in the order they need it.
+ * Follow-ups — how each patient on a plan is doing, in the order to look.
  *
- * One question, one list. The rendering lives in `TodayList`; this page reads
- * the rows and frames them. It carried the whole row markup once, and the row
- * has an opened state, which is the sort of thing a server component cannot
- * hold and should not be shaped around.
+ * The doctor's view: condition, not logistics. The rendering lives in
+ * `TodayList`; this page reads the rows and frames them. It used to carry the
+ * agent's next call and a Register button — the first is the agent's
+ * business, the second the front desk's, and neither is what a doctor opens
+ * this page to learn.
  *
- * Every patient appears, not every escalation. A patient nobody has managed to
- * reach has no escalation to their name, and losing them is the exact failure
- * this product exists to catch.
+ * `TickPoller` still mounts here: in a browser it is what drives the scheduler.
  */
 
-import { Button, Panel } from "@/components/ui";
+import { Panel } from "@/components/ui";
 import { TickPoller } from "@/components/TickPoller";
 import { TodayList } from "@/components/TodayList";
 import { readConfig } from "@/lib/config";
 import { getToday } from "@/lib/db/dashboard";
 import { formatStamp } from "@/lib/format";
+import { PRACTICE_TIMEZONE } from "@/lib/patients/timezones";
 
 export const dynamic = "force-dynamic";
 
-export default async function TodayPage() {
+export default async function FollowUpsPage() {
   const { rows, clearedToday } = await getToday();
+  const attention = rows.filter((r) => r.status === "needs_attention").length;
 
-  /*
-   * The practice's zone, taken from the patients it actually follows. There is
-   * no practice record to read one from, and hardcoding London was wrong for
-   * every deployment that is not in London — including this one.
-   */
-  const practiceZone = rows[0]?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
-
-  const waiting = rows.filter((r) => r.band === "needs").length;
-
-  /*
-   * The soonest queued call. Every row already carries its plan's next
-   * occurrence, so this is a min over what the page has rather than a query —
-   * and it is the one thing Today could not otherwise say: that the agent is
-   * still holding the calendar.
-   */
-  const upcoming = rows
-    .filter((r) => r.nextCallAt !== null)
-    .sort((a, b) => (a.nextCallAt as Date).getTime() - (b.nextCallAt as Date).getTime())[0];
-  const nextCall = upcoming
-    ? { at: upcoming.nextCallAt as Date, name: upcoming.name, timezone: upcoming.timezone }
-    : null;
-  const hour = new Date().getHours();
+  const hour = Number(
+    new Intl.DateTimeFormat("en-GB", { hour: "numeric", hour12: false, timeZone: PRACTICE_TIMEZONE }).format(
+      new Date(),
+    ),
+  );
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
 
   return (
@@ -77,10 +61,10 @@ export default async function TodayPage() {
           </h1>
           <p style={{ margin: 0, color: "var(--bench-ink-2)" }}>
             {rows.length === 0
-              ? "No patients yet."
-              : waiting > 0
-                ? `${waiting} ${waiting === 1 ? "patient needs" : "patients need"} a call back.`
-                : "Nothing is waiting on you."}
+              ? "No one is on a follow-up yet."
+              : attention > 0
+                ? `${attention} ${attention === 1 ? "patient needs" : "patients need"} your attention.`
+                : "Nobody needs your attention right now."}
           </p>
         </div>
         <span
@@ -92,25 +76,20 @@ export default async function TodayPage() {
           }}
         >
           <span className="caps mono" style={{ color: "var(--bench-ink-3)" }}>
-            {/* The practice's own clock. A console that prints London time to a
-                clinic in Chennai is telling them the wrong hour on every page. */}
-            {formatStamp(new Date(), practiceZone)}
+            {formatStamp(new Date(), PRACTICE_TIMEZONE)}
           </span>
           <TickPoller enabled={readConfig().liveCallsEnabled} />
-          <Button variant="primary" href="/plan/new">
-            Add a patient
-          </Button>
         </span>
       </header>
 
       {rows.length === 0 ? (
         <Panel title="Nobody yet">
           <p style={{ margin: 0, padding: "calc(var(--cell) * 3)", color: "var(--print-2)" }}>
-            Add a patient to write their note and approve a follow-up plan.
+            A patient appears here once you approve a plan from their consultation.
           </p>
         </Panel>
       ) : (
-        <TodayList rows={rows} clearedToday={clearedToday} nextCall={nextCall} />
+        <TodayList rows={rows} clearedToday={clearedToday} />
       )}
     </div>
   );

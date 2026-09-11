@@ -194,7 +194,10 @@ export async function triageCall(input: TriageInput): Promise<TriageOutcome> {
   let result;
   try {
     result = await Promise.race([
-      complete({ system: SYSTEM, user: triagePrompt(input), schema: TRIAGE_SCHEMA }, env),
+      complete(
+        { system: SYSTEM, user: triagePrompt(input), schema: TRIAGE_SCHEMA, name: "call_triage" },
+        env,
+      ),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error(`Timed out after ${TIMEOUT_MS / 1000}s`)), TIMEOUT_MS),
       ),

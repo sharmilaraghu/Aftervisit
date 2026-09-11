@@ -1,16 +1,18 @@
 /**
- * Patients — find anyone, and see where every patient stands.
+ * Patients — the record and the front desk.
  *
- * Today answers what needs doing now; this answers who exists. A patient with
- * an open escalation is a row like everyone else here.
+ * Every patient, and the door to register a new one: registering is the first
+ * step of the workflow, so it lives with the list it adds to rather than as a
+ * section of its own. A patient with an open escalation is a row like everyone
+ * else here.
  *
  * Every state is derived from `scheduled_calls` at read time — none of it is a
  * stored counter. A cached "on track" is wrong the moment a patient stops
  * answering, and that is the exact failure this page exists to make visible.
  */
 
-import { Button } from "@/components/ui";
-import { RosterTable } from "@/components/RosterTable";
+import { Button, Panel } from "@/components/ui";
+import { PatientsBrowser } from "@/components/PatientsBrowser";
 import { getRoster } from "@/lib/db/queries";
 import { HEALTH_ORDER } from "@/lib/patients/labels";
 
@@ -23,11 +25,11 @@ export default async function PatientsPage() {
     (a, b) => HEALTH_ORDER[a.health] - HEALTH_ORDER[b.health],
   );
 
-  const waiting = roster.filter((p) =>
-    ["escalated", "needs_plan", "awaiting_approval", "never_reached", "drifting"].includes(
-      p.health,
-    ),
-  ).length;
+  /* The front desk's count, not the doctor's. This screen is the desk's, and
+     "5 need something from you" told a receptionist about escalations only a
+     doctor can act on. What the desk can see through is who is booked and still
+     waiting to be seen. */
+  const waitingForDoctor = roster.filter((p) => p.health === "needs_plan").length;
 
   return (
     <div
@@ -61,28 +63,31 @@ export default async function PatientsPage() {
           </h1>
           <p style={{ margin: 0, color: "var(--bench-ink-2)" }}>
             {roster.length === 0
-              ? "Add a patient to write their consultation note and approve a follow-up plan."
-              : waiting > 0
-                ? `${waiting} need something from you. The rest are running.`
-                : "Everyone is being followed up."}
+              ? "Register a patient and book their appointment. They go straight onto the doctor's Consultations list."
+              : waitingForDoctor > 0
+                ? `${waitingForDoctor} waiting to see the doctor.`
+                : "Nobody is waiting to see the doctor."}
           </p>
         </div>
         <span style={{ marginLeft: "auto" }}>
           {/* The page's one amber: the only thing you can start from here. */}
-          <Button variant="primary" href="/plan/new">
-            Add a patient
+          <Button variant="primary" href="/register">
+            Register a patient
           </Button>
         </span>
       </header>
 
-      {/* The table prints dark ink, so it needs the label stock under it. It
-          used to get that from the group wrapper this page no longer has, and
-          without it every patient name was near-invisible on the bench. */}
       {roster.length > 0 ? (
-        <div className="sheet">
-          <RosterTable rows={roster} />
-        </div>
-      ) : null}
+        <PatientsBrowser rows={roster} />
+      ) : (
+        <Panel title="The list is empty">
+          <p className="measure" style={{ margin: 0, padding: "calc(var(--cell) * 3)", fontSize: 14 }}>
+            Registering records who the patient is, whether they agreed to automated
+            follow-up calls, and the day of their appointment. The visit then waits on
+            Consultations until the doctor writes it up.
+          </p>
+        </Panel>
+      )}
     </div>
   );
 }

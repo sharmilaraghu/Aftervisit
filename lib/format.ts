@@ -38,6 +38,17 @@ export function formatDay(date: Date, timeZone: string): string {
 }
 
 /** `ESC-0031`. A clinician reads a number, not a uuid. */
+/**
+ * A calendar day (`YYYY-MM-DD`) in the console's one display format.
+ *
+ * A visit date is a day, not an instant, so it is read at noon UTC and printed
+ * in UTC — no zone can move it across midnight. It used to print raw ISO next
+ * to "11 Sept" elsewhere on the same screen.
+ */
+export function formatCalendarDay(isoDate: string): string {
+  return formatDay(new Date(`${isoDate}T12:00:00Z`), "UTC");
+}
+
 export function escalationRef(ref: number): string {
   return `ESC-${String(ref).padStart(4, "0")}`;
 }

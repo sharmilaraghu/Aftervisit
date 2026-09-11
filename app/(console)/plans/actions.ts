@@ -1,7 +1,7 @@
 "use server";
 
 /**
- * Plan actions: compile a note, edit the draft, approve it, and take a plan
+ * Plan actions: write up a visit, edit the draft, approve it, and take a plan
  * back off the clinician's hands from the queue.
  *
  * Compiling is the one place a model runs. Everything after it is code, which
@@ -20,7 +20,7 @@ import { getDb } from "@/lib/db/client";
 import { withLockedRules } from "@/lib/rules/catalog";
 
 import { compileNote } from "@/lib/plan/compile";
-import { applyDefaults } from "@/lib/plan/defaults";
+import { applyDefaults, fieldsToMarkAsClinician } from "@/lib/plan/defaults";
 import {
   addQuestion,
   amendNote,
@@ -40,10 +40,11 @@ import {
 import { validateQuestionDraft } from "@/lib/plan/clinician-question";
 import type { QuestionEditResult } from "@/lib/plan/clinician-question";
 import type { PlanRule, RedFlagTerm } from "@/lib/rules/types";
-import { getPatient } from "@/lib/db/patients";
+import { getVisit, markVisitSeen } from "@/lib/db/visits";
 import {
   acknowledgeEscalation,
   closePlan,
+  recordClosingSummary,
   resolveEscalation,
   resumePlan,
   setResolution,
@@ -59,35 +60,52 @@ const GUARD_REFUSAL =
   "The clinical guard refused this wording, so it will not be asked. " +
   "It is kept below, with the reason. Rewrite it as a question that asks and tells nothing.";
 
-export async function compileNoteAction(
-  patientId: string,
+/**
+ * The consultation: the doctor has written the note for a waiting visit.
+ *
+ * Compile it, write the draft, and take the visit off the consult list — in
+ * that order, because a visit marked `seen` with no plan to show for it is a
+ * patient who fell between two screens. The confirm view is the plan page;
+ * one press there is what starts the calls.
+ */
+export async function consultAction(
+  visitId: string,
   _prev: CompileFormState,
   formData: FormData,
 ): Promise<CompileFormState> {
   const noteBody = String(formData.get("note") ?? "").trim();
-  const escalationNote = String(formData.get("escalationNote") ?? "").trim();
-  const timeScale = Number(formData.get("timeScale") ?? 1);
+  /* Optional, and kept verbatim: triage matches calls against the doctor's own
+     escalating conditions, so they are stored as written, not as compiled. */
+  const escalationNote = String(formData.get("escalation") ?? "").trim();
+  const values = { note: noteBody, escalation: escalationNote };
 
   if (noteBody.length < 20) {
     return {
-      values: { note: noteBody, escalationNote, timeScale: String(timeScale) },
+      values,
       error: "Write the note first. There is nothing to compile from a line or two.",
     };
   }
 
-  const patient = await getPatient(patientId);
-  if (!patient || patient.archivedAt) {
+  const visit = await getVisit(visitId);
+  if (!visit || visit.patientArchived) {
+    return { values, error: "That visit no longer exists, or the patient has been archived." };
+  }
+  if (visit.status !== "waiting") {
     return {
-      values: { note: noteBody, escalationNote, timeScale: String(timeScale) },
-      error: "That patient no longer exists, or has been archived.",
+      values,
+      error: "This visit has already been written up. Open it from Consultations to see that note.",
     };
   }
 
+  const postOp = visit.kind === "post_op";
+  const fallbackReason = postOp ? "Post-operative follow-up" : "Follow-up";
+
   const outcome = await compileNote({
     noteBody,
-    escalationNote,
-    patientAge: patient.age,
-    fallbackReason: "Follow-up",
+    escalationNote: escalationNote || undefined,
+    patientAge: visit.age,
+    fallbackReason,
+    visitKind: visit.kind,
   });
 
   /*
@@ -95,85 +113,125 @@ export async function compileNoteAction(
    * written, marked `refused`, and the doctor gets a blank, hand-editable plan —
    * Care Loop never invents a generic follow-up to paper over a missing key.
    */
-  if (!outcome.ok) {
-    const blank = applyDefaults(
-      {
-        reason: null,
-        condition: null,
-        durationDays: null,
-        cadence: null,
-        localTime: null,
-        questions: null,
-        redFlagTerms: null,
-        medications: null,
-      },
-      { fallbackReason: "Follow-up", baseRedFlags: redFlagsFor(null), baseRules: [] },
-    );
-
-    const planId = await createPlanFromNote({
-      patientId,
-      noteBody,
-      plan: blank,
-      compile: {
-        status: "refused",
-        provider: null,
-        model: null,
-        raw: null,
-        error: outcome.detail,
-      },
-      timeScale,
-      escalationNote,
-    });
-
-    revalidatePath("/patients");
-  revalidatePath("/dashboard");
-    redirect(`/plans/${planId}`);
-  }
+  const resolved = outcome.ok
+    ? outcome.plan
+    : applyDefaults(
+        {
+          reason: null,
+          condition: null,
+          durationDays: null,
+          cadence: null,
+          localTime: null,
+          questions: null,
+          redFlagTerms: null,
+          medications: null,
+        },
+        { fallbackReason, baseRedFlags: redFlagsFor(null), baseRules: [] },
+      );
 
   const planId = await createPlanFromNote({
-    patientId,
+    patientId: visit.patientId,
     noteBody,
-    plan: outcome.plan,
-    compile: {
-      status: "compiled",
-      provider: outcome.provider,
-      model: outcome.model,
-      raw: outcome.raw,
-      error: null,
-    },
-    rejectedQuestions: outcome.rejectedQuestions,
-    timeScale,
-    escalationNote,
+    escalationNote: escalationNote || null,
+    plan: resolved,
+    compile: outcome.ok
+      ? {
+          status: "compiled",
+          provider: outcome.provider,
+          model: outcome.model,
+          raw: outcome.raw,
+          error: null,
+        }
+      : { status: "refused", provider: null, model: null, raw: null, error: outcome.detail },
+    rejectedQuestions: outcome.ok ? outcome.rejectedQuestions : undefined,
   });
 
+  /*
+   * Zero rows means another tab wrote this visit up first. The draft just
+   * made would be a second plan for the same consultation, so it is cancelled
+   * rather than left for someone to approve twice.
+   */
+  const seen = await markVisitSeen(visitId, planId);
+  if (!seen) {
+    await cancelPlan(planId, readConfig().clinicianName);
+    return {
+      values,
+      error: "This visit was written up in another tab. Open it from Consultations to review that note.",
+    };
+  }
+
+  revalidatePath("/consult");
   revalidatePath("/patients");
+  revalidatePath("/dashboard");
   redirect(`/plans/${planId}`);
 }
 
 export async function updateDraftAction(planId: string, formData: FormData): Promise<void> {
   const durationDays = Number(formData.get("durationDays") ?? 7);
   const localTime = String(formData.get("localTime") ?? "10:00");
-  const timeScale = Number(formData.get("timeScale") ?? 1);
+  /* The demo clock has its own control now. Absent from the schedule form, it
+     is left alone — defaulting it here would reset the demo on every save. */
+  const timeScaleRaw = formData.get("timeScale");
+  const timeScale = timeScaleRaw === null ? null : Number(timeScaleRaw);
   const cadence = String(formData.get("cadence") ?? "daily");
   const maxAttempts = Number(formData.get("maxAttempts") ?? 3);
 
-  await updatePlanDraft(planId, {
-    /* Every one of these printed a provenance mark — "You set this" — while
-       having no control anywhere in the product. Either the mark was a lie or
-       the field was missing; these are the fields. */
-    cadence: (["daily", "every_other_day", "weekly"] as const).includes(
-      cadence as "daily",
-    )
+  const plan = await getPlanForReview(planId);
+  if (!plan) return;
+
+  /* Every one of these printed a provenance mark — "You set this" — while
+     having no control anywhere in the product. Either the mark was a lie or
+     the field was missing; these are the fields. */
+  const after = {
+    cadence: (["daily", "every_other_day", "weekly"] as const).includes(cadence as "daily")
       ? (cadence as "daily" | "every_other_day" | "weekly")
-      : "daily",
-    maxAttempts: Number.isInteger(maxAttempts) && maxAttempts >= 1 && maxAttempts <= 5
-      ? maxAttempts
-      : 3,
+      : ("daily" as const),
+    maxAttempts:
+      Number.isInteger(maxAttempts) && maxAttempts >= 1 && maxAttempts <= 5 ? maxAttempts : 3,
     durationDays: Number.isInteger(durationDays) && durationDays > 0 ? durationDays : 7,
     localTime: /^([01]\d|2[0-3]):[0-5]\d$/.test(localTime) ? localTime : "10:00",
-    timeScale: timeScale > 0 ? timeScale : 1,
+  };
+
+  /*
+   * Only what the doctor chose is written — and so marked theirs. Sending all
+   * five on every save used to stamp the note's own values "You set this" the
+   * moment the drawer was saved, which is the opposite of what the mark means.
+   */
+  const marked = new Set(
+    fieldsToMarkAsClinician(
+      {
+        cadence: plan.cadence,
+        maxAttempts: plan.maxAttempts,
+        durationDays: plan.durationDays,
+        localTime: plan.localTime,
+      },
+      after,
+      plan.provenance,
+    ),
+  );
+
+  await updatePlanDraft(planId, {
+    cadence: marked.has("cadence") ? after.cadence : undefined,
+    maxAttempts: marked.has("maxAttempts") ? after.maxAttempts : undefined,
+    durationDays: marked.has("durationDays") ? after.durationDays : undefined,
+    localTime: marked.has("localTime") ? after.localTime : undefined,
+    timeScale: timeScale === null ? undefined : timeScale > 0 ? timeScale : 1,
   });
 
+  revalidatePath(`/plans/${planId}`);
+}
+
+/**
+ * The demo clock, on its own.
+ *
+ * It lived in the schedule drawer, where a doctor approving a real schedule met
+ * a control that only compresses the calendar for a demo. It carries no
+ * provenance and changes nothing clinical, so it is set without touching the
+ * schedule's marks.
+ */
+export async function updateTimeScaleAction(planId: string, formData: FormData): Promise<void> {
+  const timeScale = Number(formData.get("timeScale") ?? 1);
+  await updatePlanDraft(planId, { timeScale: timeScale > 0 ? timeScale : 1 });
   revalidatePath(`/plans/${planId}`);
 }
 
@@ -472,6 +530,24 @@ export async function finishTreatmentAction(
   revalidatePath("/dashboard");
 }
 
+/**
+ * Close the file on a follow-up whose window already ran out.
+ *
+ * Nothing is dialled or skipped — there is nothing left to. It records how the
+ * episode resolved, which is what takes the patient off the doctor's
+ * "Finished" band.
+ */
+export async function closeFinishedAction(
+  planId: string,
+  patientId: string,
+  summary: string | null,
+): Promise<void> {
+  await recordClosingSummary(planId, readConfig().clinicianName, summary);
+  revalidatePath(`/patients/${patientId}`);
+  revalidatePath("/patients");
+  revalidatePath("/dashboard");
+}
+
 export async function acknowledgeEscalationAction(escalationId: string): Promise<void> {
   await acknowledgeEscalation(escalationId);
   revalidatePath("/dashboard");
@@ -513,7 +589,13 @@ export async function amendNoteAction(
     };
   }
 
-  const merged = await mergeCompiledQuestions(planId, outcome.plan.questions);
+  const merged = await mergeCompiledQuestions(
+    planId,
+    outcome.plan.questions,
+    outcome.plan.watchPoints,
+    // Refusals are kept on a draft, never dropped silently.
+    outcome.rejectedQuestions,
+  );
   /* Plan-level values are the draft's to change. A running plan keeps the
      cadence and the local time it was approved with — a doctor adding a new
      symptom is not asking to move tomorrow's call. */

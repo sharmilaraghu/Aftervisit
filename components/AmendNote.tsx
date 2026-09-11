@@ -37,7 +37,9 @@ export function AmendNote({ planId, live = false }: { planId: string; live?: boo
 
   if (!open) {
     return (
-      <p style={{ margin: "calc(var(--cell) * 3) 0 0" }}>
+      /* Flex, so the paragraph grows to the button's height instead of letting a
+         38px inline control overhang a ~24px line box onto whatever is above. */
+      <p style={{ margin: "calc(var(--cell) * 3) 0 0", display: "flex" }}>
         <Button variant="onLabel" onClick={() => setOpen(true)}>
           {live ? "Follow up on something new too" : "Add to this note"}
         </Button>

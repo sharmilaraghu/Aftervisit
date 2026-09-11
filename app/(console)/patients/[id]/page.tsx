@@ -16,9 +16,9 @@ import { CallLog } from "@/components/CallLog";
 import { PatientControls } from "@/components/PatientControls";
 import { TreatmentControls } from "@/components/TreatmentControls";
 import { AmendNote } from "@/components/AmendNote";
-import { QueueActions } from "@/components/QueueActions";
+import { readConfig } from "@/lib/config";
 import { ParameterGrid } from "@/components/ParameterGrid";
-import { Badge, Button, Panel } from "@/components/ui";
+import { Badge, Breadcrumb, Button, Panel } from "@/components/ui";
 import { getPatientDetail } from "@/lib/db/patients";
 import { getPatientSummary } from "@/lib/db/summary";
 import { getParameterGrid } from "@/lib/db/parameters";
@@ -31,6 +31,9 @@ import {
 } from "@/lib/patients/labels";
 import { formatDay, formatStamp } from "@/lib/format";
 import { maskPhone } from "@/lib/phone/normalize";
+import { getWaitingVisits } from "@/lib/db/visits";
+import { localDate } from "@/lib/time/clock";
+import { languageLabel } from "@/lib/patients/languages";
 
 export const dynamic = "force-dynamic";
 
@@ -89,6 +92,17 @@ export default async function PatientPage({
 
   const { patient, calls } = detail;
 
+  /*
+   * After an approval the doctor's next move is the next patient, not this
+   * record. Oldest booking first, overdue included — the same order as the
+   * consult list — and only looked up then: this page otherwise never needs it.
+   */
+  const next = approved
+    ? (await getWaitingVisits()).find(
+        (v) => v.patientId !== patient.id && v.visitDate <= localDate(new Date(), v.timezone),
+      )
+    : undefined;
+
   const planLive = ["active", "paused"].includes(detail.planStatus ?? "");
   const editable = !patient.archivedAt;
 
@@ -107,8 +121,8 @@ export default async function PatientPage({
         : planLive
           ? null
           : {
-              href: `/plan/new?patient=${patient.id}`,
-              label: detail.planId ? "Start another follow-up" : "Write the follow-up note",
+              href: `/register?patient=${patient.id}`,
+              label: detail.planId ? "Book another visit" : "Book a visit",
             };
 
   /* The newest escalation still open. The rest keep the link to Today. */
@@ -125,11 +139,7 @@ export default async function PatientPage({
       }}
     >
       <header style={{ marginBottom: "calc(var(--cell) * 4)" }}>
-        <p style={{ margin: "0 0 calc(var(--cell) * 1)" }}>
-          <Link href="/patients" className="backlink">
-            All patients
-          </Link>
-        </p>
+        <Breadcrumb items={[{ label: "Patients", href: "/patients" }, { label: patient.name }]} />
 
         <div
           style={{
@@ -155,7 +165,7 @@ export default async function PatientPage({
               className="mono"
               style={{ margin: 0, color: "var(--bench-ink-2)", fontSize: 14 }}
             >
-              {patient.age} · {maskPhone(patient.phoneE164)} · {patient.timezone} · {patient.language}
+              {patient.age} · {maskPhone(patient.phoneE164)} · {patient.timezone} · {languageLabel(patient.language)}
             </p>
           </div>
 
@@ -211,8 +221,11 @@ export default async function PatientPage({
               though the number is printed two lines up — so the one screen that
               holds everything about a patient could not ring them.
             */}
+            {/* "Phone … yourself", not "Call …": in a product whose agent
+                makes calls, "Call Asha" read as "have the agent dial now".
+                This is the front desk's screen, so the number is theirs to use. */}
             <Button variant="ghost" href={`tel:${patient.phoneE164}`}>
-              Call {patient.name.split(" ")[0]}
+              Phone {patient.name.split(" ")[0]} yourself
             </Button>
             {detail.planId ? (
               <Button variant="ghost" href={`/plans/${detail.planId}`}>
@@ -250,6 +263,19 @@ export default async function PatientPage({
           <strong>The follow-up has started.</strong> The first call goes out{" "}
           <span className="mono">{formatStamp(detail.startsAt, patient.timezone)}</span>, and
           every call it will place is listed below. Nothing rings before then.
+          {next ? (
+            <>
+              {" "}
+              <Link
+                href={`/consult/${next.id}`}
+                style={{ color: "var(--print)", fontWeight: 700, textUnderlineOffset: 3 }}
+              >
+                Next patient: {next.patientName}
+              </Link>
+            </>
+          ) : (
+            " Nobody else is waiting for a note."
+          )}
         </p>
       ) : null}
 
@@ -298,14 +324,30 @@ export default async function PatientPage({
         }
         escalationActions={
           waiting && detail.planId ? (
-            <QueueActions
-              escalationId={waiting.id}
-              planId={detail.planId}
-              patientName={patient.name}
-              pausedPlan={waiting.urgent}
-              status={waiting.status}
-              planLive={planLive}
-            />
+            /*
+              Handed to the doctor, not decided here. This is the Patients
+              section — the front desk's — and with no logins a receptionist
+              could otherwise close a clinical escalation from it. The doctor
+              handles it on Follow-ups, where the decision lives.
+            */
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "calc(var(--cell) * 1.5)",
+                alignItems: "center",
+                padding: "calc(var(--cell) * 2) calc(var(--cell) * 2.5)",
+                background: "var(--label-2)",
+                borderTop: "1px solid var(--rule)",
+              }}
+            >
+              <span style={{ fontSize: 14, fontWeight: 600, color: "var(--print)" }}>
+                Waiting on {readConfig().clinicianName}
+              </span>
+              <Button variant="onLabel" href="/dashboard">
+                Open in Follow-ups
+              </Button>
+            </div>
           ) : undefined
         }
         footer={
@@ -469,7 +511,7 @@ export default async function PatientPage({
           title="Day by day"
           aside={
             <span className="caps mono" style={{ color: "var(--print-3)" }}>
-              {parameters.length} {parameters.length === 1 ? "parameter" : "parameters"}
+              {parameters.length} {parameters.length === 1 ? "question" : "questions"}
             </span>
           }
           style={{ marginBottom: "calc(var(--cell) * 2)" }}
@@ -482,7 +524,7 @@ export default async function PatientPage({
         title="Calls"
         aside={
           <span className="caps mono" style={{ color: "var(--print-3)" }}>
-            {calls.length} rows
+            {calls.length} {calls.length === 1 ? "call" : "calls"}
           </span>
         }
         style={{ marginBottom: "calc(var(--cell) * 2)" }}
@@ -543,6 +585,7 @@ export default async function PatientPage({
           planId={detail.planId}
           paused={detail.planStatus === "paused"}
           pausedReason={detail.pausedReason}
+          escalationOpen={Boolean(waiting)}
         />
       ) : (
         <div

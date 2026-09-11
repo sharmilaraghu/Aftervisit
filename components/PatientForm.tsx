@@ -1,32 +1,15 @@
 "use client";
 
 /**
- * Add or edit a patient — and, when adding, write the follow-up note in the
- * same step.
+ * Register or edit a patient.
  *
- * The note belongs here because that is when it exists. A doctor writes it at
- * the consultation, with the patient in front of them; making them save a
- * record, land on a detail page, and then find a second screen to write the
- * note describes a workflow nobody has. The note is optional, so pure admin
- * entry still works — but the default path is one page, one submit.
+ * Registering is the front desk's job and books the visit in the same step:
+ * who this is, how to reach them, the consent that authorises dialling, and
+ * what they say is wrong. Nothing clinical — the note is the doctor's, written
+ * on the consult screen with the patient in front of them.
  *
- * Adding a patient is therefore two things at once, so it is shown as two
- * steps: the consultation (who this is, how to reach them, what to follow up,
- * what to escalate on, and the consent that authorises dialling), then the
- * call settings, which all have a correct default and matter in a minority of
- * cases. They used to sit in a shut disclosure, which asked the doctor to
- * decide whether to open a drawer before they knew what was in it; a numbered
- * step tells them there are two and that they are on the first.
- *
- * Both steps live in **one `<form>` and one submit**, for two reasons. Two
- * routes would need somewhere to keep the half-written note between them, and
- * this app has no session to keep it in. And every field stays mounted the
- * whole time — hidden, never unmounted — because an unmounted input is absent
- * from the submission, which would silently revert a timezone the doctor had
- * already set.
- *
- * Editing is not stepped. It is four fields with no note and no demo clock, and
- * a wizard over four fields is ceremony.
+ * Editing is the same form without the visit band. It is four fields and a
+ * tickbox, and a wizard over four fields is ceremony.
  *
  * The interesting field is the phone number. It is the only one where the
  * product refuses rather than corrects: a bare `9876543210` is a real number in
@@ -35,7 +18,7 @@
  * because a number is read digit by digit.
  */
 
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useEffect, useRef } from "react";
 
 import {
   Button,
@@ -43,39 +26,49 @@ import {
   Panel,
   Select,
   TextInput,
+  Textarea,
   describedBy,
 } from "@/components/ui";
 import type { PatientFormState } from "@/lib/patients/form";
-import { TIMEZONE_OPTIONS, zoneForNumber } from "@/lib/patients/timezones";
+import { PRACTICE_TIMEZONE } from "@/lib/patients/timezones";
 import { CONSENT_OPTIONS } from "@/lib/patients/labels";
 import { LANGUAGE_OPTIONS } from "@/lib/patients/languages";
 
-/** The three states the dial gate actually distinguishes. */
-
+const VISIT_KIND_OPTIONS = [
+  { value: "consultation", label: "Consultation" },
+  { value: "post_op", label: "Post-operative follow-up" },
+];
 
 export function PatientForm({
   action,
   initial,
   submitLabel,
   cancelHref,
+  patientId,
+  visit,
 }: {
   action: (prev: PatientFormState, formData: FormData) => Promise<PatientFormState>;
   initial: PatientFormState;
   submitLabel: string;
   cancelHref: string;
+  /** A returning patient: the record is updated in place rather than duplicated. */
+  patientId?: string;
+  /** Present on the registration desk only. Editing a record never books a visit. */
+  visit?: { defaultDate: string };
 }) {
   const [state, formAction, pending] = useActionState(action, initial);
   const v = state.values;
   const form = useRef<HTMLFormElement>(null);
-  const consultation = useRef<HTMLDivElement>(null);
-  const settings = useRef<HTMLDivElement>(null);
 
   /*
-   * The number, watched, so the timezone can follow the country code. A doctor
-   * typing +91 should not then have to know that London is pre-selected.
+   * A language this form no longer offers stays selectable for the patient
+   * who already has it — otherwise the select would show the first option and
+   * an unrelated edit would quietly change the language of every future call.
    */
-  const [phone, setPhone] = useState(initial.values.phone);
-  const suggestedZone = zoneForNumber(phone);
+  const languageOptions =
+    !v.language || LANGUAGE_OPTIONS.some((o) => o.value === v.language)
+      ? LANGUAGE_OPTIONS
+      : [...LANGUAGE_OPTIONS, { value: v.language, label: `${v.language} (no longer offered)` }];
 
   /*
    * Move focus to whatever was rejected.
@@ -100,10 +93,10 @@ export function PatientForm({
 
   return (
     <form action={formAction} ref={form}>
-      {/* ------------------------------------------------- step 1: the consultation */}
-      <div ref={consultation} >
+      {patientId ? <input type="hidden" name="patientId" value={patientId} /> : null}
+
+      <div>
         <Panel
-          /* Editing is not a consultation — it is four fields and a tickbox. */
           title="The patient"
           style={{ marginBottom: "calc(var(--cell) * 2)" }}
         >
@@ -187,12 +180,13 @@ export function PatientForm({
                 <Field label="Phone" htmlFor="phone" error={state.errors.phone}>
                   <TextInput
                     id="phone"
-                    onChange={(e) => setPhone(e.target.value)}
                     name="phone"
                     mono
                     /* 555-01xx only: this placeholder renders on screen, and the
                        screen ends up in a published video. */
-                    placeholder="+14155550123"
+                    /* The format, not a number: an Indian practice showed a US
+                       example, and any plausible +91 digits belong to someone. */
+                    placeholder="+91 XXXXX XXXXX"
                     defaultValue={v.phone}
                     required
                     autoComplete="off"
@@ -272,11 +266,76 @@ export function PatientForm({
               />
             </Field>
           </div>
+
+          {/*
+            The visit, on the same sheet.
+
+            This is the hand-off to the doctor: the consult list is every visit
+            still waiting, and what is written here is the first thing they
+            read when they open one. It is context for a person, and it is
+            deliberately not handed to the model — the note is the only text a
+            call can be grounded in.
+          */}
+          {visit ? (
+            <div
+              style={{
+                padding: "calc(var(--cell) * 2.5) calc(var(--cell) * 3) calc(var(--cell) * 1)",
+                borderTop: "1px solid var(--rule-ink)",
+              }}
+            >
+              <div className="field-grid">
+                <Field label="Visit" htmlFor="visitKind" error={state.errors.visitKind}>
+                  <Select
+                    id="visitKind"
+                    name="visitKind"
+                    defaultValue={v.visitKind}
+                    options={VISIT_KIND_OPTIONS}
+                    invalid={Boolean(state.errors.visitKind)}
+                    aria-describedby={describedBy("visitKind", {
+                      error: Boolean(state.errors.visitKind),
+                    })}
+                  />
+                </Field>
+                <Field label="Appointment date" htmlFor="visitDate" error={state.errors.visitDate}>
+                  <TextInput
+                    id="visitDate"
+                    name="visitDate"
+                    type="date"
+                    mono
+                    defaultValue={v.visitDate || visit.defaultDate}
+                    required
+                    invalid={Boolean(state.errors.visitDate)}
+                    aria-describedby={describedBy("visitDate", {
+                      error: Boolean(state.errors.visitDate),
+                    })}
+                  />
+                </Field>
+              </div>
+
+              <Field
+                label="What they came in with"
+                htmlFor="reportedSymptoms"
+                error={state.errors.reportedSymptoms}
+                hint="In your words. The doctor reads this before the consultation; the agent never does."
+              >
+                <Textarea
+                  id="reportedSymptoms"
+                  name="reportedSymptoms"
+                  rows={3}
+                  defaultValue={v.reportedSymptoms}
+                  invalid={Boolean(state.errors.reportedSymptoms)}
+                  aria-describedby={describedBy("reportedSymptoms", {
+                    hint: true,
+                    error: Boolean(state.errors.reportedSymptoms),
+                  })}
+                />
+              </Field>
+            </div>
+          ) : null}
         </Panel>
       </div>
 
-      {/* --------------------------------------------------- step 2: call settings */}
-      <div ref={settings} >
+      <div>
         <Panel
           title="How the call is placed"
           style={{ marginBottom: "calc(var(--cell) * 2)" }}
@@ -298,32 +357,26 @@ export function PatientForm({
                 gap: "0 calc(var(--cell) * 3)",
               }}
             >
+              {/*
+                One practice, one zone. Shown so the desk can see what calls
+                will run on, but not a choice: the server action sets it again
+                whatever arrives, so a stale tab cannot put a patient on
+                another clock.
+              */}
               <Field
                 label="Timezone"
                 htmlFor="timezone"
                 error={state.errors.timezone}
-                hint={
-                  suggestedZone
-                    ? "Taken from the country code on the number. Change it if the patient is somewhere else."
-                    : "Every call for this patient is placed at the best time to call, in this zone."
-                }
+                hint="Fixed for the practice. Every call is placed on India time."
               >
-                <Select
+                <input type="hidden" name="timezone" value={PRACTICE_TIMEZONE} />
+                <TextInput
                   id="timezone"
-                  name="timezone"
-                  /*
-                   * Keyed on the suggestion so the select re-reads it when the
-                   * number changes. There is deliberately no fallback zone: a
-                   * pre-selected default is a choice nobody made, and it was
-                   * quietly putting +91 patients in London.
-                   */
-                  key={suggestedZone ?? "none"}
-                  defaultValue={v.timezone || suggestedZone || ""}
-                  options={[
-                    { value: "", label: "Choose a timezone…" },
-                    ...TIMEZONE_OPTIONS,
-                  ]}
-                  invalid={Boolean(state.errors.timezone)}
+                  value={`India (${PRACTICE_TIMEZONE})`}
+                  readOnly
+                  /* Printed on the stock, not boxed like an input: a white
+                     box that cannot be typed in gets tapped and then doubted. */
+                  style={{ background: "var(--label-2)", borderColor: "transparent", cursor: "default" }}
                   aria-describedby={describedBy("timezone", {
                     hint: true,
                     error: Boolean(state.errors.timezone),
@@ -341,7 +394,7 @@ export function PatientForm({
                   id="language"
                   name="language"
                   defaultValue={v.language}
-                  options={LANGUAGE_OPTIONS}
+                  options={languageOptions}
                   invalid={Boolean(state.errors.language)}
                   aria-describedby={describedBy("language", {
                     hint: true,
@@ -380,16 +433,6 @@ export function PatientForm({
         </Button>
 
 
-        {/*
-          Both are shut while the compile runs.
-
-          The patient row is written *before* the note is compiled, so a doctor
-          who decides it has hung and leaves has already saved them — and the
-          retry then fails with "Another active patient already has this
-          number", a refusal that reads as a bug to someone who believes nothing
-          was saved. There is no way to make leaving safe here, so leaving is
-          not offered.
-        */}
         {pending ? (
           <Button variant="ghost" disabled>
             Cancel
@@ -399,17 +442,6 @@ export function PatientForm({
             Cancel
           </Button>
         )}
-
-        {/*
-          The only account of what is happening during a wait that runs to
-          thirteen seconds and more.
-
-          A dimmed button is not a status: it says a control is unavailable, not
-          that work is under way. `role="status"` is what carries it to a screen
-          reader, which previously got nothing at all — there was no `aria-busy`,
-          no live region and no progress role anywhere on the page for the whole
-          of it.
-        */}
 
       </div>
     </form>

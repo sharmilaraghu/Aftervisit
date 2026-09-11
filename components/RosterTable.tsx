@@ -240,14 +240,17 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
                     >
                       {p.name}
                     </Link>
-                    <span className="mono" style={{ fontSize: 12, color: "var(--print-3)" }}>
+                    <span
+                      className="mono"
+                      /* One line: at 390px "54 ·" wrapped onto a line of its own. */
+                      style={{ fontSize: 12, color: "var(--print-3)", whiteSpace: "nowrap" }}
+                    >
                       {/* Age gets its own sortable column the moment there is
                           room for one; on a phone there is not, and this line
                           is where it goes on carrying it. */}
                       <span className="age-inline">{p.age} · </span>
                       {maskPhone(p.phoneE164)}
-                    </span>
-                  </td>
+                    </span>                  </td>
                   <td className="col-age mono" style={{ padding: CELL, color: "var(--print-2)" }}>
                     {p.age}
                   </td>
@@ -261,12 +264,12 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
                     {/*
                       The badge is the shortest route to the thing it describes: a
                       plan waiting on approval links to the plan, a patient with no
-                      plan links to writing one, an escalation to Today.
+                      plan links to the consult list, an escalation to Today.
                     */}
                     <Link
                       href={
                         p.health === "needs_plan"
-                          ? `/plan/new?patient=${p.patientId}`
+                          ? "/consult"
                           : p.health === "awaiting_approval" && p.planId
                             ? `/plans/${p.planId}`
                             : p.health === "escalated"
@@ -291,6 +294,9 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
                       <Badge
                         tone={HEALTH_TONE[p.health]}
                         quiet={HEALTH_TONE[p.health] !== "danger"}
+                        /* May wrap: a long state clipped the column at phone
+                           width and brought the sideways scroll back. */
+                        style={{ whiteSpace: "normal" }}
                       >
                         {HEALTH_LABEL[p.health]}
                       </Badge>
@@ -298,9 +304,12 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
                   </td>
                   <td className="col-signal" style={{ padding: CELL, whiteSpace: "nowrap" }}>
                     {p.quietFor !== null && p.quietFor >= 3 ? (
-                      <span className="mono" style={{ color: "var(--danger)" }}>
-                        quiet {p.quietFor}d
-                      </span>
+                      /* A duration, not a second alarm. The State column already
+                         prints the red for this — "Drifting" — and two reds in
+                         one row read as two problems. */
+                      <Badge tone="plain" quiet>
+                        Quiet <span className="mono">{p.quietFor}</span> days
+                      </Badge>
                     ) : (
                       <span style={{ color: "var(--print-3)" }}>&mdash;</span>
                     )}

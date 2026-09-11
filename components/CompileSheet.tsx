@@ -189,7 +189,7 @@ export function CompileSheet({
                 Signed · Dr Rao
               </span>
               <span className="mono" style={{ fontSize: 11, color: "var(--print-3)" }}>
-                Bridgeview Family Practice
+                Banyan Family Clinic
               </span>
             </div>
           </div>

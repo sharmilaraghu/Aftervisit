@@ -112,8 +112,26 @@ export type SkipReason = "plan_paused" | "plan_closed" | "patient_archived" | "t
 
 export type ConsentSource = "registration" | "call";
 
-/** Which model actually compiled the note. Gemini primary, OpenAI fallback. */
+/**
+ * Which model actually compiled the note. `gemini` survives in the CHECK for
+ * rows written before the compiler went OpenAI-only; nothing writes it now.
+ */
 export type CompileProvider = "gemini" | "openai";
+
+/**
+ * What the front desk booked. A post-operative visit is still a consultation
+ * in every mechanical sense — the difference is what the note is about, and
+ * the compiler is told which so it does not have to guess from the prose.
+ */
+export type VisitKind = "consultation" | "post_op";
+
+/**
+ * `waiting` is the doctor's list. `seen` is set by the same conditional UPDATE
+ * that attaches the note, so a visit cannot be "seen" without one. `cancelled`
+ * exists because a booking that never happened must not sit on the list
+ * forever.
+ */
+export type VisitStatus = "waiting" | "seen" | "cancelled";
 
 /**
  * How a triage verdict was reached.
@@ -173,6 +191,8 @@ export type DayState =
 export const CONSENT_STATES = ["unknown", "granted", "declined"] as const;
 export const COMPILE_STATUSES = ["pending", "compiled", "refused"] as const;
 export const COMPILE_PROVIDERS = ["gemini", "openai"] as const;
+export const VISIT_KINDS = ["consultation", "post_op"] as const;
+export const VISIT_STATUSES = ["waiting", "seen", "cancelled"] as const;
 export const TRIAGE_STATUSES = ["ok", "unavailable", "error", "unparseable"] as const;
 export const TRIAGE_VERDICTS = ["severe", "escalate", "low"] as const;
 export const PLAN_STATUSES = [

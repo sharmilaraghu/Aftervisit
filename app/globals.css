@@ -415,6 +415,16 @@ select {
   background: var(--clear);
 }
 
+/* Finished asks for a decision, not an alarm: blue informs. No word yet is a
+   fact with nothing to act on, so it takes the quietest mark on the band. */
+.today-band[data-tone="finished"]::before {
+  background: var(--info);
+}
+
+.today-band[data-tone="waiting"]::before {
+  background: var(--bench-ink-3);
+}
+
 .today-band-label {
   flex: 1 1 auto;
 }
@@ -624,6 +634,231 @@ select {
   animation: row-settle 1400ms ease-out both;
 }
 
+/*
+ * The breadcrumb. Sentence-case, quiet, and set above the page title: it says
+ * where you are and the way back, and nothing about what to do next.
+ */
+.crumbs ol {
+  list-style: none;
+  margin: 0 0 calc(var(--cell) * 1.5);
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--cell) * 1);
+  font-size: 14px;
+  color: var(--bench-ink-3);
+}
+
+.crumbs li + li::before {
+  content: "/";
+  margin-right: calc(var(--cell) * 1);
+  font-family: var(--mono);
+  color: var(--bench-ink-3);
+}
+
+.crumbs a {
+  color: var(--bench-ink-2);
+  text-decoration: none;
+}
+
+.crumbs a:hover {
+  color: var(--bench-ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.crumbs [aria-current] {
+  color: var(--bench-ink);
+}
+
+/* Mutually exclusive views: one ink block on a graphite track. */
+.seg {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bench-2);
+}
+
+.seg-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--cell) * 1);
+  min-height: calc(var(--cell) * 4.5);
+  padding: 0 calc(var(--cell) * 1.75);
+  border: none;
+  background: transparent;
+  color: var(--bench-ink-2);
+  text-decoration: none;
+  cursor: pointer;
+  /* Set here, not inherited: a <button> does not inherit the page's font. */
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 600;
+  transition: background 140ms ease-out, color 140ms ease-out;
+}
+
+.seg-opt:hover {
+  color: var(--bench-ink);
+}
+
+.seg-opt[aria-current],
+.seg-opt[aria-pressed="true"] {
+  background: var(--bench-ink);
+  color: var(--print);
+}
+
+.seg-count {
+  font-size: 11px;
+  letter-spacing: 0;
+}
+
+.avatar {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: calc(var(--cell) * 5);
+  height: calc(var(--cell) * 5);
+  background: var(--label-3);
+  color: var(--print);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--cell) * 1.5);
+  margin: 0 0 calc(var(--cell) * 3);
+  padding: calc(var(--cell) * 1.5) calc(var(--cell) * 2);
+  color: var(--print);
+  font-size: 14px;
+  box-shadow: var(--lift-sm);
+  animation: notice-in 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes notice-in {
+  from {
+    transform: translateY(-6px);
+    opacity: 0.4;
+  }
+}
+
+/* One visit on the consult list: who, what they came in with, the next step. */
+.visit-row {
+  display: flex;
+  align-items: flex-start;
+  gap: calc(var(--cell) * 2);
+  padding: calc(var(--cell) * 2.5) calc(var(--cell) * 3);
+  color: var(--print);
+  text-decoration: none;
+  transition: background 120ms ease-out;
+}
+
+.visit-row + .visit-row {
+  border-top: 1px solid var(--rule-2);
+}
+
+.visit-row:hover {
+  background: var(--label-2);
+}
+
+.visit-row:focus-visible {
+  outline: 2px solid var(--amber-deep);
+  outline-offset: -2px;
+}
+
+.visit-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.visit-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--cell) * 1);
+  flex: 0 0 auto;
+}
+
+/*
+ * The row's action is a real button, and its hit area is stretched over the
+ * whole row. One link per row, named by the button — the row used to be a
+ * single link whose accessible name was the entire complaint.
+ */
+.visit-row {
+  position: relative;
+}
+
+.visit-cta::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+@media (max-width: 720px) {
+  .visit-row {
+    flex-wrap: wrap;
+  }
+
+  /* A zero basis keeps the body beside the avatar; left to its content width
+     it wraps under it and the initials sit alone on a line. */
+  .visit-body {
+    flex: 1 1 0;
+  }
+
+  /* Under the name, aligned with it rather than with the avatar. */
+  .visit-tags {
+    flex-basis: 100%;
+    padding-left: calc(var(--cell) * 7);
+  }
+}
+
+/* The consult: what they came in with beside the note being written. */
+.consult-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: calc(var(--cell) * 2);
+  align-items: start;
+}
+
+@media (min-width: 1000px) {
+  .consult-grid {
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  }
+
+  .consult-grid > :first-child {
+    position: sticky;
+    top: calc(var(--cell) * 3);
+  }
+}
+
+.patients-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--cell) * 1.5);
+  margin-bottom: calc(var(--cell) * 2);
+}
+
+.patients-search {
+  flex: 1 1 calc(var(--cell) * 30);
+  max-width: calc(var(--cell) * 50);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notice {
+    animation: none;
+  }
+
+  .seg-opt,
+  .visit-row {
+    transition: none;
+  }
+}
+
 @keyframes badge-arrive {
   from {
     opacity: 0;
@@ -668,11 +903,8 @@ select {
   color: var(--bench-ink-2);
   text-decoration: none;
   font-family: var(--sans);
-  font-stretch: 88%;
-  font-weight: 700;
-  font-size: 12px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-weight: 600;
+  font-size: 14px;
 }
 
 .backlink::before {
@@ -734,115 +966,90 @@ select {
   }
 }
 
-.stepper {
-  display: flex;
-  align-items: stretch;
-  gap: 0;
-  list-style: none;
-  margin: 0 0 calc(var(--cell) * 3);
-  padding: 0;
-  overflow-x: auto;
+/*
+ * The plan page: the note beside what was made of it.
+ *
+ * One column on a phone, with the note folded under the heading. From 1100px
+ * the note becomes a sticky left column, so every "From note: …" mark can be
+ * checked against the words without scrolling to the foot of the page.
+ */
+.plan-page {
+  max-width: 944px;
+  margin: 0 auto;
+  padding-block: calc(var(--cell) * 5) calc(var(--cell) * 10);
+  padding-inline: calc(var(--cell) * 3);
 }
 
-.stepper li {
-  flex: 1 1 0;
+.plan-main {
   min-width: 0;
 }
 
-.stepper-step {
-  display: flex;
-  align-items: center;
-  gap: calc(var(--cell) * 1);
-  width: 100%;
-  padding: calc(var(--cell) * 1.25) calc(var(--cell) * 1.5);
-  border-bottom: 3px solid var(--bench-line);
+.plan-note {
+  display: none;
+}
+
+.plan-note-title {
+  margin: 0 0 calc(var(--cell) * 1.5);
   color: var(--bench-ink-3);
-  text-decoration: none;
-  white-space: nowrap;
-  font: inherit;
-  background: none;
-  border-left: 0;
-  border-right: 0;
-  border-top: 0;
-  text-align: left;
 }
 
-button.stepper-step {
-  cursor: pointer;
+.plan-note-body {
+  margin: 0;
+  white-space: pre-wrap;
+  color: var(--print-2);
+  font-size: 13px;
+  line-height: 1.7;
 }
 
-.stepper-step[data-state="done"] {
-  color: var(--bench-ink-2);
-  border-bottom-color: var(--clear);
-}
-
-.stepper-step[data-state="current"] {
-  color: var(--bench-ink);
-  border-bottom-color: var(--amber);
-}
-
-/* Available but not yet filled in: brighter than a locked step, but no tick
-   and no green — nothing has been done there. */
-button.stepper-step[data-state="ahead"],
-a.stepper-step[data-state="ahead"] {
-  color: var(--bench-ink-2);
-  border-bottom-color: var(--bench-line-strong);
-}
-
-button.stepper-step[data-state="ahead"] .stepper-mark,
-a.stepper-step[data-state="ahead"] .stepper-mark {
-  background: var(--bench-line-strong);
-  color: var(--bench);
-}
-
-.stepper-step:focus-visible {
-  outline: 2px solid var(--amber-deep);
-  outline-offset: -2px;
-}
-
-/* The number sits in the mark; a tick replaces it once the step is behind you. */
-.stepper-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: calc(var(--cell) * 2.5);
-  height: calc(var(--cell) * 2.5);
-  flex-shrink: 0;
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--bench);
-  background: var(--bench-ink-3);
-}
-
-.stepper-step[data-state="done"] .stepper-mark {
-  background: var(--clear);
-  color: var(--label);
-}
-
-.stepper-step[data-state="current"] .stepper-mark {
-  background: var(--amber);
+.plan-note-escalate {
+  font-weight: 600;
   color: var(--print);
 }
 
-.stepper-name {
-  font-family: var(--sans);
-  font-stretch: 88%;
-  font-weight: 700;
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.plan-note-fold {
+  margin: 0 0 calc(var(--cell) * 3);
+  padding: calc(var(--cell) * 1.75) calc(var(--cell) * 2);
+  background: var(--label);
+  box-shadow: inset 0 0 0 1px var(--rule);
 }
 
-/* On a phone the names go and the marks carry the sequence alone. */
-@media (max-width: 720px) {
-  .stepper-name {
-    display: none;
+.plan-note-fold > summary {
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--print-2);
+}
+
+.plan-note-fold[open] > summary {
+  margin-bottom: calc(var(--cell) * 1.5);
+}
+
+@media (min-width: 1100px) {
+  .plan-page {
+    max-width: 1320px;
+    display: grid;
+    grid-template-columns: minmax(0, 340px) minmax(0, 1fr);
+    gap: calc(var(--cell) * 4);
+    align-items: start;
   }
 
-  .stepper-step {
-    justify-content: center;
+  .plan-note {
+    display: block;
+    position: sticky;
+    top: calc(var(--cell) * 3);
+    max-height: calc(100dvh - var(--cell) * 6);
+    overflow-y: auto;
+    padding: calc(var(--cell) * 2.5);
+    background: var(--label);
+    box-shadow: inset 0 0 0 1px var(--rule);
+  }
+
+  .plan-note-title {
+    color: var(--print-3);
+  }
+
+  .plan-note-fold {
+    display: none;
   }
 }
 
@@ -1020,10 +1227,14 @@ a.stepper-step[data-state="ahead"] .stepper-mark {
   color: var(--bench-ink);
 }
 
+/* Sentence-case, not tracked caps: the rail is where you read, and caps were
+   carrying every label in the console until none of them stood out. */
 .rail-link {
   gap: calc(var(--cell) * 1.5);
   padding: calc(var(--cell) * 1.25) calc(var(--cell) * 1.5);
   color: var(--bench-ink-2);
+  font-size: 14px;
+  font-weight: 600;
   transition: background 140ms ease-out, color 140ms ease-out;
 }
 
@@ -1036,6 +1247,72 @@ a.stepper-step[data-state="ahead"] .stepper-mark {
   margin-left: auto;
 }
 
+/*
+ * The two roles, captioned. With no logins, the rail is the only place a new
+ * receptionist — or a judge with ten seconds — learns who each section is for.
+ * Side by side on a phone, stacked on a desk. Secondary ink, not the quiet one:
+ * the quiet ink drops under 4.5:1 on the rail's lighter ground.
+ */
+.rail-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--cell) * 1) calc(var(--cell) * 3);
+}
+
+.rail-group-label {
+  margin: 0 0 calc(var(--cell) * 0.5);
+  padding: 0 calc(var(--cell) * 1.25);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--bench-ink-2);
+}
+
+@media (min-width: 900px) {
+  .rail-groups {
+    display: grid;
+    gap: calc(var(--cell) * 2.5);
+  }
+
+  .rail-group-label {
+    padding: 0 calc(var(--cell) * 1.5);
+  }
+
+  /* Collapsed, the rail is a column of edge tabs; the captions would not fit. */
+  .rail[data-collapsed] .rail-group-label {
+    display: none;
+  }
+}
+
+/*
+ * On a phone the rail is one band: the brand, then the three sections in a
+ * row beneath it. Stacked vertically it took ~235px — a quarter of the first
+ * screen — before any work appeared.
+ */
+@media (max-width: 899px) {
+  .rail {
+    padding-block: calc(var(--cell) * 1.5);
+    gap: calc(var(--cell) * 0.5);
+  }
+
+  .rail-head {
+    padding-bottom: 0;
+  }
+
+  .rail-link {
+    padding: calc(var(--cell) * 1) calc(var(--cell) * 1.25);
+  }
+
+  .rail-count {
+    margin-left: calc(var(--cell) * 0.75);
+  }
+
+  /* The filter track would wrap its last option onto a second row. */
+  .seg-opt {
+    padding: 0 calc(var(--cell) * 1.25);
+  }
+}
 /*
  * The collapse control. Ink, never amber — the view's one amber belongs to the
  * work, not to a preference about chrome width.
@@ -1412,8 +1689,10 @@ a.stepper-step[data-state="ahead"] .stepper-mark {
   }
 }
 
+/* No floor on a phone: Patient and State fit in 358px, and a 440px floor put
+   the State column — who is in trouble — behind a sideways scroll. */
 .roster-table {
-  min-width: 440px;
+  min-width: 0;
 }
 
 .roster-table .col-reason,

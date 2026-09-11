@@ -29,15 +29,32 @@ import { Badge } from "@/components/ui";
 import { Logo } from "@/components/Logo";
 
 /**
- * Two sections.
+ * Three sections, grouped by who uses them.
  *
- * Escalations used to ride here as a third, which asks a doctor to know that
- * what is wrong with a patient lives somewhere other than the patient. The
- * queue is part of Today now, and the count rides on the section that owns it.
+ * There are no logins, so the roles are made obvious the only way left: the
+ * rail says who each section is for. Clinic staff register patients and book
+ * their visits; the doctor sees the day's consultations and how every patient
+ * on a follow-up is doing. Each screen serves one of them — the receptionist
+ * never writes a note and the doctor never registers anyone.
+ *
+ * Unnumbered. The tabs were numbered once, and a console that numbers its
+ * sections reads as a wizard telling a clinician how to do their job.
+ *
+ * `also` claims the routes a section owns without being named after them:
+ * `/register` is still Patients, and a plan or a call is still a follow-up.
  */
-const NAV = [
-  { label: "Today", href: "/dashboard" },
-  { label: "Patients", href: "/patients" },
+const GROUPS = [
+  {
+    role: "Clinic staff",
+    items: [{ label: "Patients", href: "/patients", also: ["/register"] }],
+  },
+  {
+    role: "Doctor",
+    items: [
+      { label: "Consultations", href: "/consult", also: [] },
+      { label: "Follow-ups", href: "/dashboard", also: ["/plans", "/calls"] },
+    ],
+  },
 ] as const;
 
 const STORAGE_KEY = "careloop.rail.collapsed";
@@ -111,7 +128,7 @@ export function SideNav({
         An affordance nobody finds is the same as one that does not exist.
       */}
       <div className="rail-head">
-        <Link href="/dashboard" className="rail-brand">
+        <Link href="/consult" className="rail-brand">
           <Logo size={26} title={null} />
           <span className="rail-label">Care&nbsp;Loop</span>
         </Link>
@@ -127,31 +144,48 @@ export function SideNav({
         </button>
       </div>
 
-      <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 2 }}>
-        {NAV.map(({ label, href }) => {
-          // `/patients/pat_x/edit` is still the Patients section.
-          const current = pathname === href || pathname.startsWith(`${href}/`);
-          return (
-            <li key={href}>
-              <Link
-                href={href}
-                className="caps rail-link"
-                aria-current={current ? "page" : undefined}
-                data-current={current ? "true" : undefined}
-              >
-                <span className="rail-tab">{label}</span>
-                {label === "Patients" && escalations > 0 ? (
-                  <span className="rail-count">
-                    <Badge tone="danger">{escalations}</Badge>
-                    {/* Or a screen reader hears "Patients, 3" and no more. */}
-                    <span className="sr-only"> waiting on a clinician</span>
-                  </span>
-                ) : null}
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
+      {/* One captioned list per role. No inline `display` on the lists: it
+          overrode the stylesheet's phone layout and stacked the sections
+          vertically, a quarter of every phone screen spent on navigation. */}
+      <div className="rail-groups">
+        {GROUPS.map(({ role, items }) => (
+          <div key={role}>
+            <p className="rail-group-label" id={`rail-${role.replace(/\s+/g, "-").toLowerCase()}`}>
+              {role}
+            </p>
+            <ul
+              style={{ listStyle: "none", margin: 0, padding: 0 }}
+              aria-labelledby={`rail-${role.replace(/\s+/g, "-").toLowerCase()}`}
+            >
+              {items.map(({ label, href, also }) => {
+                // `/patients/pat_x/edit` is still the Patients section.
+                const current = [href, ...also].some(
+                  (p) => pathname === p || pathname.startsWith(`${p}/`),
+                );
+                return (
+                  <li key={href}>
+                    <Link
+                      href={href}
+                      className="rail-link"
+                      aria-current={current ? "page" : undefined}
+                      data-current={current ? "true" : undefined}
+                    >
+                      <span className="rail-tab">{label}</span>
+                      {href === "/dashboard" && escalations > 0 ? (
+                        <span className="rail-count">
+                          <Badge tone="danger">{escalations}</Badge>
+                          {/* Or a screen reader hears "Follow-ups, 3" and no more. */}
+                          <span className="sr-only"> waiting on a clinician</span>
+                        </span>
+                      ) : null}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
+      </div>
 
       {/* The practice and the clinician, at the foot of the rail. */}
       <div className="rail-foot">

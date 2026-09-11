@@ -35,15 +35,20 @@ export const CONSENT_LABEL: Record<string, string> = {
  * what the doctor is actually choosing between.
  */
 export const CONSENT_OPTIONS = [
-  { value: "unknown", label: "Not recorded — nothing will be dialled" },
+  { value: "unknown", label: "Not recorded (nothing will be dialled)" },
   { value: "granted", label: "Agreed to automated calls" },
-  { value: "declined", label: "Declined — will not be called" },
+  { value: "declined", label: "Declined (will not be called)" },
 ];
 
+/*
+ * Unknown is blue, not amber. Amber is the action colour — a row of amber
+ * "not recorded" strips competed with the one button the page was for — and
+ * nobody is at risk when consent is missing: every call is simply refused.
+ */
 export const CONSENT_TONE: Record<string, Tone> = {
   granted: "clear",
   declined: "danger",
-  unknown: "amber",
+  unknown: "info",
 };
 
 export const HEALTH_LABEL: Record<PlanHealth, string> = {
@@ -52,21 +57,29 @@ export const HEALTH_LABEL: Record<PlanHealth, string> = {
   on_track: "On track",
   drifting: "Drifting",
   escalated: "Escalated",
-  awaiting_approval: "Awaiting approval",
+  /* The plan page's own stamp for the same state — and short enough that the
+     roster's State column no longer clips it at phone width. */
+  awaiting_approval: "Plan to review",
   paused: "Paused",
   completed: "Completed",
 };
 
+/*
+ * Amber is not a status. It is the one action on a page, and three amber
+ * states on the roster sat beside the amber "Register a patient" button and
+ * out-shouted it. Waiting-on-you states are blue: they inform, nobody is at
+ * risk, and red still interrupts for the ones where somebody might be.
+ */
 export const HEALTH_TONE: Record<PlanHealth, Tone> = {
-  // Amber, not red: nobody is at risk yet, but this row is waiting on the doctor.
-  needs_plan: "amber",
+  // Blue, not red: nobody is at risk yet, but this row is waiting on the doctor.
+  needs_plan: "info",
   // Red: a window that closed without contact is the failure, not a footnote.
   never_reached: "danger",
   on_track: "clear",
   drifting: "danger",
   escalated: "danger",
-  awaiting_approval: "amber",
-  paused: "amber",
+  awaiting_approval: "info",
+  paused: "info",
   completed: "plain",
 };
 

@@ -7,8 +7,10 @@
  * an agent naming a drug the doctor never prescribed — is one nobody would
  * notice until it had already been said down a phone line.
  *
- * It runs at compile *and* again before dialling, because the plan can be
- * edited in between and the note is the only authority either time.
+ * It runs at compile time, against the note and the doctor's escalation
+ * wording. It does not run again before dialling — that is the guard's job,
+ * inside `dial()`. This comment used to claim a dial-time re-check that no
+ * code performed; a safety claim a reader can check has to be true.
  *
  * Pure.
  */
@@ -51,6 +53,44 @@ export function mentionedIn(note: string, term: string): boolean {
   if (!needle) return false;
   return haystack.includes(` ${needle} `) || haystack.includes(` ${needle}`);
 }
+
+/**
+ * The note's own words inside a quote that is not quite verbatim.
+ *
+ * A model asked to quote the note frames the words it quotes — "Watch for any
+ * discharge from the wound" for a note reading "Watch for fever, any discharge
+ * from the wound". The framing is the model's; the phrase inside it is the
+ * doctor's. This returns the whole quote when the note contains it, otherwise
+ * the longest run of the quote's words the note does contain — provided that
+ * run is at least three words and most of the quote. Anything less is not
+ * grounded, and returns null.
+ *
+ * Used for question anchors only. Schedule quotes stay exact: a partial match
+ * there could turn "for a week" into a weekly cadence.
+ */
+export function groundedPhrase(note: string, quote: string): string | null {
+  const words = quote.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return null;
+  if (mentionedIn(note, quote)) return quote.trim();
+
+  const floor = Math.max(3, Math.ceil(words.length * 0.6));
+  for (let len = words.length - 1; len >= floor; len--) {
+    for (let start = 0; start + len <= words.length; start++) {
+      const run = words.slice(start, start + len);
+      /* A run of filler ("any of the") is in every note; it anchors nothing. */
+      if (!run.some((w) => !FILLER.has(w.toLowerCase().replace(/[^a-z]/g, "")))) continue;
+      const phrase = run.join(" ");
+      if (mentionedIn(note, phrase)) return phrase;
+    }
+  }
+  return null;
+}
+
+const FILLER = new Set([
+  "a", "an", "the", "of", "to", "and", "or", "for", "any", "in", "on", "at", "is",
+  "are", "if", "it", "with", "from", "as", "by", "be", "that", "this", "she", "he",
+  "they", "her", "his", "their", "whether", "ask", "watch", "check", "has", "have",
+]);
 
 export interface GroundingInput {
   noteBody: string;

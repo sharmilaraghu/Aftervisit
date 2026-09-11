@@ -84,17 +84,30 @@ export function TreatmentControls({
     );
   }
 
+  /*
+   * Folded. These are lifecycle decisions, made once per course, and printed
+   * open they were three more peers in a wall of thirteen same-weight buttons
+   * on the page a clinician reaches from an escalation. "See the whole plan"
+   * went entirely: the header already carries that link.
+   */
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: "calc(var(--cell) * 1.5)" }}>
-      <Button variant="onLabel" href={`/plans/${planId}`}>
-        See the whole plan
-      </Button>
-      <Button variant="onLabel" href={`/plan/new?patient=${patientId}`}>
-        Another follow-up
-      </Button>
-      <Button variant="onLabel" onClick={() => setArmed(true)}>
-        Treatment finished
-      </Button>
-    </div>
+    <details className="disclosure">
+      <summary>Manage this follow-up</summary>
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: "calc(var(--cell) * 1.5)",
+          marginTop: "calc(var(--cell) * 1.5)",
+        }}
+      >
+        <Button variant="onLabel" href={`/register?patient=${patientId}`}>
+          Book another visit
+        </Button>
+        <Button variant="onLabel" onClick={() => setArmed(true)}>
+          Treatment finished
+        </Button>
+      </div>
+    </details>
   );
 }

@@ -88,7 +88,7 @@ export function PatientSummary({
       aside={
         open.length > 0 ? (
           <Badge tone="danger">
-            {open.length} waiting on you
+            {open.length} with the doctor
           </Badge>
         ) : (
           <Badge tone="clear" quiet>
@@ -153,7 +153,7 @@ export function PatientSummary({
             }}
           >
             <p className="caps" style={{ margin: "0 0 calc(var(--cell) * 1.5)", color: "var(--print-3)" }}>
-              Waiting on you
+              With the doctor
             </p>
             {open.map((e) => {
               const sev = e.severity ? SEVERITY[e.severity] : null;
@@ -213,7 +213,21 @@ export function PatientSummary({
           </p>
         ) : null}
 
-        {footer ? <div style={{ marginTop: "calc(var(--cell) * 2)" }}>{footer}</div> : null}
+        {/* A grid, not a block: the treatment controls and the amend button are
+            siblings, and stacked as inline controls in flow they collided —
+            a 38px button overhanging its paragraph covered the one above it. */}
+        {footer ? (
+          <div
+            style={{
+              marginTop: "calc(var(--cell) * 2)",
+              display: "grid",
+              gap: "calc(var(--cell) * 2)",
+              justifyItems: "start",
+            }}
+          >
+            {footer}
+          </div>
+        ) : null}
       </div>
 
       {/* Full-bleed, because it is a decision strip and not body copy. */}
