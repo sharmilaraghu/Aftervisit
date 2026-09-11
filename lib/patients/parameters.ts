@@ -185,6 +185,19 @@ export function cellTone(row: ParameterRow, reading: ParameterReading): CellTone
   if (row.threshold !== null && typeof reading.valueNumber === "number") {
     return reading.valueNumber >= row.threshold ? "escalating" : "benign";
   }
+  /*
+   * A severity scale reads as one without being declared. Only the universal
+   * set carries escalating values, so a compiled "none / mild / moderate /
+   * severe" question printed its worst answer — "severe", on the day a patient
+   * could not keep water down — at the same weight as "none". This is a tone on
+   * the patient's own words, not a verdict: the scale's top two answers are
+   * marked, and declared values above still win.
+   */
+  if (reading.valueText && (row.enumValues ?? []).includes("severe")) {
+    return reading.valueText === "moderate" || reading.valueText === "severe"
+      ? "escalating"
+      : "benign";
+  }
   return "benign";
 }
 
@@ -201,7 +214,9 @@ export function cellLabel(row: ParameterRow, reading: ParameterReading): string 
   if (reading.status === null) return "";
   if (reading.status === "unmappable" || reading.status === "missing") return "?";
   if (typeof reading.valueNumber === "number") return String(reading.valueNumber);
-  if (reading.valueBool !== null) return reading.valueBool ? "Y" : "N";
+  /* Spelled out. "N" meant "no" in a yes/no row and "none" in the severity row
+     beneath it, so the key had to list one letter twice. */
+  if (reading.valueBool !== null) return reading.valueBool ? "Yes" : "No";
   if (reading.valueText) return abbreviate(reading.valueText, row.enumValues ?? []);
   return "";
 }

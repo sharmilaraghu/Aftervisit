@@ -1,0 +1,34 @@
+{
+  "model": "gpt-4.1-mini",
+  "recordedAt": "2026-09-11T09:36:11.793Z",
+  "raw": {
+    "reason": "New amlodipine · tolerance and side effects",
+    "condition": "blood_pressure",
+    "durationDays": 7,
+    "durationQuote": "for a week",
+    "cadence": "daily",
+    "cadenceQuote": "daily",
+    "localTime": null,
+    "localTimeQuote": null,
+    "medications": [
+      "amlodipine 5mg"
+    ],
+    "redFlagTerms": null,
+    "watchPoints": [
+      {
+        "text": "dizzy on standing",
+        "quote": "whether she is dizzy on standing"
+      }
+    ],
+    "questions": [
+      {
+        "questionId": "dizzy_on_standing",
+        "prompt": "Have you felt dizzy when standing up?",
+        "answerType": "boolean",
+        "enumValues": null,
+        "why": "whether she is dizzy on standing",
+        "watchPoint": 0
+      }
+    ]
+  }
+}

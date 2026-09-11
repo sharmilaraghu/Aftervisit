@@ -454,6 +454,8 @@ export async function deletePatient(patientId: string): Promise<{ deleted: boole
     where plan_id in (select id from follow_up_plans where patient_id = ${patientId})
   `);
   await db.execute(sql`delete from follow_up_plans where patient_id = ${patientId}`);
+  // Visits point at notes, so they go before the notes do.
+  await db.execute(sql`delete from visits where patient_id = ${patientId}`);
   await db.execute(sql`delete from consultation_notes where patient_id = ${patientId}`);
 
   const gone = await db.execute(sql`

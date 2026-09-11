@@ -39,6 +39,7 @@ import * as schema from "../lib/db/schema";
 import { newId, idempotencyKey } from "../lib/db/ids";
 import { inspectQuestion } from "../lib/script/guard";
 import { normalizePhone } from "../lib/phone/normalize";
+import { readConfig } from "../lib/config";
 import { redFlagsFor } from "../data/red-flags";
 import { addDays, localDate, zonedTimeToUtc } from "../lib/time/clock";
 import { defaultRules, lockedRules } from "../lib/rules/catalog";
@@ -100,7 +101,8 @@ const QUESTIONS: QuestionSpec[] = [
   },
   {
     questionId: "taking_as_prescribed",
-    prompt: "Have you been able to take it as prescribed since we last spoke?",
+    /* Stands alone: a call must make sense if yesterday's never connected. */
+    prompt: "Have you been able to take it as prescribed?",
     answerType: "boolean",
     source: "default",
   },
@@ -128,9 +130,9 @@ const QUESTIONS: QuestionSpec[] = [
 ];
 
 /**
- * One question the guard refuses, seeded only onto the plan still awaiting
- * approval — so the review screen's "Refused by the clinical guard" panel has
- * something real in it.
+ * One question the guard refuses, seeded onto a draft that sets
+ * `withRefusedQuestion` — so the review screen's "Refused by the clinical
+ * guard" panel has something real in it when a demo wants to show it.
  *
  * It is *not* marked rejected by hand. It goes through `inspectQuestion` like
  * every other prompt below and fails on three counts at once — it attributes a
@@ -240,12 +242,20 @@ type Row = Record<string, unknown>;
 
 interface Built {
   patients: Row[];
+  visits: Row[];
   notes: Row[];
   plans: Row[];
   questions: Row[];
   calls: Row[];
   slots: Row[];
   escalations: Row[];
+  /**
+   * The model's reading of every answered call, shaped as `completeCall`
+   * writes it. Without these the doctor's view could not tell "no concerns
+   * raised" from "nobody has read it yet", which is the distinction it exists
+   * to draw.
+   */
+  triage: Row[];
   /** Prompts whose guard verdict was not the one the seed expected, either way. */
   guardSurprises: string[];
   overrides: string[];
@@ -291,7 +301,14 @@ function occurrenceAt(
 function transcriptFor(prompt: string, utterance: string): StoredTurn[] {
   const attemptId = "seed-attempt";
   return [
-    { attemptId, offsetSeconds: 2, speaker: "bot", text: "Hello, this is an AI assistant calling from Bridgeview Family Practice on behalf of Dr Rao." },
+    /* The configured practice and clinician, so a seeded transcript says what
+       a real call from this deployment would. */
+    {
+      attemptId,
+      offsetSeconds: 2,
+      speaker: "bot",
+      text: `Hello, this is an AI assistant calling from ${readConfig().practiceName} on behalf of ${readConfig().clinicianName}.`,
+    },
     { attemptId, offsetSeconds: 9, speaker: "bot", text: "Is now a good time to go through a few follow-up questions?" },
     { attemptId, offsetSeconds: 14, speaker: "user", text: "Yes, go ahead." },
     { attemptId, offsetSeconds: 18, speaker: "bot", text: prompt },
@@ -304,12 +321,14 @@ function build(): Built {
   const now = Date.now();
   const out: Built = {
     patients: [],
+    visits: [],
     notes: [],
     plans: [],
     questions: [],
     calls: [],
     slots: [],
     escalations: [],
+    triage: [],
     guardSurprises: [],
     overrides: [],
   };
@@ -319,17 +338,29 @@ function build(): Built {
    * absent plan row, so this loop writes one row each and that is the state.
    */
   for (const p of SEED_UNPLANNED) {
+    const patientId = newId("pat");
     out.patients.push({
-      id: newId("pat"),
+      id: patientId,
       name: p.name,
       age: p.age,
       phoneE164: p.phone,
       timezone: p.timezone,
+      language: p.language,
       aiCallConsent: p.consent,
       aiCallConsentAt: p.consent === "unknown" ? null : new Date(now - 8 * DAY_MS),
       aiCallConsentSource: p.consent === "unknown" ? null : "registration",
       createdAt: new Date(now - 1 * DAY_MS),
       updatedAt: new Date(now - 1 * DAY_MS),
+    });
+    // Booked for today, in their own zone, and still waiting for the doctor.
+    out.visits.push({
+      id: newId("vis"),
+      patientId,
+      kind: p.visit.kind,
+      visitDate: localDate(new Date(now), p.timezone),
+      reportedSymptoms: p.visit.reportedSymptoms,
+      status: "waiting",
+      createdAt: new Date(now - 1 * DAY_MS),
     });
   }
 
@@ -365,6 +396,7 @@ function build(): Built {
       age: p.age,
       phoneE164: phone,
       timezone: p.timezone,
+      language: p.language,
       aiCallConsent: p.consent,
       aiCallConsentAt: p.consent === "unknown" ? null : new Date(now - 8 * DAY_MS),
       aiCallConsentSource: p.consent === "unknown" ? null : "registration",
@@ -372,11 +404,26 @@ function build(): Built {
       updatedAt: new Date(now - 9 * DAY_MS),
     });
 
+    /* Back today with something new: a waiting visit on the doctor's list,
+       with this patient's earlier follow-up to read beside it. */
+    if (p.visitToday) {
+      out.visits.push({
+        id: newId("vis"),
+        patientId,
+        kind: p.visitToday.kind,
+        visitDate: localDate(new Date(now), p.timezone),
+        reportedSymptoms: p.visitToday.reportedSymptoms,
+        status: "waiting",
+        createdAt: new Date(now - 60 * 60 * 1000),
+      });
+    }
+
     out.notes.push({
       id: noteId,
       patientId,
       authorName: "Dr Rao",
       body: p.note,
+      escalationNote: p.escalationNote ?? null,
       // Seeded plans were compiled before this build; recording a provider we
       // did not actually run would be the one dishonest field in the file.
       compileStatus: "compiled",
@@ -549,7 +596,7 @@ function build(): Built {
       source: "default",
     }));
 
-    out.plans.push({
+    const planRow: Row = {
       id: planId,
       patientId,
       noteId,
@@ -568,9 +615,15 @@ function build(): Built {
       endsAt,
       approvedAt: approved ? new Date(now - (elapsed + 1) * DAY_MS) : null,
       approvedBy: approved ? "Dr Rao" : null,
+      /* A completed current plan ran out of calendar and nobody closed the
+         file — the doctor's "Finished" band, with no closing note yet. */
+      closeReason: p.planStatus === "completed" ? "duration_elapsed" : null,
+      closedAt: p.planStatus === "completed" ? endsAt : null,
       rules: rulesFor(),
       redFlagTerms,
       provenance: {
+        // Every seeded reason is written from its note.
+        reason: "note",
         cadence: "note",
         durationDays: "note",
         localTime: "default",
@@ -578,13 +631,18 @@ function build(): Built {
         retryDelayMinutes: "default",
       },
       resultSchema: resultSchemaFor(),
+      scheduleQuotes: p.scheduleQuotes ?? null,
+      watchPoints: p.watchPoints ?? null,
       createdAt: new Date(now - (elapsed + 1) * DAY_MS),
       updatedAt: new Date(now - (elapsed + 1) * DAY_MS),
-    });
+    };
+    out.plans.push(planRow);
 
-    // The plan still waiting on the doctor carries the refused question too, so
-    // the review screen has a real guard verdict to render rather than none.
-    const questions = approved ? QUESTIONS : [...QUESTIONS, REFUSED_QUESTION];
+    // A draft that asks for it carries the refused question too, so the review
+    // screen has a real guard verdict to render. The draft the demo approves
+    // does not — a refused question blocks the authorisation panel entirely.
+    const questions =
+      !approved && p.withRefusedQuestion ? [...QUESTIONS, REFUSED_QUESTION] : QUESTIONS;
 
     questions.forEach((q, i) => {
       // The real guard, on the real prompt. Not a stored assumption.
@@ -605,7 +663,10 @@ function build(): Built {
         answerType: q.answerType,
         enumValues: q.enumValues ?? null,
         required: true,
-        source: q.source,
+        // A question the note asks for is the note's, with the words it serves.
+        source: p.anchors?.[q.questionId] ? "note" : q.source,
+        anchorQuote: p.anchors?.[q.questionId]?.quote ?? null,
+        watchPoint: p.anchors?.[q.questionId]?.watchPoint ?? null,
         guardStatus: verdict.ok ? "approved" : "rejected",
         guardFindings: verdict.ok ? null : verdict.findings,
       });
@@ -615,6 +676,15 @@ function build(): Built {
 
     const utterances = DEMO_UTTERANCES[p.condition] ?? ["Yes, all fine."];
     let reachedCount = 0;
+    /* The last call triage read, for the plan's condition summary. A holder
+       object, not a `let`, so the assignment inside the loop survives narrowing. */
+    const last: { reached: { summary: string | null; at: Date; callId: string } | null } = {
+      reached: null,
+    };
+    const lastReachedIndex = p.week.reduce(
+      (acc, d, i) => (d === "answered" || d === "flagged" ? i : acc),
+      -1,
+    );
 
     p.week.forEach((day, index) => {
       const occurrence = index + 1;
@@ -682,6 +752,7 @@ function build(): Built {
 
       // answered | flagged — the patient was reached and spoke.
       const callId = newId("sc");
+      const triageId = newId("tri");
       const flagged = day === "flagged";
       const utterance = flagged
         ? (utterances.at(-1) ?? "Something is wrong.")
@@ -734,6 +805,40 @@ function build(): Built {
         finishedAt,
       });
 
+      /*
+       * The model's reading of this call, as `completeCall` would have stored
+       * it. A flagged day carries the verdict its escalation shows; an answered
+       * one reads low. The last answered call of a patient with a written
+       * condition summary carries that summary, because it is what the
+       * doctor's view reads as how they are doing.
+       */
+      const triageSummary = flagged
+        ? spec.summary
+        : index === lastReachedIndex && p.conditionSummary
+          ? p.conditionSummary
+          : `Reached and answered every question. In their words: "${utterance}"`;
+      out.triage.push({
+        id: triageId,
+        callId,
+        patientId,
+        planId,
+        status: "ok",
+        verdict: flagged ? (spec.severity === "severe" ? "severe" : "escalate") : "low",
+        reason: flagged
+          ? spec.reason
+          : "Nothing in the call matched a condition you asked to hear about.",
+        summary: triageSummary,
+        keyTerms: [],
+        matchedConcerns: [],
+        quote: utterance,
+        provider: null,
+        model: null,
+        raw: null,
+        error: null,
+        createdAt: finishedAt,
+      });
+      last.reached = { summary: triageSummary, at: finishedAt, callId };
+
       for (const q of QUESTIONS) {
         const value = structured[q.questionId];
         const isUnmappable = unmappable && q.questionId === "symptom_severity";
@@ -770,6 +875,7 @@ function build(): Built {
           floorHits: spec.floorHits.length > 0 ? [...spec.floorHits] : null,
           utterance,
           /* One row per call, matching what `completeCall` writes. */
+          triageId,
           dedupeKey: `${planId}:call:${callId}`,
           status: "open",
           // Only an urgent escalation stops a plan, and only the plan it
@@ -779,6 +885,13 @@ function build(): Built {
         });
       }
     });
+
+    /* How they are doing, as the tick keeps it: the last reading's summary. */
+    if (last.reached) {
+      planRow.conditionSummary = last.reached.summary;
+      planRow.conditionSummaryAt = last.reached.at;
+      planRow.conditionSummaryCallId = last.reached.callId;
+    }
 
     // A patient who has gone quiet across three exhausted occurrences gets one
     // routine escalation, attached to the last attempt that failed.
@@ -849,6 +962,7 @@ async function clearSeeded(): Promise<number> {
       sqlRaw`delete from plan_questions where plan_id in (select id from follow_up_plans where patient_id = ${id})`,
     );
     await db.execute(sqlRaw`delete from follow_up_plans where patient_id = ${id}`);
+    await db.execute(sqlRaw`delete from visits where patient_id = ${id}`);
     await db.execute(sqlRaw`delete from consultation_notes where patient_id = ${id}`);
     await db.execute(sqlRaw`delete from patients where id = ${id}`);
   }
@@ -880,6 +994,7 @@ async function main() {
 
   console.log("  Inserting…");
   await db.insert(schema.patients).values(built.patients as never);
+  await db.insert(schema.visits).values(built.visits as never);
   await db.insert(schema.consultationNotes).values(built.notes as never);
   await db.insert(schema.followUpPlans).values(built.plans as never);
   await db.insert(schema.planQuestions).values(built.questions as never);
@@ -888,6 +1003,10 @@ async function main() {
   for (let i = 0; i < built.calls.length; i += 40) {
     await db.insert(schema.scheduledCalls).values(built.calls.slice(i, i + 40) as never);
   }
+  // After the calls they read, before the escalations that point at them.
+  for (let i = 0; i < built.triage.length; i += 40) {
+    await db.insert(schema.callTriage).values(built.triage.slice(i, i + 40) as never);
+  }
   for (let i = 0; i < built.slots.length; i += 100) {
     await db.insert(schema.extractedSlots).values(built.slots.slice(i, i + 100) as never);
   }
@@ -895,12 +1014,14 @@ async function main() {
 
   console.log("");
   console.log(`  patients            ${built.patients.length}`);
+  console.log(`  visits              ${built.visits.length}`);
   console.log(`  consultation_notes  ${built.notes.length}`);
   console.log(`  follow_up_plans     ${built.plans.length}`);
   console.log(`  plan_questions      ${built.questions.length}`);
   console.log(`  scheduled_calls     ${built.calls.length}`);
   console.log(`  extracted_slots     ${built.slots.length}`);
   console.log(`  escalations         ${built.escalations.length}`);
+  console.log(`  call_triage         ${built.triage.length}`);
   if (built.overrides.length) {
     console.log("");
     console.log("  Phone numbers taken from the environment:");

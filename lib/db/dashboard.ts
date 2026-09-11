@@ -1,20 +1,31 @@
 /**
- * The read behind Today — one row per patient, ordered by who needs a call back.
+ * The read behind Follow-ups — one row per patient on a plan, by how they are.
  *
- * The console used to answer this across seven queries and four panels, which
- * meant the answer to "who do I ring first?" was assembled by the reader. This
- * assembles it once, here, so the page is a rendering rather than a synthesis.
+ * The doctor's view is condition, not logistics. This read used to return the
+ * call ladder — attempts, failure codes, next call, "quiet for" — and the page
+ * printed all of it, so the question "how is she?" was answered with a
+ * schedule. Those facts still exist on the patient record's Calls panel; they
+ * are simply not the doctor's first screen. The one silence that matters —
+ * nobody reached — survives here as a status, not as a timetable.
+ *
+ * No phone number reaches this row, except as `emergencyPhone` on a patient who
+ * needs attention now: the doctor must be able to ring them, and nobody else.
  *
  * Two rules from `queries.ts` still hold: never `select *` on `scheduled_calls`
  * (its transcript column is TOASTed jsonb), and never aggregate two child
- * tables in one join — hence the separate passes below rather than one clever
- * statement.
+ * tables in one join — hence the separate passes below.
  */
 
 import { sql } from "drizzle-orm";
 
 import { getDb } from "@/lib/db/client";
 import { getRoster, getQueue } from "@/lib/db/queries";
+import {
+  clinicalStatus,
+  statusReason,
+  type ClinicalStatus,
+  type StatusInput,
+} from "@/lib/triage/status";
 import type { PlanHealth } from "@/lib/db/enums";
 
 export interface NextCall {
@@ -66,132 +77,106 @@ export async function getPlanProgress(): Promise<Map<string, NextCall>> {
   return out;
 }
 
-/** The model's last reading of a patient, whether or not it raised anything. */
+/** The model's last reading on a plan, whether or not it raised anything. */
 interface LatestTriage {
   callId: string;
+  /** `ok`, or how the reading failed — a failed one fails closed and says so. */
+  status: string;
   verdict: string;
-  /** One sentence a clinician reads before anything else. */
-  summary: string | null;
-  /** The doctor's own escalating conditions that this call touched, in their wording. */
+  /** Whether that call reached the patient — a low reading of silence is not "no concerns". */
+  reached: boolean;
   matchedConcerns: string[];
   quote: string | null;
-  at: Date;
 }
 
 /**
- * The most recent triage per patient.
+ * The most recent triage per plan.
  *
- * Not the most recent *escalation*: a call the model read and cleared is still
- * a reading, and a page that only shows what was raised cannot tell "nothing
- * is wrong" from "nobody has listened yet". `distinct on` takes the latest in
- * one pass rather than a subquery per patient.
+ * Per plan, not per patient: a returning patient's new follow-up must not be
+ * read through the last episode's verdict. `distinct on` takes the latest in
+ * one pass.
  */
 async function getLatestTriage(): Promise<Map<string, LatestTriage>> {
   const db = getDb();
   const result = await db.execute(sql`
-    select distinct on (t.patient_id)
-           t.patient_id, t.call_id, t.verdict, t.summary,
-           t.matched_concerns, t.quote, t.created_at
+    select distinct on (t.plan_id)
+           t.plan_id, t.call_id, t.status, t.verdict, t.matched_concerns, t.quote,
+           coalesce(c.outcome in ('answered', 'flagged', 'unmappable'), false) as reached
     from call_triage t
-    order by t.patient_id, t.created_at desc
+    left join scheduled_calls c on c.id = t.call_id
+    order by t.plan_id, t.created_at desc
   `);
 
   const out = new Map<string, LatestTriage>();
   for (const r of result.rows as Record<string, unknown>[]) {
-    out.set(String(r.patient_id), {
+    out.set(String(r.plan_id), {
       callId: String(r.call_id),
+      status: String(r.status),
       verdict: String(r.verdict),
-      summary: r.summary ? String(r.summary) : null,
+      reached: Boolean(r.reached),
       matchedConcerns: Array.isArray(r.matched_concerns)
         ? (r.matched_concerns as unknown[]).map(String)
         : [],
       quote: r.quote ? String(r.quote) : null,
-      at: new Date(String(r.created_at)),
     });
   }
   return out;
 }
 
-/** The last time we actually dialled, answered or not. */
-interface LastCall {
-  callId: string;
-  at: Date;
-  /** Null when the row finished without a mapped outcome. */
-  outcome: string | null;
-  status: string;
-  /** Which day of the plan, and which try on that day. */
-  occurrence: number;
-  attempt: number;
-  /** The plan's ceiling, so a row can say "3 of 3" rather than "3". */
-  maxAttempts: number | null;
-  /** Separates "nobody picked up" from "the call never went out". */
-  failureCode: string | null;
+interface PlanFacts {
+  conditionSummary: string | null;
+  conditionSummaryAt: Date | null;
+  /** Completed because the window ran out, and no closing note written. */
+  finishedUnclosed: boolean;
 }
 
-/**
- * The last call placed for each patient.
- *
- * Distinct from the roster's `lastHeard`, which is the last time somebody
- * *answered*. A patient dialled three times into silence has a recent last
- * call and no last heard, and the gap between those two is the thing this
- * product exists to make visible.
- *
- * It selects the ladder's position too — occurrence, attempt, the plan's
- * ceiling — because "we have tried three times and nobody picked up" is what
- * decides whether a doctor rings the patient themselves, and a summary
- * sentence cannot say it. Widening this select costs nothing: the query
- * already runs, and `transcript` and `calle_raw` stay unnamed so no TOASTed
- * column is read.
- */
-async function getLastCalls(): Promise<Map<string, LastCall>> {
-  const db = getDb();
-  const result = await db.execute(sql`
-    select distinct on (c.patient_id)
-           c.patient_id, c.id, c.finished_at, c.outcome, c.status,
-           c.occurrence, c.attempt, c.calle_failure_code, p.max_attempts
-    from scheduled_calls c
-    left join follow_up_plans p on p.id = c.plan_id
-    where c.finished_at is not null
-    order by c.patient_id, c.finished_at desc
+async function getPlanFacts(planIds: string[]): Promise<Map<string, PlanFacts>> {
+  const out = new Map<string, PlanFacts>();
+  if (planIds.length === 0) return out;
+  const result = await getDb().execute(sql`
+    select id, condition_summary, condition_summary_at,
+           (status = 'completed' and close_reason = 'duration_elapsed'
+            and closing_summary is null) as finished_unclosed
+    from follow_up_plans
+    where id in (${sql.join(
+      planIds.map((id) => sql`${id}`),
+      sql`, `,
+    )})
   `);
-
-  const out = new Map<string, LastCall>();
   for (const r of result.rows as Record<string, unknown>[]) {
-    out.set(String(r.patient_id), {
-      callId: String(r.id),
-      at: new Date(String(r.finished_at)),
-      outcome: r.outcome ? String(r.outcome) : null,
-      status: String(r.status),
-      occurrence: Number(r.occurrence ?? 0),
-      attempt: Number(r.attempt ?? 0),
-      maxAttempts: r.max_attempts === null || r.max_attempts === undefined
-        ? null
-        : Number(r.max_attempts),
-      failureCode: r.calle_failure_code ? String(r.calle_failure_code) : null,
+    out.set(String(r.id), {
+      conditionSummary: r.condition_summary ? String(r.condition_summary) : null,
+      conditionSummaryAt: r.condition_summary_at ? new Date(String(r.condition_summary_at)) : null,
+      finishedUnclosed: Boolean(r.finished_unclosed),
     });
   }
   return out;
 }
 
-/** Everything one line of Today prints. Assembled here, rendered there. */
+/** Everything one line of Follow-ups prints. Assembled here, rendered there. */
 export interface TodayRow {
   patientId: string;
   name: string;
   age: number;
-  phoneE164: string;
+  /** For dating the condition summary in the patient's own zone. */
   timezone: string;
 
-  planId: string | null;
+  planId: string;
   planStatus: string | null;
   /** What this patient is being followed up for. */
   reason: string;
   health: PlanHealth;
 
-  /** `severe | escalate | low`, or null when no call has been read yet. */
-  severity: string | null;
-  /** The model's one-line account of the last call. */
-  severitySummary: string | null;
-  /** Which of the doctor's own escalation notes the call touched. */
+  status: ClinicalStatus;
+  /** Why, as a fact about the patient — never a schedule line. */
+  statusReason: string;
+
+  /** How they are doing, from the last call triage could read. */
+  conditionSummary: string | null;
+  conditionSummaryAt: Date | null;
+  /** The latest call could not be read. The summary above is older than it. */
+  summaryUnavailable: boolean;
+  /** Which of the doctor's own escalation notes the last call touched. */
   matchedConcerns: string[];
   /** One line the patient actually said. Evidence, not summary. */
   quote: string | null;
@@ -199,96 +184,26 @@ export interface TodayRow {
   /** Set only while an escalation is open or acknowledged — what the actions act on. */
   escalationId: string | null;
   escalationStatus: string | null;
-  /** Which floor rule raised it, when one did. */
-  ruleLabel: string | null;
   pausedPlan: boolean;
 
+  /** The call to read, when there is one. */
   lastCallId: string | null;
-  lastCallAt: Date | null;
-  lastCallOutcome: string | null;
-  lastCallStatus: string | null;
-  /** Where in the ladder that call sat: day `n`, attempt `k` of `maxAttempts`. */
-  lastCallOccurrence: number | null;
-  lastCallAttempt: number | null;
-  maxAttempts: number | null;
-  /** Tells "nobody picked up" apart from "the call never went out". */
-  lastCallFailureCode: string | null;
-  /** Calendar days since anyone last answered, in the patient's own zone. */
-  quietFor: number | null;
-
-  nextCallAt: Date | null;
-  /** Which day of the plan the next call is, and how many days the plan has. */
-  nextOccurrence: number | null;
-  totalOccurrences: number | null;
-
   /**
-   * Which band of Today this row belongs in.
-   *
-   * `needs` is an open escalation, or a silence nobody has looked at — a
-   * patient with no plan and one nobody has ever reached are both things the
-   * doctor must act on, and neither raises an escalation to say so.
-   * `read` is acknowledged: seen, still theirs. `running` is everything the
-   * agent is getting on with.
+   * The patient's number, only while they need attention: the doctor must be
+   * able to ring a patient in trouble, and this view prints no number for
+   * anyone else. It is a `tel:` target, never displayed text.
    */
-  band: "needs" | "read" | "running";
+  emergencyPhone: string | null;
 }
 
-/*
- * Who to ring back first.
- *
- * Severity leads, because that is the question the page asks. Underneath it,
- * a patient nothing has been said about yet is ranked by the state of their
- * plan rather than dropped to the bottom: never reached and needs-a-plan are
- * silences, and a silence nobody has looked at outranks a call the model has
- * already cleared.
- */
-const SEVERITY_RANK: Record<string, number> = { severe: 0, escalate: 2, low: 5 };
-
-/**
- * Which band a row belongs in.
- *
- * An acknowledged escalation recedes rather than disappearing: `open` means
- * nobody has looked, `acknowledged` means somebody has and it is still theirs
- * to act on. Without that middle state a half-worked queue looks identical to
- * an untouched one.
- */
-function bandFor(
-  escalationStatus: string | null,
-  health: PlanHealth,
-  severity: string | null,
-): TodayRow["band"] {
-  /*
-   * Acknowledging says "I have seen this", never "this got less urgent".
-   * Banding purely on status put two escalating patients below a medium one
-   * because somebody had clicked "I have read this" on them — a patient whose
-   * plan is paused for a severe finding is not further down the list than one
-   * whose follow-up is still dialling.
-   */
-  if (severity === "severe") return "needs";
-  if (escalationStatus === "acknowledged") return "read";
-  if (escalationStatus === "open") return "needs";
-  /* No escalation says so, but a patient with no plan and one nobody has ever
-     reached are both waiting on the doctor. */
-  if (health === "needs_plan" || health === "never_reached") return "needs";
-  return "running";
-}
-const HEALTH_RANK: Record<PlanHealth, number> = {
-  escalated: 1,
-  never_reached: 3,
-  drifting: 3,
-  needs_plan: 4,
-  awaiting_approval: 4,
-  paused: 4,
-  on_track: 6,
-  completed: 7,
+/* Who the doctor should look at first. */
+const STATUS_RANK: Record<ClinicalStatus, number> = {
+  needs_attention: 0,
+  finished: 1,
+  no_word_yet: 2,
+  no_concerns: 3,
 };
 
-/**
- * Every patient, ordered by who needs a call back now.
- *
- * Every patient, not every escalation — a patient nobody has managed to reach
- * has no escalation to their name and is exactly who this page must not lose.
- */
 export interface Today {
   rows: TodayRow[];
   /**
@@ -300,34 +215,47 @@ export interface Today {
 
 export async function getToday(): Promise<Today> {
   const db = getDb();
-  const [roster, queue, triage, lastCalls, progress, cleared] = await Promise.all([
+  const [roster, queue, triage, cleared] = await Promise.all([
     getRoster(),
     getQueue(),
     getLatestTriage(),
-    getLastCalls(),
-    getPlanProgress(),
     db.execute(sql`
       select count(*) as n from escalations
       where status = 'resolved' and resolved_at >= date_trunc('day', now())
     `),
   ]);
 
+  /* A patient with no plan has nothing to follow up yet — they are on
+     Consults, waiting for a note. */
+  const onPlan = roster.filter((p): p is typeof p & { planId: string } => p.planId !== null);
+  const facts = await getPlanFacts(onPlan.map((p) => p.planId));
+
   /* The newest open escalation per patient. `getQueue` already returns them in
      the order the queue reads, so the first one seen is the one that matters. */
   const open = new Map<string, (typeof queue)[number]>();
   for (const q of queue) if (!open.has(q.patientId)) open.set(q.patientId, q);
 
-  const rows: TodayRow[] = roster.map((p) => {
-    const t = triage.get(p.patientId);
+  const rows: TodayRow[] = onPlan.map((p) => {
+    const t = triage.get(p.planId);
     const e = open.get(p.patientId);
-    const last = lastCalls.get(p.patientId);
-    const next = p.planId ? progress.get(p.planId) : undefined;
+    const f = facts.get(p.planId);
+
+    const input: StatusInput = {
+      planStatus: p.planStatus,
+      health: p.health,
+      escalationOpen: Boolean(e),
+      escalationLabel: e?.ruleLabel ?? null,
+      latestVerdict: t?.verdict ?? null,
+      latestReached: t?.reached ?? false,
+      finishedUnclosed: f?.finishedUnclosed ?? false,
+      quietFor: p.quietFor,
+    };
+    const status = clinicalStatus(input);
 
     return {
       patientId: p.patientId,
       name: p.name,
       age: p.age,
-      phoneE164: p.phoneE164,
       timezone: p.timezone,
 
       planId: p.planId,
@@ -335,62 +263,51 @@ export async function getToday(): Promise<Today> {
       reason: p.reason,
       health: p.health,
 
-      /* The escalation's copy wins when there is one: it is the verdict that
-         actually routed this patient to a human, and the triage row may have
-         moved on since. */
-      severity: e?.severity ?? t?.verdict ?? null,
-      severitySummary: e?.summary ?? t?.summary ?? null,
+      status,
+      statusReason: statusReason(input, status),
+
+      conditionSummary: f?.conditionSummary ?? null,
+      conditionSummaryAt: f?.conditionSummaryAt ?? null,
+      summaryUnavailable: t ? t.status !== "ok" : false,
       matchedConcerns: t?.matchedConcerns ?? [],
+      /* The escalation's words win when there is one: it is what actually
+         routed this patient to a human. */
       quote: e?.utterance ?? t?.quote ?? null,
 
       escalationId: e?.id ?? null,
       escalationStatus: e?.status ?? null,
-      ruleLabel: e?.ruleLabel ?? null,
       pausedPlan: e?.pausedPlan ?? false,
 
-      lastCallId: last?.callId ?? e?.callId ?? t?.callId ?? null,
-      lastCallAt: last?.at ?? null,
-      lastCallOutcome: last?.outcome ?? null,
-      lastCallStatus: last?.status ?? null,
-      lastCallOccurrence: last?.occurrence ?? null,
-      lastCallAttempt: last?.attempt ?? null,
-      maxAttempts: last?.maxAttempts ?? null,
-      lastCallFailureCode: last?.failureCode ?? null,
-      quietFor: p.quietFor,
-
-      nextCallAt: next?.scheduledFor ?? null,
-      /* Zero means "nothing scheduled" in `getPlanProgress`, which is an
-         absence rather than day zero. */
-      nextOccurrence: next?.occurrence ? next.occurrence : null,
-      totalOccurrences: next?.total ? next.total : null,
-
-      band: bandFor(e?.status ?? null, p.health, e?.severity ?? t?.verdict ?? null),
+      lastCallId: e?.callId ?? t?.callId ?? null,
+      emergencyPhone: status === "needs_attention" ? p.phoneE164 : null,
     };
   });
 
   /*
-   * A finished patient leaves the board.
-   *
-   * Today answers "who needs a call back", and a completed course with nothing
-   * outstanding is not an answer to it — it stayed on the list purely because
-   * every patient started here and nothing took them off. The roster still has
-   * them; this page is a worklist, not a register.
+   * A closed file leaves the board. A plan that finished and is still
+   * unclosed stays — "close or restart" is the doctor's to decide — and so
+   * does anything that needs attention, finished or not.
    */
   const live = rows.filter(
-    (r) => r.escalationId !== null || !["completed", "cancelled"].includes(r.planStatus ?? ""),
+    (r) =>
+      r.status === "needs_attention" ||
+      r.status === "finished" ||
+      !["completed", "cancelled"].includes(r.planStatus ?? ""),
   );
 
-  live.sort((a, b) => {
-    const ra = a.severity ? SEVERITY_RANK[a.severity] ?? 5 : HEALTH_RANK[a.health];
-    const rb = b.severity ? SEVERITY_RANK[b.severity] ?? 5 : HEALTH_RANK[b.health];
-    if (ra !== rb) return ra - rb;
-    /* Longest silence first inside a band, then by name so the order is total
-       and a re-render never reshuffles two equal rows under the cursor. */
-    const qa = a.quietFor ?? -1;
-    const qb = b.quietFor ?? -1;
-    if (qa !== qb) return qb - qa;
-    return a.name.localeCompare(b.name) || a.patientId.localeCompare(b.patientId);
-  });
+  /*
+   * Within a status, the most urgent first: a plan an urgent finding paused,
+   * then any open escalation, then a silence. Alphabetical put a patient not
+   * heard from in four days above one who could not keep water down.
+   */
+  live.sort(
+    (a, b) =>
+      STATUS_RANK[a.status] - STATUS_RANK[b.status] ||
+      Number(b.pausedPlan) - Number(a.pausedPlan) ||
+      Number(Boolean(b.escalationId)) - Number(Boolean(a.escalationId)) ||
+      a.name.localeCompare(b.name) ||
+      a.patientId.localeCompare(b.patientId),
+  );
 
   return {
     rows: live,

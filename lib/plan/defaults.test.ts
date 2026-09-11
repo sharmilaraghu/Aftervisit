@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { applyDefaults, DEFAULTS, isDefaulted, type CompiledDraft } from "@/lib/plan/defaults";
+import {
+  applyDefaults,
+  DEFAULTS,
+  fieldsToMarkAsClinician,
+  isDefaulted,
+  type CompiledDraft,
+} from "@/lib/plan/defaults";
 import { assertGrounded, mentionedIn } from "@/lib/plan/grounding";
 import { LOCKED_RULE_KINDS } from "@/lib/rules/types";
 
@@ -83,6 +89,109 @@ describe("applyDefaults — provenance is derived, not declared", () => {
     expect(plan.provenance.maxAttempts).toBe("default");
     expect(plan.provenance.retryDelayMinutes).toBe("default");
     expect(plan.maxAttempts).toBe(DEFAULTS.maxAttempts);
+  });
+});
+
+describe("applyDefaults — a schedule value is the note's only with the note's words", () => {
+  const noteText = "Day 2 after cholecystectomy. Call her each morning for five days.";
+
+  it("keeps each value whose quote the note contains, and records the words", () => {
+    const plan = applyDefaults(
+      draft({
+        cadence: "daily",
+        cadenceQuote: "each morning",
+        durationDays: 5,
+        durationQuote: "for five days",
+        localTime: "09:00",
+        localTimeQuote: "each morning",
+      }),
+      { ...options, noteText },
+    );
+    expect(plan.provenance.cadence).toBe("note");
+    expect(plan.provenance.durationDays).toBe("note");
+    expect(plan.provenance.localTime).toBe("note");
+    expect(plan.scheduleQuotes).toEqual({
+      cadence: "each morning",
+      durationDays: "for five days",
+      localTime: "each morning",
+    });
+  });
+
+  /* The failure this exists for: a model that chose a schedule because it is
+     usual, and the review screen telling the doctor they wrote it. */
+  it("downgrades a value whose quote is not in the note to a default", () => {
+    const plan = applyDefaults(
+      draft({ cadence: "weekly", cadenceQuote: "once a week" }),
+      { ...options, noteText },
+    );
+    expect(plan.cadence).toBe(DEFAULTS.cadence);
+    expect(plan.provenance.cadence).toBe("default");
+    expect(plan.scheduleQuotes.cadence).toBeUndefined();
+  });
+
+  /* Found in the note is not the same as said by it: the words have to carry
+     the value, or a model could quote five days and schedule thirty. */
+  it("downgrades a value its quote does not actually say", () => {
+    const plan = applyDefaults(
+      draft({
+        durationDays: 30,
+        durationQuote: "for five days",
+        cadence: "weekly",
+        cadenceQuote: "each morning",
+      }),
+      { ...options, noteText },
+    );
+    expect(plan.provenance.durationDays).toBe("default");
+    expect(plan.provenance.cadence).toBe("default");
+  });
+
+  it("reads 'a week' as seven days", () => {
+    const plan = applyDefaults(draft({ durationDays: 7, durationQuote: "for a week" }), {
+      ...options,
+      noteText: "Check daily for a week.",
+    });
+    expect(plan.provenance.durationDays).toBe("note");
+  });
+
+  it("downgrades a value that arrives with no quote at all", () => {
+    const plan = applyDefaults(draft({ localTime: "17:30" }), { ...options, noteText });
+    expect(plan.localTime).toBe(DEFAULTS.localTime);
+    expect(plan.provenance.localTime).toBe("default");
+  });
+
+  it("keeps a stated frequency the scheduler cannot follow, without scheduling it", () => {
+    const plan = applyDefaults(draft({ cadence: null, cadenceQuote: "twice a day" }), {
+      ...options,
+      noteText: "Check in twice a day for three days.",
+    });
+    expect(plan.provenance.cadence).toBe("default");
+    expect(plan.scheduleQuotes.unsupportedCadence).toBe("twice a day");
+  });
+});
+
+describe("fieldsToMarkAsClinician — a save marks what the doctor chose, not everything", () => {
+  const before = { durationDays: 5, localTime: "09:00", cadence: "daily", maxAttempts: 3 };
+
+  it("leaves an unchanged note value as the note's", () => {
+    const marked = fieldsToMarkAsClinician(before, { ...before, durationDays: 7 }, {
+      durationDays: "note",
+      localTime: "note",
+      cadence: "note",
+      maxAttempts: "default",
+    });
+    expect(marked).toContain("durationDays");
+    expect(marked).not.toContain("localTime");
+    expect(marked).not.toContain("cadence");
+  });
+
+  it("treats saving a placeholder as confirming it", () => {
+    const marked = fieldsToMarkAsClinician(before, before, {
+      durationDays: "default",
+      localTime: "note",
+      cadence: "note",
+      maxAttempts: "default",
+    });
+    expect(marked.sort()).toEqual(["durationDays", "maxAttempts"]);
   });
 });
 

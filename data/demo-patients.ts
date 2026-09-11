@@ -26,6 +26,8 @@ export interface SeedPatient {
   name: string;
   age: number;
   timezone: string;
+  /** BCP 47 tag the agent speaks — one of `LANGUAGE_OPTIONS`. */
+  language: string;
   phone: string;
   /**
    * When set, the value of this environment variable replaces `phone` at seed
@@ -40,6 +42,36 @@ export interface SeedPatient {
   note: string;
   /** `awaiting_approval` seeds an unapproved plan with no occurrences. */
   planStatus: "active" | "paused" | "completed" | "awaiting_approval";
+  /**
+   * A draft that also carries the question the guard refuses, so the review
+   * screen shows its blocked state. Off for the draft the demo approves: with
+   * a refused question on it the authorisation panel never renders at all.
+   */
+  withRefusedQuestion?: boolean;
+  /**
+   * The triage summary of the last answered call — what the doctor's
+   * Follow-ups view reads as how the patient is doing. Omitted, the seed
+   * writes a plain account of the call instead.
+   */
+  conditionSummary?: string;
+  /**
+   * A waiting visit booked for today, for a patient coming back with a new
+   * problem. It puts them on the doctor's Consultations list with their
+   * earlier follow-up shown beside the note.
+   */
+  visitToday?: { kind: "consultation" | "post_op"; reportedSymptoms: string };
+  /*
+   * The shape a live compile gives a draft, so the seeded review screen shows
+   * what the compiler shows: the note's words behind each schedule value, the
+   * watch-points, which note words each question serves, and the doctor's own
+   * escalation wording. Without them the seeded draft read "Not in note"
+   * beside a note that plainly said it.
+   */
+  escalationNote?: string;
+  scheduleQuotes?: Record<string, string>;
+  watchPoints?: { text: string; quote: string }[];
+  /** questionId → the note words it serves and the watch-point it covers. */
+  anchors?: Record<string, { quote: string; watchPoint: string }>;
   /**
    * Which rule the `flagged` day fires. It has to match what the patient
    * actually said: the queue's entire claim is that the rule, the reason and
@@ -84,23 +116,33 @@ export interface SeedPriorPlan {
  * Their own list rather than a variant of `SeedPatient`, because none of the
  * plan fields above mean anything here: there is no note, no condition, no
  * cadence and no week. `needs_plan` is derived from the *absent* plan row, so
- * seeding that state means seeding a patient and stopping.
+ * seeding that state means seeding a patient, booking their visit, and
+ * stopping — the visit is what puts them on the doctor's consult list.
  */
 export interface SeedUnplannedPatient {
   slug: string;
   name: string;
   age: number;
   timezone: string;
+  language: string;
   phone: string;
   consent: "granted" | "unknown" | "declined";
+  /** What the front desk booked. In the receptionist's words, never the model's input. */
+  visit: { kind: "consultation" | "post_op"; reportedSymptoms: string };
 }
 
+/*
+ * An India practice: every patient on Asia/Kolkata and speaking a language the
+ * register form offers. The numbers stay US fiction-reserved on purpose (see
+ * the header) — the +1 is the price of never committing a real person's phone.
+ */
 export const SEED_PATIENTS: SeedPatient[] = [
   {
     slug: "asha-k",
     name: "Asha K",
     age: 54,
     timezone: "Asia/Kolkata",
+    language: "hi-IN",
     phone: "+14155550100",
     phoneOverrideEnv: "CARELOOP_SEED_PHONE_PRIMARY",
     consent: "granted",
@@ -116,10 +158,11 @@ export const SEED_PATIENTS: SeedPatient[] = [
     week: ["answered", "answered", "flagged", "held", "scheduled", "scheduled", "scheduled"],
   },
   {
-    slug: "marcus-b",
-    name: "Marcus B",
+    slug: "mohan-b",
+    name: "Mohan B",
     age: 72,
-    timezone: "Europe/London",
+    timezone: "Asia/Kolkata",
+    language: "en-IN",
     phone: "+14155550117",
     // The retry ladder is demonstrated against a line that genuinely never
     // answers. No fake no_answer rows are ever seeded.
@@ -128,7 +171,7 @@ export const SEED_PATIENTS: SeedPatient[] = [
     condition: "heart_failure",
     reason: "Heart failure · daily weight and breathlessness",
     note:
-      "Marcus B, 72. Heart failure, recently up-titrated. Daily check for a " +
+      "Mohan B, 72. Heart failure, recently up-titrated. Daily check for a " +
       "week: daily weight, breathlessness, ankle swelling. He lives alone and " +
       "he does not ring us when things slip, so I want to know if he goes quiet.",
     planStatus: "active",
@@ -137,7 +180,7 @@ export const SEED_PATIENTS: SeedPatient[] = [
       condition: "chest_infection",
       reason: "Chest infection · antibiotic course",
       note:
-        "Marcus B, 72. Community-acquired chest infection, five days of " +
+        "Mohan B, 72. Community-acquired chest infection, five days of " +
         "amoxicillin. Daily check while he is on it — cough, fever, breathing.",
       closeReason: "clinician_closed",
       startedDaysAgo: 38,
@@ -145,18 +188,122 @@ export const SEED_PATIENTS: SeedPatient[] = [
       answered: 5,
     },
   },
+  {
+    /* Recovering well: three calls answered, nothing concerning. The doctor's
+       view shows her as "No concerns raised", with the last reading's words. */
+    slug: "farida-s",
+    name: "Farida S",
+    age: 47,
+    timezone: "Asia/Kolkata",
+    language: "en-IN",
+    phone: "+14155550131",
+    consent: "granted",
+    condition: "post_op_wound",
+    reason: "Hernia repair · wound and pain",
+    note:
+      "Farida S, 47. Day 3 after an inguinal hernia repair. Call each evening for a week: " +
+      "is the wound dry, is the pain settling. Escalate if the wound discharges or she has a fever.",
+    planStatus: "active",
+    week: ["answered", "answered", "answered", "scheduled", "scheduled", "scheduled", "scheduled"],
+    conditionSummary:
+      "Wound is dry with no redness or discharge, and the pain is settling. Nothing she described is concerning.",
+  },
+  {
+    /*
+     * A follow-up whose window ran out with nobody closing the file — the
+     * doctor's "Finished: close the file or restart" band. He is also back
+     * today with something new, so the consultation shows this course as his
+     * history beside the note.
+     */
+    slug: "ravi-t",
+    name: "Ravi T",
+    age: 58,
+    timezone: "Asia/Kolkata",
+    language: "en-IN",
+    phone: "+14155550164",
+    consent: "granted",
+    condition: "thyroid",
+    reason: "Thyroid dose change · energy and palpitations",
+    note:
+      "Ravi T, 58. Levothyroxine increased to 75mcg. Daily check for a week: energy, " +
+      "palpitations, sleep. Escalate if he has chest pain or a racing heart.",
+    planStatus: "completed",
+    week: ["answered", "answered", "answered", "answered", "answered", "answered", "answered"],
+    conditionSummary:
+      "Energy is better, no palpitations this week, and he is sleeping properly. Nothing concerning on any call.",
+    visitToday: {
+      kind: "consultation",
+      reportedSymptoms:
+        "Sore throat and a mild fever for two days. Also asking whether the thyroid tablets need changing.",
+    },
+  },
+  {
+    /*
+     * The plan still waiting on the doctor — the review screen the demo
+     * approves. Without one in the cohort that screen could only be reached by
+     * compiling a note live, and it had gone unseen through a whole redesign.
+     */
+    slug: "lakshmi-r",
+    name: "Lakshmi R",
+    age: 61,
+    timezone: "Asia/Kolkata",
+    language: "en-IN",
+    phone: "+14155550142",
+    consent: "granted",
+    condition: "statin_tolerance",
+    reason: "New atorvastatin · muscle aches and adherence",
+    note:
+      "Lakshmi R, 61. Started atorvastatin 20mg at night for raised cholesterol. " +
+      "Daily check for a week: is she taking it, and any muscle aches or weakness. " +
+      "Escalate to me if she reports severe muscle pain or dark urine.",
+    planStatus: "awaiting_approval",
+    week: ["none", "none", "none", "none", "none", "none", "none"],
+    escalationNote: "severe muscle pain or dark urine",
+    // The note says "daily" and "for a week" — but no time of day, so that one
+    // stays a placeholder and the review screen asks the doctor to set it.
+    scheduleQuotes: { cadence: "Daily", durationDays: "for a week" },
+    watchPoints: [
+      { text: "taking the tablets", quote: "is she taking it" },
+      { text: "muscle aches or weakness", quote: "any muscle aches or weakness" },
+    ],
+    anchors: {
+      taking_as_prescribed: { quote: "is she taking it", watchPoint: "taking the tablets" },
+      symptom_severity: { quote: "any muscle aches or weakness", watchPoint: "muscle aches or weakness" },
+    },
+  },
 ];
 
 export const SEED_UNPLANNED: SeedUnplannedPatient[] = [
   {
-    slug: "victor-l",
-    name: "Victor L",
+    slug: "vikram-l",
+    name: "Vikram L",
     age: 46,
-    timezone: "Europe/London",
+    timezone: "Asia/Kolkata",
+    language: "ta-IN",
     phone: "+14155550193",
     // Nobody has asked him about automated calls, because nobody has got as far
     // as writing his plan.
     consent: "unknown",
+    visit: {
+      kind: "consultation",
+      reportedSymptoms:
+        "Three weeks of a dry cough, worse at night. No fever. Wants to know whether it needs anything.",
+    },
+  },
+  {
+    slug: "priya-n",
+    name: "Priya N",
+    age: 38,
+    timezone: "Asia/Kolkata",
+    language: "en-IN",
+    phone: "+14155550158",
+    // Agreed at the desk, so the plan compiled from her note can actually ring.
+    consent: "granted",
+    visit: {
+      kind: "post_op",
+      reportedSymptoms:
+        "Day 3 after laparoscopic cholecystectomy. Asking whether some redness around the lower port site is normal.",
+    },
   },
 ];
 
@@ -165,7 +312,7 @@ export const DEMO_UTTERANCES: Record<string, string[]> = {
   chest_infection: [
     "Cough's still there but it's loosened up a lot since the tablets.",
     "No fever last night, first night I've slept through.",
-    "Breathing's back to normal walking round the flat.",
+    "Breathing's back to normal walking around the house.",
   ],
   new_metformin: [
     "Yes, one in the morning and one at night, with food like you said.",

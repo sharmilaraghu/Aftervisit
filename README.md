@@ -53,7 +53,7 @@ optional and the product degrades honestly without each one:
 | Absent | What happens |
 |---|---|
 | `DATABASE_URL` | The console throws a named error rather than rendering an empty practice. |
-| `GEMINI_API_KEY` / `OPENAI_API_KEY` | Compiling is **refused** and you get a blank, hand-editable plan. It never invents a generic follow-up. |
+| `OPENAI_API_KEY` | Compiling is **refused** and you get a blank, hand-editable plan. It never invents a generic follow-up. Every finished call is escalated unjudged. |
 | `CALLE_API_KEY` | Nothing can be dialled. The approval screen says so, beside the button that would have caused it. |
 | `CARELOOP_CALL_ALLOWLIST` | **No list restricts this instance** — consent alone decides. Set it wherever the console is publicly reachable. |
 | `CARELOOP_TICK_TOKEN` | `POST /api/tick` returns 503 — the door is shut, not open. |
@@ -67,7 +67,7 @@ reach people.
 
 ```
 doctor's free-text note
-  → compile.ts    Gemini (OpenAI fallback), strict schema, every defaultable field NULLABLE
+  → compile.ts    OpenAI structured output, strict schema, every defaultable field NULLABLE
                   → defaults.ts stamps provenance (note | default | clinician)
                   → grounding.ts refuses any medication not present in the note
                   → guard phase 1 on each question, individually, UNMASKED
@@ -91,8 +91,9 @@ import `@call-e/calle`. Guard re-inspection, E.164 validation and the dial
 allowlist all live *inside* `dial()`, so no call site can skip them.
 
 **Consent is what authorises a call.** The scheduler dials with nobody pressing a
-button, so the human gate is moved earlier rather than removed: a doctor enrols a
-patient, records that they agreed to automated follow-up, and approves their plan.
+button, so the human gate is moved earlier rather than removed: the front desk registers
+a patient and records that they agreed to automated follow-up, and a doctor approves
+the plan compiled from their note.
 `dial()` refuses any patient whose consent is not an explicit `granted` — `unknown`
 is not agreement — and the approval screen blocks approval and names the reason,
 rather than expanding a week of calls that will every one be refused.
@@ -139,7 +140,7 @@ rows are ever seeded.
 ```
 app/
   page.tsx              landing — the pitch
-  (console)/            Today · patients · one plan · one call
+  (console)/            Today · consult · register · patients · one plan · one call
   api/tick/             the scheduler door for an external cron
 lib/
   calle/port.ts         the ONLY place that talks to CALL-E
@@ -158,7 +159,7 @@ skill/                  the installable agent skill: SKILL.md + references/
 ## Stack
 
 Next.js 16 (App Router, Turbopack, React 19) · TypeScript · Neon Postgres +
-Drizzle · CALL-E SDK · Gemini with an OpenAI fallback, for the note compiler only
+Drizzle · CALL-E SDK · OpenAI, for the note compiler and call triage only
 · Vitest for the pure, safety-bearing logic · plain CSS tokens, no Tailwind, no
 component library, no icon package.
 

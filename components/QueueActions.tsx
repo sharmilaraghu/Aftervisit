@@ -1,26 +1,25 @@
 "use client";
 
 /**
- * The two decisions a clinician makes about an escalation, and one state.
+ * What a clinician does about an escalation: handle the person, then decide.
  *
- * There used to be three buttons of identical weight sitting in a row, one of
- * which **ended the patient's follow-up on a single click**. It looked exactly
- * like the one beside it. Everything else consequential in this console arms
- * first — cancelling a plan, archiving, deleting, finishing a treatment — and
- * this was the one place that did not.
+ * The primary used to be "Done — restart the follow-up". On a patient
+ * escalated for vomiting and unable to keep water down, the one amber button
+ * on the page pointed a tired clinician at re-arming the calls — turning the
+ * machine back on before anyone had spoken to the person. The order is now the
+ * clinical one:
  *
- * The shape now follows the decisions rather than the endpoints:
+ *   I've contacted them  — the primary. Opens the note and the decision; it
+ *                          changes nothing on its own.
+ *   then one of          — resume calls (or keep them running), end the
+ *                          follow-up, or not yet. Ending arms before it fires.
+ *   I have read this     — a state, not an action. `open` means nobody has
+ *                          looked; `acknowledged` means somebody has.
  *
- *   Done with this      — I have handled it. Restarts the plan if this
- *                         escalation stopped it, leaves it alone if not.
- *   End the follow-up   — the whole plan is over. Arms before it fires.
- *   I have read this    — a state, not an action. `open` means nobody has
- *                         looked; `acknowledged` means somebody has.
- *
- * Both actions take a note, because the queue could record *that* an
- * escalation was closed and never *what happened* — so "I rang her, she is
- * fine" had nowhere to live, and the next person read the same evidence from
- * scratch. The field is optional and it is kept verbatim.
+ * Phoning the patient lives here too, relabelled. It is the doctor's own
+ * phone (`tel:`), and "Call Asha" in a product whose whole point is an agent
+ * that calls read as "have the agent dial now" — the one thing that never
+ * happens by accident.
  */
 
 import { useState, useTransition } from "react";
@@ -32,7 +31,7 @@ import {
   resolveEscalationAction,
 } from "@/app/(console)/plans/actions";
 
-type Armed = null | "resolve" | "close";
+type Armed = null | "handled" | "close";
 
 const BAND = "calc(var(--cell) * 2) calc(var(--cell) * 2.5)";
 
@@ -40,6 +39,7 @@ export function QueueActions({
   escalationId,
   planId,
   patientName,
+  phoneE164,
   pausedPlan,
   status,
   planLive,
@@ -47,6 +47,8 @@ export function QueueActions({
   escalationId: string;
   planId: string;
   patientName: string;
+  /** The patient's number, for the doctor's own phone. Never dialled by Care Loop from here. */
+  phoneE164?: string;
   pausedPlan: boolean;
   /** `open` means nobody has looked at it yet. */
   status: string;
@@ -64,6 +66,7 @@ export function QueueActions({
   const [note, setNote] = useState("");
   const [pending, startTransition] = useTransition();
 
+  const firstName = patientName.split(" ")[0];
   const trimmed = note.trim() || null;
 
   if (armed) {
@@ -90,9 +93,12 @@ export function QueueActions({
               <strong>Every remaining call for {patientName} is dropped.</strong> The
               record is kept. No undo — starting again means a new note.
             </>
+          ) : !planLive ? (
+            <>This follow-up has already ended. Recording what you did closes the escalation.</>
           ) : pausedPlan ? (
             <>
-              Calls missed while it was stopped are skipped, not dialled all at once.
+              Calls stay paused until you choose. Resuming skips the calls missed while it
+              was paused rather than dialling them all at once.
             </>
           ) : (
             <>The follow-up is still running and stays running.</>
@@ -100,11 +106,16 @@ export function QueueActions({
         </p>
 
         <label
-          className="caps"
           htmlFor={`note-${escalationId}`}
-          style={{ display: "block", color: "var(--print-3)", marginBottom: "calc(var(--cell) * 0.75)" }}
+          style={{
+            display: "block",
+            color: "var(--print-2)",
+            fontSize: 14,
+            fontWeight: 600,
+            marginBottom: "calc(var(--cell) * 0.75)",
+          }}
         >
-          What did you do?
+          What happened? <span style={{ fontWeight: 400, color: "var(--print-3)" }}>(optional)</span>
         </label>
         <Textarea
           id={`note-${escalationId}`}
@@ -116,31 +127,47 @@ export function QueueActions({
         />
 
         <div style={{ display: "flex", flexWrap: "wrap", gap: "calc(var(--cell) * 1.5)", alignItems: "center" }}>
-          <Button
-            variant="onLabel"
-            disabled={pending}
-            onClick={() =>
-              startTransition(() =>
-                closing
-                  ? closePlanAction(escalationId, planId, trimmed)
-                  : resolveEscalationAction(escalationId, planId, trimmed),
-              )
-            }
-          >
-            {pending
-              ? "Working…"
-              : closing
-                ? "Yes, end the follow-up"
-                : pausedPlan
-                  ? "Done — restart the follow-up"
-                  : "Done with this"}
-          </Button>
-          <Button variant="onLabel" disabled={pending} onClick={() => setArmed(null)}>
-            {closing ? "Keep it running" : "Cancel"}
-          </Button>
-          <span className="caps" style={{ color: "var(--print-3)" }}>
-            The note is optional
-          </span>
+          {closing ? (
+            <>
+              <Button
+                variant="onLabel"
+                disabled={pending}
+                onClick={() => startTransition(() => closePlanAction(escalationId, planId, trimmed))}
+              >
+                {pending ? "Working…" : "Yes, end the follow-up"}
+              </Button>
+              <Button variant="onLabel" disabled={pending} onClick={() => setArmed("handled")}>
+                Back
+              </Button>
+            </>
+          ) : (
+            <>
+              {/* The decision, now that the person has been dealt with. */}
+              <Button
+                variant="primary"
+                disabled={pending}
+                onClick={() =>
+                  startTransition(() => resolveEscalationAction(escalationId, planId, trimmed))
+                }
+              >
+                {pending
+                  ? "Working…"
+                  : !planLive
+                    ? "Mark handled"
+                    : pausedPlan
+                      ? "Resume calls"
+                      : "Keep following up"}
+              </Button>
+              {planLive ? (
+                <Button variant="onLabel" disabled={pending} onClick={() => setArmed("close")}>
+                  End follow-up
+                </Button>
+              ) : null}
+              <Button variant="onLabel" disabled={pending} onClick={() => setArmed(null)}>
+                Not yet
+              </Button>
+            </>
+          )}
         </div>
       </div>
     );
@@ -158,12 +185,19 @@ export function QueueActions({
         borderTop: "1px solid var(--rule)",
       }}
     >
-      <Button variant="onLabel" disabled={pending} onClick={() => setArmed("resolve")}>
-        {pausedPlan ? "Done — restart the follow-up" : "Done with this"}
+      {/* The page's one amber while a plan is live: the header's primary is
+          empty then. On a finished plan the header keeps it. */}
+      <Button
+        variant={planLive ? "primary" : "onLabel"}
+        disabled={pending}
+        onClick={() => setArmed("handled")}
+      >
+        I&rsquo;ve contacted {firstName}
       </Button>
-      {planLive ? (
-        <Button variant="onLabel" disabled={pending} onClick={() => setArmed("close")}>
-          End the follow-up
+
+      {phoneE164 ? (
+        <Button variant="onLabel" href={`tel:${phoneE164}`} ariaLabel={`Phone ${patientName} from your own phone`}>
+          Phone {firstName} yourself
         </Button>
       ) : null}
 

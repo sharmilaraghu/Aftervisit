@@ -46,9 +46,22 @@ What the doctor wrote, and how the compiler read it.
 `body` is the grounding source: the compiler may not name a medication the note does not
 contain. `escalation_note` is the doctor's own wording for what should be flagged, kept
 verbatim because it is handed to the triage model as their reference standard.
-`compile_provider` and `compile_model` are persisted so "Gemini, with OpenAI as a
-fallback" stays a checkable claim rather than a README sentence. `amended_at` marks a
+`compile_provider` and `compile_model` are persisted so which model compiled a note
+stays a checkable claim rather than a README sentence. `amended_at` marks a
 note added to after the fact.
+
+### `visits`
+What the front desk booked, and whether the doctor has got to it.
+
+Registration and consultation are two roles on two screens, and a visit is the hand-off
+between them. The desk writes one ahead of time (`kind` is `consultation` or `post_op`,
+`visit_date` is a calendar day in the patient's zone, `reported_symptoms` is the complaint
+in the receptionist's words); the consult list is every row still `waiting`; writing the
+note flips `status` to `seen` and sets `note_id` in one conditional `UPDATE … RETURNING`,
+so the two facts cannot disagree and a second tab loses cleanly. `reported_symptoms` is
+context for the doctor and deliberately **not** a grounding source: the compiler is
+grounded against the note alone, at compile time and again before dialling, so a
+medication named only here would be refused the moment a call was due.
 
 ### `follow_up_plans`
 One episode of follow-up. A "course of treatment", and the closest thing to an episode

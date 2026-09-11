@@ -492,6 +492,34 @@ export async function closePlan(
   return result.rows.length > 0;
 }
 
+/**
+ * Close the file on a follow-up whose window already ran out.
+ *
+ * `closePlan` cannot: it only moves a live plan, and a plan that ran out of
+ * calendar is already `completed`. What is missing is the one thing the record
+ * cannot reconstruct — how it resolved — and writing it is what takes the plan
+ * off the doctor's "Finished" band. Nothing is dialled or skipped; there is
+ * nothing left to dial.
+ */
+export async function recordClosingSummary(
+  planId: string,
+  by: string,
+  summary: string | null,
+): Promise<boolean> {
+  const result = await getDb().execute(sql`
+    update follow_up_plans
+    set closing_summary = ${summary?.trim() || "Closed without a note."},
+        resumed_by = coalesce(resumed_by, ${by}),
+        updated_at = now()
+    -- Only a plan whose window ran out: that is the "Finished" band this
+    -- clears, and a plan closed any other way has already been accounted for.
+    where id = ${planId} and status = 'completed' and close_reason = 'duration_elapsed'
+      and closing_summary is null
+    returning id
+  `);
+  return result.rows.length > 0;
+}
+
 export async function resolveEscalation(
   escalationId: string,
   /**

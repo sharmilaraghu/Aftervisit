@@ -11,11 +11,11 @@
  * note when it did not.
  */
 
-import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 
-import { Badge, Panel } from "@/components/ui";
-import { ApprovePlan, PlanDraftControls } from "@/components/PlanReview";
+import { Badge, Breadcrumb, Panel } from "@/components/ui";
+import { calendarDaysBetween } from "@/lib/time/clock";
+import { ApprovePlan, DemoClock, PlanDraftControls } from "@/components/PlanReview";
 import { AddQuestion, QuestionRow } from "@/components/QuestionEditor";
 import { EscalationSetup } from "@/components/EscalationSetup";
 import { CancelPlan } from "@/components/CancelPlan";
@@ -29,25 +29,80 @@ import { OBSERVED_QUESTION_IDS } from "@/lib/plan/universal-questions";
 import { LANGUAGE_OPTIONS } from "@/lib/patients/languages";
 import { CONSENT_LABEL } from "@/lib/patients/labels";
 import { expandPlan } from "@/lib/schedule/expand";
+import { coverage } from "@/lib/plan/coverage";
+import { EXAMPLE_PROMPTS } from "@/lib/plan/examples";
 import type { Provenance } from "@/lib/db/enums";
 
 export const dynamic = "force-dynamic";
 
-/** The mark. `default` is the one that has to be visible; the rest are context. */
-function ProvenanceMark({ source }: { source: Provenance | undefined }) {
-  if (source === "note") return null;
+/**
+ * Where a value came from, said plainly.
+ *
+ * Schedule fields carry three marks, and the one that needs the doctor is the
+ * only coloured one: "Not in note — set this" (blue: it informs, nobody is at
+ * risk). "From note" prints the note's own words, which code found in the note
+ * — so the mark is checkable on the screen instead of trusted. Fields the note
+ * never governs (attempts, the reason line) say "Standard" / "Not in note".
+ */
+type MarkKind = "schedule" | "reason" | "standard";
+
+function ProvenanceMark({
+  source,
+  quote,
+  kind,
+}: {
+  source: Provenance | undefined;
+  quote?: string;
+  kind: MarkKind;
+}) {
   if (source === "clinician") {
     return (
-      <Badge tone="info" quiet>
+      <Badge tone="plain" quiet>
         You set this
+      </Badge>
+    );
+  }
+  if (source === "note") {
+    if (kind !== "schedule") return null;
+    const words = quote && quote.length > 32 ? `${quote.slice(0, 31)}…` : quote;
+    return (
+      <Badge tone="plain" quiet>
+        {words ? `From note: “${words}”` : "From note"}
+      </Badge>
+    );
+  }
+  if (kind === "standard") {
+    return (
+      <Badge tone="plain" quiet>
+        Standard
+      </Badge>
+    );
+  }
+  if (kind === "reason") {
+    return (
+      <Badge tone="plain" quiet>
+        Not in note
       </Badge>
     );
   }
   return (
     <Badge tone="info" quiet>
-      Defaulted
+      Not in note — set this
     </Badge>
   );
+}
+
+/** The schedule fields a note can supply, and how the banner names each. */
+const SCHEDULE_FIELDS: [field: "cadence" | "durationDays" | "localTime", words: string][] = [
+  ["cadence", "how often"],
+  ["durationDays", "for how long"],
+  ["localTime", "what time"],
+];
+
+function listWords(words: string[]): string {
+  return words.length <= 1
+    ? (words[0] ?? "")
+    : `${words.slice(0, -1).join(", ")} or ${words[words.length - 1]}`;
 }
 
 /*
@@ -68,10 +123,6 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
   const plan = await getPlanForReview(id);
   if (!plan) notFound();
 
-  /* A draft is not a record yet — it is step 5 of the wizard, and there is one
-     approve screen rather than two that have to be kept saying the same thing. */
-  if (plan.status === "awaiting_approval") redirect(`/plan/new?plan=${plan.id}&step=5`);
-
   /*
    * Observations are not questions and must not be listed as if the agent will
    * read them out. `requests_clinician` sat at number three in "What it will
@@ -87,6 +138,42 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
   );
   const rejected = plan.questions.filter((q) => q.guardStatus !== "approved");
   const awaiting = plan.status === "awaiting_approval";
+
+  /* Schedule fields still on a placeholder — the note was silent and nobody
+     has chosen a value yet. Empty once the doctor saves the schedule. */
+  const missingSchedule = awaiting
+    ? SCHEDULE_FIELDS.filter(([field]) => plan.provenance[field] === "default").map(
+        ([, words]) => words,
+      )
+    : [];
+
+  /* Only questions that will be asked count toward covering a watch-point. */
+  const report = coverage(
+    plan.watchPoints,
+    approved.map((q) => ({ prompt: q.prompt, watchPoint: q.watchPoint, source: q.source })),
+    EXAMPLE_PROMPTS,
+  );
+  const covered = report.rows.length - report.uncovered;
+
+  /*
+   * The plan's state, as one stamp. "Day 2 of 5" is the only count on the
+   * page because it is real data about this patient, not a step in a diagram.
+   * Days are calendar days in the patient's zone, the way the schedule counts.
+   */
+  const status = (() => {
+    if (awaiting) return "Plan to review";
+    if (plan.status === "active") {
+      if (!plan.startsAt) return "Calling";
+      const now = new Date();
+      if (plan.startsAt > now) return `Calls from ${formatStamp(plan.startsAt, plan.timezone)}`;
+      const day = calendarDaysBetween(plan.startsAt, now, plan.timezone) + 1;
+      return `Calling · day ${Math.min(day, plan.durationDays)} of ${plan.durationDays}`;
+    }
+    if (plan.status === "paused") return "Paused";
+    if (plan.status === "completed") return "Resolved";
+    if (plan.status === "cancelled") return "Cancelled";
+    return plan.status.replace(/_/g, " ");
+  })();
 
   /*
    * The same expansion the approve action will run, previewed. A doctor should
@@ -110,22 +197,47 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
     calls: expansion.occurrences.length,
   };
 
+  /*
+   * The note, beside what was made of it.
+   *
+   * It sat in a panel at the foot of the page, below the plan, the questions,
+   * the refusals and the rules — so a doctor checking "From note: …" against
+   * what they wrote had to scroll past everything to find it. At desktop width
+   * it is a sticky column on the left; on a phone it folds under the heading.
+   */
+  const noteText = (
+    <p className="mono plan-note-body">
+      {plan.noteBody}
+      {/* Only when the note does not already say it in so many words. */}
+      {plan.escalationNote && !plan.noteBody.includes(plan.escalationNote) ? (
+        <>
+          {"\n\n"}
+          <span className="plan-note-escalate">Escalate if: </span>
+          {plan.escalationNote}
+        </>
+      ) : null}
+    </p>
+  );
+
   return (
-    <div
-      style={{
-        maxWidth: 944,
-        margin: "0 auto",
-        padding: "calc(var(--cell) * 5) calc(var(--cell) * 3) calc(var(--cell) * 10)",
-      }}
-    >
+    <div className="plan-page">
+      <aside className="plan-note" aria-label="The consultation note">
+        <h2 className="caps plan-note-title">The consultation note</h2>
+        {noteText}
+      </aside>
+
+      <div className="plan-main">
       <header style={{ marginBottom: "calc(var(--cell) * 4)" }}>
-        <p style={{ margin: "0 0 calc(var(--cell) * 1)" }}>
-          {/* Where it goes, not just what it is. A patient's name alone in a
-              box is a label; a doctor scanning for the way out reads a verb. */}
-          <Link href={`/patients/${plan.patientId}`} className="backlink">
-            Back to {plan.patientName}
-          </Link>
-        </p>
+        {/* One trail for every plan, matching the rail — which marks /plans as
+            Follow-ups. A draft's trail said Consults while the rail said
+            Follow-ups, and the page disagreed with itself about where you were. */}
+        <Breadcrumb
+          items={[
+            { label: "Follow-ups", href: "/dashboard" },
+            { label: plan.patientName, href: `/patients/${plan.patientId}` },
+            { label: awaiting ? "Plan to review" : "Plan" },
+          ]}
+        />
         <h1
           className="display"
           style={{
@@ -136,6 +248,7 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
         >
           {awaiting ? "Approve this plan?" : plan.reason}
         </h1>
+        <Badge tone="plain">{status}</Badge>
         {/*
           Nothing about the machinery.
 
@@ -143,11 +256,16 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
           deciding whether to phone a patient does not need the name of a model,
           and putting one on the screen invites them to weigh it — which is
           exactly the judgement this product says it never asks them to make.
-          The provider and model are still persisted on the note, so "compiled
-          by one model with another as a fallback" stays checkable in the data;
-          it is simply not a thing a clinician is shown.
+          The provider and model are still persisted on the note, so which
+          model compiled it stays checkable in the data; it is simply not a
+          thing a clinician is shown.
         */}
       </header>
+
+      <details className="disclosure plan-note-fold">
+        <summary>The consultation note</summary>
+        {noteText}
+      </details>
 
       {/*
         No patient panel here.
@@ -188,6 +306,33 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
         style={{ marginBottom: "calc(var(--cell) * 2)" }}
       >
         <div style={{ padding: "calc(var(--cell) * 3)" }}>
+          {/*
+            The gap, said before the values. When the note gives no schedule the
+            numbers below are placeholders, and a placeholder printed at the same
+            weight as a decision is how a doctor approves a guess. This stays
+            until they save the schedule, which is them choosing it.
+          */}
+          {missingSchedule.length > 0 ? (
+            <p
+              role="note"
+              style={{
+                margin: "0 0 calc(var(--cell) * 3)",
+                padding: "calc(var(--cell) * 2)",
+                background: "var(--info-wash)",
+                boxShadow: "inset 0 0 0 1px var(--info)",
+                color: "var(--print)",
+                fontSize: 14,
+                lineHeight: 1.55,
+              }}
+            >
+              <strong>The note doesn&rsquo;t say {listWords(missingSchedule)} to call.</strong>{" "}
+              Those values are placeholders. Set them below before approving.
+              {plan.scheduleQuotes.unsupportedCadence
+                ? ` The note asks for “${plan.scheduleQuotes.unsupportedCadence}”, which isn't a frequency Care Loop can schedule; choose the nearest.`
+                : ""}
+            </p>
+          ) : null}
+
           <dl
             style={{
               display: "flex",
@@ -203,22 +348,22 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
               up on is language and was set the same way. The rule was simply
               not being applied here.
             */}
+            {/* How often and for how long are separate rows now: each can come
+                from a different place, and one mark could not honestly speak for
+                both. */}
             {([
-              ["Following up on", plan.reason, "reason", false],
-              [
-                "Cadence",
-                `${plan.cadence.replace(/_/g, " ")} · ${plan.durationDays} days`,
-                "durationDays",
-                true,
-              ],
-              ["Best time to call", `${plan.localTime} ${plan.timezone}`, "localTime", true],
+              ["Following up on", plan.reason, "reason", false, "reason"],
+              ["How often", plan.cadence.replace(/_/g, " "), "cadence", true, "schedule"],
+              ["For", `${plan.durationDays} days`, "durationDays", true, "schedule"],
+              ["Best time to call", `${plan.localTime} ${plan.timezone}`, "localTime", true, "schedule"],
               [
                 "Attempts",
                 `up to ${plan.maxAttempts}, ${plan.retryDelayMinutes} min apart`,
                 "maxAttempts",
                 true,
+                "standard",
               ],
-            ] as [string, string, string, boolean][]).map(([label, value, field, mono]) => (
+            ] as [string, string, string, boolean, MarkKind][]).map(([label, value, field, mono, kind]) => (
               <div key={label}>
                 <dt
                   className="caps"
@@ -231,7 +376,11 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
                   }}
                 >
                   {label}
-                  <ProvenanceMark source={plan.provenance[field]} />
+                  <ProvenanceMark
+                    source={plan.provenance[field]}
+                    kind={kind}
+                    quote={plan.scheduleQuotes[field as keyof typeof plan.scheduleQuotes]}
+                  />
                 </dt>
                 <dd
                   className={mono ? "mono" : undefined}
@@ -257,12 +406,94 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
               planId={plan.id}
               durationDays={plan.durationDays}
               localTime={plan.localTime}
-              timeScale={plan.timeScale}
               cadence={plan.cadence}
               maxAttempts={plan.maxAttempts}
+              startOpen={missingSchedule.length > 0}
             /> : null}
         </div>
       </Panel>
+
+      {/*
+        What the note asks to watch, against what will be asked.
+
+        Both failure modes of a compiled plan are readable here rather than in
+        a log: a watch-point with no question is the compiler under-reading the
+        note, and a question tied to nothing — or copied from the style
+        examples — is it over-reading. Printed beside the note's own words, so
+        the doctor checks the list against what they wrote.
+      */}
+      {plan.watchPoints.length > 0 ? (
+        <Panel
+          title="What the note asks to watch"
+          aside={
+            <span className="caps mono" style={{ color: "var(--print-3)" }}>
+              {covered} of {report.rows.length} asked
+            </span>
+          }
+          style={{ marginBottom: "calc(var(--cell) * 2)" }}
+        >
+          <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+            {report.rows.map((row, i) => (
+              <li
+                key={i}
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  alignItems: "baseline",
+                  gap: "calc(var(--cell) * 1) calc(var(--cell) * 2)",
+                  padding: "calc(var(--cell) * 1.75) calc(var(--cell) * 3)",
+                  borderTop: i > 0 ? "1px solid var(--rule-2)" : undefined,
+                }}
+              >
+                <span style={{ flex: "1 1 calc(var(--cell) * 30)", minWidth: 0 }}>
+                  <span style={{ fontSize: 15, fontWeight: 600, color: "var(--print)" }}>
+                    {row.watchPoint.text}
+                  </span>
+                  <span
+                    className="mono"
+                    style={{ display: "block", marginTop: 2, fontSize: 13, color: "var(--print-3)" }}
+                  >
+                    &ldquo;{row.watchPoint.quote}&rdquo;
+                  </span>
+                </span>
+                {row.questions.length > 0 ? (
+                  <Badge tone="clear" quiet>
+                    Asked
+                  </Badge>
+                ) : (
+                  <Badge tone="info" quiet>
+                    No question
+                  </Badge>
+                )}
+              </li>
+            ))}
+          </ul>
+          {report.orphans.length > 0 || report.templateCopies.length > 0 ? (
+            <div
+              style={{
+                padding: "calc(var(--cell) * 2) calc(var(--cell) * 3)",
+                borderTop: "1px solid var(--rule)",
+                fontSize: 14,
+                lineHeight: 1.5,
+                color: "var(--print-2)",
+              }}
+            >
+              {report.orphans.length > 0 ? (
+                <p style={{ margin: 0 }}>
+                  <strong>Not tied to anything the note asks:</strong>{" "}
+                  {report.orphans.join(" · ")}
+                </p>
+              ) : null}
+              {report.templateCopies.length > 0 ? (
+                <p style={{ margin: report.orphans.length > 0 ? "calc(var(--cell) * 1) 0 0" : 0 }}>
+                  <strong>Same as a style example — check the note asks for it:</strong>{" "}
+                  {report.templateCopies.join(" · ")}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+        </Panel>
+      ) : null}
 
       <Panel
         title="The questions"
@@ -290,11 +521,31 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
                     editable={awaiting && q.source !== "locked"}
                     reorderable={awaiting && q.source !== "locked"}
                     meta={
-                      <span className="mono" style={{ fontSize: 13, color: "var(--print-3)" }}>
-                        {ANSWER_LABEL[q.answerType]}
-                        {q.enumValues ? `: ${q.enumValues.join(", ")}` : ""} · {q.questionId}
-                        {q.source === "locked" ? " · locked" : ""}
-                      </span>
+                      <>
+                        <span className="mono" style={{ fontSize: 13, color: "var(--print-3)" }}>
+                          {ANSWER_LABEL[q.answerType]}
+                          {/* No `questionId`: it is the machine's key for the
+                              answer, and a doctor reads snake_case as "not for me". */}
+                          {q.enumValues ? `: ${q.enumValues.join(", ")}` : ""}
+                          {q.source === "locked" ? " · always asked" : ""}
+                        </span>
+                        {/* Why this question is here, in the doctor's own words —
+                            checked against the note, not asserted by the model. */}
+                        {q.anchorQuote ? (
+                          <span
+                            style={{ display: "block", marginTop: 2, fontSize: 13, color: "var(--print-3)" }}
+                          >
+                            Asks about{" "}
+                            <span className="mono">&ldquo;{q.anchorQuote}&rdquo;</span>
+                          </span>
+                        ) : q.source === "clinician" ? (
+                          <span
+                            style={{ display: "block", marginTop: 2, fontSize: 13, color: "var(--print-3)" }}
+                          >
+                            You added this
+                          </span>
+                        ) : null}
+                      </>
                     }
                   />
                 </li>
@@ -324,19 +575,22 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
                   <li key={q.id} style={{ color: "var(--print-2)", fontSize: 14, marginBottom: 4 }}>
                     {q.prompt}{" "}
                     <span className="mono" style={{ fontSize: 13, color: "var(--print-3)" }}>
-                      · {q.questionId} · locked
+                      · always on
                     </span>
                   </li>
                 ))}
               </ul>
-              <p
-                className="measure"
-                style={{ margin: "calc(var(--cell) * 1.5) 0 0", color: "var(--print-3)", fontSize: 13 }}
-              >
-                Listened for, never asked. Asking whether someone would like a
-                callback invites a polite yes; noticing that they asked for one is
-                the thing the rule is for.
-              </p>
+              {/* The reasoning, folded: the list above is what a doctor needs. */}
+              <details className="disclosure" style={{ marginTop: "calc(var(--cell) * 1.5)" }}>
+                <summary>Why this is listened for, not asked</summary>
+                <p
+                  className="measure"
+                  style={{ margin: "calc(var(--cell) * 1) 0 0", color: "var(--print-3)", fontSize: 13 }}
+                >
+                  Asking whether someone would like a callback invites a polite yes;
+                  noticing that they asked for one is the thing the rule is for.
+                </p>
+              </details>
             </div>
           ) : null}
         </div>
@@ -392,7 +646,13 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
                         {f.category.replace(/_/g, " ")}
                       </Badge>
                       <span style={{ fontSize: 13, color: "var(--print-2)", lineHeight: 1.45 }}>
-                        <span className="mono">&ldquo;{f.match}&rdquo;</span> — {f.reason}
+                        {/* A cap refusal has no matched words to quote. */}
+                        {f.match ? (
+                          <>
+                            <span className="mono">&ldquo;{f.match}&rdquo;</span> —{" "}
+                          </>
+                        ) : null}
+                        {f.reason}
                       </span>
                     </span>
                   ))}
@@ -423,7 +683,7 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
               {plan.rules.map((r, i) => (
                 <Badge key={i} tone="plain" quiet={r.source !== "locked"}>
                   {r.label}
-                  {r.source === "locked" ? " · locked" : ""}
+                  {r.source === "locked" ? " · always on" : ""}
                 </Badge>
               ))}
             </div>
@@ -441,24 +701,6 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
         )}
       </Panel>
 
-      <Panel title="The consultation note" style={{ marginBottom: "calc(var(--cell) * 3)" }}>
-        <div style={{ padding: "calc(var(--cell) * 3)" }}>
-          <p
-            className="mono measure"
-            style={{
-              margin: 0,
-              whiteSpace: "pre-wrap",
-              color: "var(--print-2)",
-              fontSize: 13,
-              lineHeight: 1.7,
-            }}
-          >
-            {plan.noteBody}
-          </p>
-
-        </div>
-      </Panel>
-
       {awaiting ? (
         <>
         <ApprovePlan
@@ -466,6 +708,7 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
           patientId={plan.patientId}
           canApprove={approved.length > 0}
           refusedQuestions={rejected.length}
+          unsetSchedule={missingSchedule}
           patientName={plan.patientName}
           maskedPhone={maskPhone(plan.phoneE164)}
           {...preview}
@@ -505,8 +748,7 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
                 willRing: false,
                 blockedReason:
                   "This instance is not configured to place calls, so nothing will " +
-                  "ring. The plan will run and every call will be refused with a " +
-                  "reason on the record.",
+                  "ring.",
               };
             }
             if (!armed) {
@@ -531,9 +773,13 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
           gated on active-or-paused, so a note compiled twice by mistake left a
           permanent "Waiting on your decision" row on the roster.
         */}
-        <p style={{ margin: "calc(var(--cell) * 2) 0 0" }}>
+        {/* Flex: an inline button in a paragraph overhangs its line box. */}
+        <p style={{ margin: "calc(var(--cell) * 2) 0 0", display: "flex" }}>
           <CancelPlan planId={plan.id} patientId={plan.patientId} draft />
         </p>
+        {/* Last, and folded: it compresses the calendar for a demo and has no
+            place among the clinical settings above. */}
+        <DemoClock planId={plan.id} timeScale={plan.timeScale} />
         </>
       ) : (
         <div style={{ display: "flex", flexWrap: "wrap", gap: "calc(var(--cell) * 1.5)", alignItems: "center" }}>
@@ -554,6 +800,7 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
           </span>
         </div>
       )}
+      </div>
     </div>
   );
 }

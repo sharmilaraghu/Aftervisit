@@ -26,9 +26,15 @@ export function CancelPlan({
   const [armed, setArmed] = useState(false);
   const [pending, startTransition] = useTransition();
 
+  /*
+   * Ghost, always. This sits on the graphite bench at the foot of the plan
+   * page, and the `onLabel` variant it used for a live plan is dark ink meant
+   * for white stock — so the control that stops a running follow-up rendered
+   * all but invisible on exactly the plans where it matters.
+   */
   if (!armed) {
     return (
-      <Button variant={draft ? "ghost" : "onLabel"} onClick={() => setArmed(true)}>
+      <Button variant="ghost" onClick={() => setArmed(true)}>
         {draft ? "Discard this draft" : "Cancel this plan"}
       </Button>
     );
@@ -46,7 +52,7 @@ export function CancelPlan({
       <span
         style={{
           fontSize: 14,
-          color: draft ? "var(--bench-ink-2)" : "var(--print-2)",
+          color: "var(--bench-ink-2)",
           maxWidth: 460,
         }}
       >
@@ -55,14 +61,14 @@ export function CancelPlan({
           : "No further calls will be placed. Everything already recorded is kept."}
       </span>
       <Button
-        variant={draft ? "ghost" : "onLabel"}
+        variant="ghost"
         disabled={pending}
         onClick={() => startTransition(() => cancelPlanAction(planId, patientId))}
       >
         {pending ? "Discarding…" : draft ? "Yes, discard it" : "Yes, cancel it"}
       </Button>
       <Button
-        variant={draft ? "ghost" : "onLabel"}
+        variant="ghost"
         disabled={pending}
         onClick={() => setArmed(false)}
       >

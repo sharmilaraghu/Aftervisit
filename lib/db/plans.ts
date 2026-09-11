@@ -18,11 +18,12 @@ import { inspectQuestion } from "@/lib/script/guard";
 import { questionSlug } from "@/lib/plan/clinician-question";
 import { RESERVED_QUESTION_IDS, UNIVERSAL_QUESTIONS } from "@/lib/plan/universal-questions";
 import type { QuestionDraft } from "@/lib/plan/clinician-question";
-import type { ResolvedPlan } from "@/lib/plan/defaults";
+import type { ResolvedPlan, ScheduleQuotes, WatchPoint } from "@/lib/plan/defaults";
 import type { AnswerType, CompileProvider, Provenance } from "@/lib/db/enums";
 import type { PlanRule, RedFlagTerm } from "@/lib/rules/types";
 import type { GuardFinding, GuardResult } from "@/lib/script/guard";
 import { nextOrdinal } from "@/lib/plan/ordinals";
+import { MAX_NOTE_QUESTIONS } from "@/lib/plan/anchors";
 
 export interface PlanQuestionRow {
   id: string;
@@ -35,6 +36,10 @@ export interface PlanQuestionRow {
   source: Provenance;
   guardStatus: string;
   guardFindings: GuardFinding[] | null;
+  /** The note's words this question serves. Null for universal and clinician questions. */
+  anchorQuote: string | null;
+  /** The watch-point it covers, in the compiler's words. */
+  watchPoint: string | null;
 }
 
 export interface PlanForReview {
@@ -67,6 +72,10 @@ export interface PlanForReview {
   maxAttempts: number;
   retryDelayMinutes: number;
   provenance: Record<string, Provenance>;
+  /** The note's words behind each schedule value marked "From note". */
+  scheduleQuotes: ScheduleQuotes;
+  /** What the note asks to be watched. Empty for plans compiled before this existed. */
+  watchPoints: WatchPoint[];
   redFlagTerms: RedFlagTerm[];
   rules: PlanRule[];
   startsAt: Date | null;
@@ -86,7 +95,13 @@ export async function createPlanFromNote(input: {
     raw: unknown;
     error: string | null;
   };
-  rejectedQuestions?: { questionId: string; prompt: string; findings: GuardFinding[] }[];
+  rejectedQuestions?: {
+    questionId: string;
+    prompt: string;
+    findings: GuardFinding[];
+    anchorQuote?: string | null;
+    watchPoint?: string | null;
+  }[];
   timeScale?: number;
   /** The doctor's own escalation wording, kept verbatim for the triage model. */
   escalationNote?: string | null;
@@ -110,7 +125,7 @@ export async function createPlanFromNote(input: {
     insert into follow_up_plans
       (id, patient_id, note_id, status, reason, condition, duration_days, cadence,
        local_time, time_scale, max_attempts, retry_delay_minutes, rules, red_flag_terms,
-       provenance, result_schema)
+       provenance, schedule_quotes, watch_points, result_schema)
     values (${planId}, ${input.patientId}, ${noteId}, 'awaiting_approval',
             ${input.plan.reason}, ${input.plan.condition}, ${input.plan.durationDays},
             ${input.plan.cadence}, ${input.plan.localTime}, ${input.timeScale ?? 1},
@@ -118,6 +133,8 @@ export async function createPlanFromNote(input: {
             ${JSON.stringify(withLockedRules(input.plan.rules))}::jsonb,
             ${JSON.stringify(input.plan.redFlagTerms)}::jsonb,
             ${JSON.stringify(input.plan.provenance)}::jsonb,
+            ${JSON.stringify(input.plan.scheduleQuotes ?? {})}::jsonb,
+            ${JSON.stringify(input.plan.watchPoints ?? [])}::jsonb,
             ${JSON.stringify(
               buildResultSchema([
                 ...UNIVERSAL_QUESTIONS,
@@ -138,6 +155,11 @@ export async function createPlanFromNote(input: {
    * by the patient, and then dropped — and losing `reached_patient` that way
    * makes every call fold to `no_answer` however it actually went.
    */
+  /* The compiler names a watch-point by index; the row keeps its words, so the
+     review screen can tie a question to what it covers without the raw draft. */
+  const watchText = (i: number | null | undefined): string | null =>
+    typeof i === "number" ? (input.plan.watchPoints?.[i]?.text ?? null) : null;
+
   const all = [
     ...UNIVERSAL_QUESTIONS.map((q) => ({
       questionId: q.questionId,
@@ -146,11 +168,22 @@ export async function createPlanFromNote(input: {
       enumValues: q.enumValues ?? null,
       source: q.source,
       findings: null as GuardFinding[] | null,
+      anchorQuote: null as string | null,
+      watchPoint: null as string | null,
     })),
     ...input.plan.questions
       // A compiler question may not shadow a locked id.
       .filter((q) => !RESERVED_QUESTION_IDS.has(q.questionId))
-      .map((q) => ({ ...q, source: "note" as const, findings: null as GuardFinding[] | null })),
+      .map((q) => ({
+        questionId: q.questionId,
+        prompt: q.prompt,
+        answerType: q.answerType,
+        enumValues: q.enumValues ?? null,
+        source: "note" as const,
+        findings: null as GuardFinding[] | null,
+        anchorQuote: q.why ?? null,
+        watchPoint: watchText(q.watchPoint),
+      })),
     ...(input.rejectedQuestions ?? []).map((q) => ({
       questionId: q.questionId,
       prompt: q.prompt,
@@ -158,6 +191,8 @@ export async function createPlanFromNote(input: {
       enumValues: null,
       source: "note" as const,
       findings: q.findings,
+      anchorQuote: q.anchorQuote ?? null,
+      watchPoint: q.watchPoint ?? null,
     })),
   ];
 
@@ -168,11 +203,12 @@ export async function createPlanFromNote(input: {
     await db.execute(sql`
       insert into plan_questions
         (id, plan_id, question_id, ordinal, prompt, answer_type, enum_values, required,
-         source, guard_status, guard_findings)
+         source, guard_status, guard_findings, anchor_quote, watch_point)
       values (${newId("q")}, ${planId}, ${q.questionId}, ${ordinal}, ${q.prompt},
               ${q.answerType}, ${q.enumValues ? JSON.stringify(q.enumValues) : null}::jsonb,
               true, ${q.source}, ${verdict.ok ? "approved" : "rejected"},
-              ${verdict.ok ? null : JSON.stringify(verdict.findings)}::jsonb)
+              ${verdict.ok ? null : JSON.stringify(verdict.findings)}::jsonb,
+              ${q.anchorQuote}, ${q.watchPoint})
       on conflict (plan_id, question_id) do nothing
     `);
   }
@@ -196,7 +232,7 @@ export async function getPlanForReview(planId: string): Promise<PlanForReview | 
 
   const qs = await db.execute(sql`
     select id, question_id, ordinal, prompt, answer_type, enum_values, required,
-           source, guard_status, guard_findings
+           source, guard_status, guard_findings, anchor_quote, watch_point
     from plan_questions where plan_id = ${planId} order by ordinal, question_id
   `);
 
@@ -226,6 +262,8 @@ export async function getPlanForReview(planId: string): Promise<PlanForReview | 
     maxAttempts: Number(r.max_attempts),
     retryDelayMinutes: Number(r.retry_delay_minutes),
     provenance: (r.provenance ?? {}) as Record<string, Provenance>,
+    scheduleQuotes: (r.schedule_quotes ?? {}) as ScheduleQuotes,
+    watchPoints: (r.watch_points ?? []) as WatchPoint[],
     redFlagTerms: (r.red_flag_terms ?? []) as RedFlagTerm[],
     rules: (r.rules ?? []) as PlanRule[],
     startsAt: r.starts_at ? new Date(String(r.starts_at)) : null,
@@ -241,6 +279,8 @@ export async function getPlanForReview(planId: string): Promise<PlanForReview | 
       source: String(q.source) as Provenance,
       guardStatus: String(q.guard_status),
       guardFindings: (q.guard_findings ?? null) as GuardFinding[] | null,
+      anchorQuote: q.anchor_quote ? String(q.anchor_quote) : null,
+      watchPoint: q.watch_point ? String(q.watch_point) : null,
     })),
   };
 }
@@ -679,10 +719,14 @@ export async function approvePlan(planId: string, by: string): Promise<ApproveRe
  * Append to the note a doctor already wrote.
  *
  * It appends to `consultation_notes.body` rather than living in a column of its
- * own, and that is not a shortcut. `assertGrounded` runs again at *dial* time
- * against `body`: a medication named only in an amendment stored elsewhere
- * would make every subsequent call refuse as ungrounded. The note the compiler
- * reads and the note the dialer grounds against have to be the same text.
+ * own, and that is not a shortcut. The recompile reads the whole body, and
+ * grounding checks the compiled plan against that same text — so a medication
+ * or question anchored only in an amendment stored elsewhere would be refused
+ * as ungrounded. The note the doctor wrote and the note the compiler grounds
+ * against have to be the same text.
+ *
+ * (This used to say grounding runs again at dial time. It does not; the only
+ * dial-time check is the guard inside `dial()`.)
  *
  * Only while the plan is awaiting approval, and that is enforced in the SQL
  * rather than in the caller.
@@ -746,26 +790,65 @@ export async function amendNote(
  */
 export async function mergeCompiledQuestions(
   planId: string,
-  questions: { questionId: string; prompt: string; answerType: string; enumValues?: string[] | null }[],
-): Promise<{ added: number; rewritten: number }> {
+  questions: {
+    questionId: string;
+    prompt: string;
+    answerType: string;
+    enumValues?: string[] | null;
+    why?: string | null;
+    watchPoint?: number | null;
+  }[],
+  watchPoints: WatchPoint[] = [],
+  /** What the recompile refused (anchors, cap, guard) — kept and shown on a draft. */
+  refused: {
+    questionId: string;
+    prompt: string;
+    findings: GuardFinding[];
+    anchorQuote?: string | null;
+    watchPoint?: string | null;
+  }[] = [],
+): Promise<{ added: number; rewritten: number; capped: number }> {
   const db = getDb();
   let added = 0;
   let rewritten = 0;
+  let capped = 0;
+
+  /*
+   * The cap holds across amendments, not only within one compile: count the
+   * note's questions already on the plan. A new one past it is not added. It
+   * is counted and reported rather than stored as refused, because a refused
+   * row blocks `assembleTask` — and an amendment must not silently stop a
+   * running follow-up from dialling.
+   */
+  const counted = await db.execute(sql`
+    select count(*)::int as n from plan_questions
+    where plan_id = ${planId} and source = 'note' and guard_status = 'approved'
+  `);
+  let noteQuestions = Number((counted.rows[0] as Record<string, unknown> | undefined)?.n ?? 0);
 
   for (const q of questions) {
     if (RESERVED_QUESTION_IDS.has(q.questionId)) continue;
+    const present = await db.execute(sql`
+      select 1 from plan_questions where plan_id = ${planId} and question_id = ${q.questionId}
+    `);
+    if (present.rows.length === 0 && noteQuestions >= MAX_NOTE_QUESTIONS) {
+      capped += 1;
+      continue;
+    }
     const guard = inspectQuestion(q.prompt);
+    const anchor = q.why ?? null;
+    const watch = typeof q.watchPoint === "number" ? (watchPoints[q.watchPoint]?.text ?? null) : null;
 
     const inserted = await db.execute(sql`
       insert into plan_questions
         (id, plan_id, question_id, ordinal, prompt, answer_type, enum_values, required,
-         source, guard_status, guard_findings, last_compile_at, added_at)
+         source, guard_status, guard_findings, anchor_quote, watch_point, last_compile_at, added_at)
       select ${newId("q")}, ${planId}, ${q.questionId},
              (select coalesce(max(ordinal), 0) + 1 from plan_questions where plan_id = ${planId}),
              ${q.prompt}, ${q.answerType},
              ${q.enumValues ? JSON.stringify(q.enumValues) : null}::jsonb, true,
              'note', ${guard.ok ? "approved" : "rejected"},
-             ${guard.ok ? null : JSON.stringify(guard.findings)}::jsonb, now(),
+             ${guard.ok ? null : JSON.stringify(guard.findings)}::jsonb, ${anchor}, ${watch}, now(),
              -- Stamped only when the plan was already running, so a call from
              -- day 2 can be read knowing which questions did not exist yet.
              (case when p.status = 'awaiting_approval' then null else now() end)
@@ -777,6 +860,7 @@ export async function mergeCompiledQuestions(
 
     if (inserted.rows.length > 0) {
       added += 1;
+      if (guard.ok) noteQuestions += 1;
       continue;
     }
 
@@ -785,6 +869,8 @@ export async function mergeCompiledQuestions(
       set prompt = ${q.prompt},
           guard_status = ${guard.ok ? "approved" : "rejected"},
           guard_findings = ${guard.ok ? null : JSON.stringify(guard.findings)}::jsonb,
+          anchor_quote = ${anchor},
+          watch_point = ${watch},
           last_compile_at = now(),
           updated_at = now()
       where plan_id = ${planId} and question_id = ${q.questionId}
@@ -799,7 +885,31 @@ export async function mergeCompiledQuestions(
     if (updated.rows.length > 0) rewritten += 1;
   }
 
-  return { added, rewritten };
+  /*
+   * What the recompile refused is kept and shown, as at first compile — an
+   * amendment that tried to add an ungrounded question is something the
+   * doctor should see. Drafts only: on a running plan a refused row would stop
+   * the follow-up from dialling, which an amendment must never do by accident.
+   */
+  for (const r of refused) {
+    if (RESERVED_QUESTION_IDS.has(r.questionId)) continue;
+    const inserted = await db.execute(sql`
+      insert into plan_questions
+        (id, plan_id, question_id, ordinal, prompt, answer_type, enum_values, required,
+         source, guard_status, guard_findings, anchor_quote, watch_point, last_compile_at)
+      select ${newId("q")}, ${planId}, ${r.questionId},
+             (select coalesce(max(ordinal), 0) + 1 from plan_questions where plan_id = ${planId}),
+             ${r.prompt}, 'text', null, true, 'note', 'rejected',
+             ${JSON.stringify(r.findings)}::jsonb, ${r.anchorQuote ?? null}, ${r.watchPoint ?? null}, now()
+      from follow_up_plans p
+      where p.id = ${planId} and p.status = 'awaiting_approval'
+      on conflict (plan_id, question_id) do nothing
+      returning id
+    `);
+    if (inserted.rows.length > 0) added += 1;
+  }
+
+  return { added, rewritten, capped };
 }
 
 /**
@@ -892,6 +1002,10 @@ export async function mergeCompiledPlan(
         local_time = ${mine("localTime") ? sql`local_time` : plan.localTime},
         red_flag_terms = ${JSON.stringify(terms)}::jsonb,
         provenance = ${JSON.stringify(merged)}::jsonb,
+        -- The recompile's quotes. A field the doctor set reads "You set this"
+        -- whatever the quote says, so replacing them wholesale is safe.
+        schedule_quotes = ${JSON.stringify(plan.scheduleQuotes ?? {})}::jsonb,
+        watch_points = ${JSON.stringify(plan.watchPoints ?? [])}::jsonb,
         updated_at = now()
     where id = ${planId} and status = 'awaiting_approval'
     returning id

@@ -108,7 +108,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): CareLoopConfig
     cronSecret: env.CRON_SECRET || null,
     webhookToken: env.CARELOOP_WEBHOOK_TOKEN || null,
     publicUrl: (env.CARELOOP_PUBLIC_URL || "").replace(/\/+$/, "") || null,
-    practiceName: env.CARELOOP_PRACTICE_NAME || "Bridgeview Family Practice",
+    practiceName: env.CARELOOP_PRACTICE_NAME || "Banyan Family Clinic",
     clinicianName: env.CARELOOP_CLINICIAN_NAME || "Dr Rao",
   };
 }

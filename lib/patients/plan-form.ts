@@ -1,5 +1,5 @@
 /**
- * The compile form's shape.
+ * The consult form's shape.
  *
  * Separate from the action for the same reason as the patient form: a
  * `"use server"` module may only export async functions, so the empty-state
@@ -7,12 +7,12 @@
  */
 
 export interface CompileFormState {
-  values: { note: string; escalationNote: string; timeScale: string };
+  values: { note: string; escalation: string };
   error?: string;
 }
 
 export const EMPTY_COMPILE_FORM: CompileFormState = {
-  values: { note: "", escalationNote: "", timeScale: "1" },
+  values: { note: "", escalation: "" },
 };
 
 /**

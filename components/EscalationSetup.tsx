@@ -112,14 +112,44 @@ export function EscalationSetup({
 
   return (
     <div style={{ padding: "calc(var(--cell) * 3)" }}>
-      <p
-        className="measure"
-        style={{ margin: "0 0 calc(var(--cell) * 3)", color: "var(--print-2)", fontSize: 14 }}
-      >
-        Care Loop only ever escalates on this plan&rsquo;s rules and the words you
-        list — never on the model&rsquo;s opinion of what it heard.
-        {live ? " Changes apply to calls from here on; they do not revisit calls already made." : ""}
-      </p>
+      {/*
+        The explanation, folded. It was two always-open paragraphs — one here
+        and one at the foot about the fixed rules — on a page a doctor scrolls
+        through to reach one decision. Said the way the product works now: this
+        once read "never on the model's opinion of what it heard", which stopped
+        being true when triage replaced the rule kinds.
+      */}
+      <details className="disclosure" style={{ marginBottom: "calc(var(--cell) * 3)" }}>
+        <summary>How escalation works</summary>
+        <p
+          className="measure"
+          style={{ margin: "calc(var(--cell) * 1) 0 0", color: "var(--print-2)", fontSize: 14, lineHeight: 1.6 }}
+        >
+          After each call a model reads what the patient said against your
+          conditions and these words, and escalates what matches. Fixed rules stand
+          underneath it, so an outage cannot silence a patient who asked for a person.
+        </p>
+        <p
+          className="measure"
+          style={{ margin: "calc(var(--cell) * 1) 0 0", color: "var(--print-2)", fontSize: 14, lineHeight: 1.6 }}
+        >
+          {/*
+            "Each of them pauses the plan" was wrong. `unmappable_response` carries
+            urgent: false precisely so it does not — pausing on attempt 1 of 3
+            disabled the retry ladder for the commonest reason a call is useless.
+            Two of the three pause; all three reach a person.
+          */}
+          {`Three rules are always on and cannot be removed: ${LOCKED}. Each puts the patient in front of a person. An answer nobody could map keeps the follow-up dialling; the other two pause it.`}
+        </p>
+      </details>
+      {live ? (
+        <p
+          className="measure"
+          style={{ margin: "0 0 calc(var(--cell) * 3)", color: "var(--print-2)", fontSize: 14 }}
+        >
+          Changes apply to calls from here on; they do not revisit calls already made.
+        </p>
+      ) : null}
 
       {/* 1 — the doctor's own words. */}
       {writing ? (
@@ -199,9 +229,8 @@ export function EscalationSetup({
         className="measure"
         style={{ margin: "0 0 calc(var(--cell) * 2)", color: "var(--print-2)", fontSize: 14 }}
       >
-        Escalate when the patient says them. Deliberately over-matches — &ldquo;no
-        vomiting&rdquo; fires too, so a person reads the sentence rather than the
-        system deciding what it meant.
+        Escalate when the patient says them. Matching is deliberately broad:
+        &ldquo;no vomiting&rdquo; counts too, so a person reads the sentence.
       </p>
 
       {shown.length === 0 ? (
@@ -212,20 +241,7 @@ export function EscalationSetup({
         GROUPS.map(({ source, heading, caption }) => {
           const group = shown.filter((t) => t.source === source);
           if (group.length === 0) return null;
-          return (
-            <div key={source} style={{ marginBottom: "calc(var(--cell) * 2)" }}>
-              <p
-                className="caps"
-                style={{ color: "var(--print-3)", margin: "0 0 calc(var(--cell) * 0.5)" }}
-              >
-                {heading}
-              </p>
-              <p
-                className="measure"
-                style={{ margin: "0 0 calc(var(--cell) * 1)", color: "var(--print-3)", fontSize: 13 }}
-              >
-                {caption}
-              </p>
+          const chips = (
               <div
                 style={{ display: "flex", flexWrap: "wrap", gap: "calc(var(--cell) * 0.75)" }}
               >
@@ -255,12 +271,50 @@ export function EscalationSetup({
                       font: "inherit",
                     }}
                   >
-                    <Badge tone="amber" quiet>
+                    {/* Plain, not amber. Amber is the one action on a page;
+                        two dozen amber chips read as two dozen warnings. */}
+                    <Badge tone="plain" quiet>
                       {t.term} ✕
                     </Badge>
                   </button>
                 ))}
               </div>
+          );
+          /*
+            The standard list is folded. It is the same two dozen words on every
+            plan for the condition and, printed in full, was the loudest thing on
+            the page — while the words a doctor needs to check are the ones read
+            out of their own note, which stay open above it.
+          */
+          if (source === "default") {
+            return (
+              <details
+                key={source}
+                className="disclosure"
+                style={{ marginBottom: "calc(var(--cell) * 2)" }}
+              >
+                <summary>
+                  {group.length} standard {group.length === 1 ? "word" : "words"} for this condition
+                </summary>
+                <div style={{ marginTop: "calc(var(--cell) * 1)" }}>{chips}</div>
+              </details>
+            );
+          }
+          return (
+            <div key={source} style={{ marginBottom: "calc(var(--cell) * 2)" }}>
+              <p
+                className="caps"
+                style={{ color: "var(--print-3)", margin: "0 0 calc(var(--cell) * 0.5)" }}
+              >
+                {heading}
+              </p>
+              <p
+                className="measure"
+                style={{ margin: "0 0 calc(var(--cell) * 1)", color: "var(--print-3)", fontSize: 13 }}
+              >
+                {caption}
+              </p>
+              {chips}
             </div>
           );
         })
@@ -287,26 +341,6 @@ export function EscalationSetup({
         </Button>
       </div>
 
-      {/* 3 — the three nobody may switch off. */}
-      <p
-        className="measure"
-        style={{
-          margin: "calc(var(--cell) * 3) 0 0",
-          paddingTop: "calc(var(--cell) * 3)",
-          borderTop: "1px solid var(--rule)",
-          color: "var(--print-2)",
-          fontSize: 14,
-          lineHeight: 1.6,
-        }}
-      >
-        {/*
-          "Each of them pauses the plan" was wrong. `unmappable_response` carries
-          urgent: false precisely so it does not — pausing on attempt 1 of 3
-          disabled the retry ladder for the commonest reason a call is useless.
-          Two of the three pause; all three reach a person.
-        */}
-        {`Three rules are always on and cannot be removed: ${LOCKED}. Each puts the patient in front of a person. An answer nobody could map keeps the follow-up dialling; the other two pause it.`}
-      </p>
     </div>
   );
 }

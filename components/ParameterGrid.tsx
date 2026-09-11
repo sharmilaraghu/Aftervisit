@@ -44,7 +44,27 @@ export function ParameterGrid({ rows }: { rows: ParameterRow[] }) {
    */
   const anySignal = allSignals(rows).length > 0;
 
+  /*
+   * The key. Cells are one or two letters, and "MI" is not a word anyone can
+   * read cold — it was a working-memory tax at exactly the moment of reading a
+   * trend. Built from the labels actually on screen, as label–word pairs, so it
+   * never lists a letter that is not there and a letter two rows use for two
+   * different answers is listed twice rather than explained wrongly.
+   */
+  const key = new Set<string>();
+  for (const row of rows) {
+    for (const reading of row.readings) {
+      const label = cellLabel(row, reading);
+      /* A cell already printed in full ("Yes") needs no entry. */
+      const word = cellTitle(row, reading).split(": ").slice(1).join(": ");
+      if (label.toLowerCase() === word.toLowerCase()) continue;
+      if (!label || /^\d+$/.test(label)) continue;
+      key.add(`${label} ${cellTitle(row, reading).replace(/^Day \d+: /, "")}`);
+    }
+  }
+
   return (
+    <>
     <div className="table-scroll">
       <table className="param-grid">
         <thead>
@@ -101,5 +121,21 @@ export function ParameterGrid({ rows }: { rows: ParameterRow[] }) {
         </tbody>
       </table>
     </div>
+    {key.size > 0 ? (
+      <p
+        className="mono"
+        style={{
+          margin: 0,
+          padding: "calc(var(--cell) * 1.5) calc(var(--cell) * 2)",
+          borderTop: "1px solid var(--rule-2)",
+          color: "var(--print-3)",
+          fontSize: 12,
+          lineHeight: 1.6,
+        }}
+      >
+        {[...key].join("  ·  ")}
+      </p>
+    ) : null}
+    </>
   );
 }

@@ -14,6 +14,7 @@
 export type IdPrefix =
   | "pat"
   | "note"
+  | "vis"
   | "pln"
   | "q"
   | "sc"

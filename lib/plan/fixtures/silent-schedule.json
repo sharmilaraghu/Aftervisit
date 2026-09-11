@@ -1,0 +1,52 @@
+{
+  "model": "gpt-4.1-mini",
+  "recordedAt": "2026-09-11T09:36:16.689Z",
+  "raw": {
+    "reason": "New atorvastatin  tolerance and adherence",
+    "condition": null,
+    "durationDays": null,
+    "durationQuote": null,
+    "cadence": null,
+    "cadenceQuote": null,
+    "localTime": null,
+    "localTimeQuote": null,
+    "medications": [
+      "atorvastatin 20mg"
+    ],
+    "redFlagTerms": null,
+    "watchPoints": [
+      {
+        "text": "whether she is taking atorvastatin",
+        "quote": "Ask whether she is taking it"
+      },
+      {
+        "text": "whether she has any muscle aches",
+        "quote": "whether she has any muscle aches"
+      }
+    ],
+    "questions": [
+      {
+        "questionId": "taking_atorvastatin",
+        "prompt": "Are you taking the atorvastatin as prescribed?",
+        "answerType": "enum",
+        "enumValues": [
+          "yes",
+          "no"
+        ],
+        "why": "Ask whether she is taking it",
+        "watchPoint": 0
+      },
+      {
+        "questionId": "muscle_aches",
+        "prompt": "Have you had any muscle aches since starting the atorvastatin?",
+        "answerType": "enum",
+        "enumValues": [
+          "yes",
+          "no"
+        ],
+        "why": "whether she has any muscle aches",
+        "watchPoint": 1
+      }
+    ]
+  }
+}

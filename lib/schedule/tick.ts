@@ -432,6 +432,23 @@ export async function completeCall(
   });
 
   /*
+   * How the patient is doing, kept on the plan for the doctor's view — but only
+   * from a reading that actually happened. A fail-closed triage has nothing to
+   * say about the patient, and overwriting yesterday's words with nothing would
+   * leave the doctor less informed by an outage than by no call at all.
+   */
+  if (stored.fresh && triage.status === "ok" && triage.answer.summary) {
+    await db.execute(sql`
+      update follow_up_plans
+      set condition_summary = ${triage.answer.summary},
+          condition_summary_at = now(),
+          condition_summary_call_id = ${ctx.id},
+          updated_at = now()
+      where id = ${ctx.planId}
+    `);
+  }
+
+  /*
    * One call, one row.
    *
    * A call used to raise one escalation per rule hit *and* one for triage: the

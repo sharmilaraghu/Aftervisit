@@ -11,30 +11,39 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 
 import { Button, Field, Panel, Select, TextInput } from "@/components/ui";
-import { approvePlanAction, updateDraftAction } from "@/app/(console)/plans/actions";
+import {
+  approvePlanAction,
+  updateDraftAction,
+  updateTimeScaleAction,
+} from "@/app/(console)/plans/actions";
 import { TIME_SCALE_OPTIONS } from "@/lib/patients/plan-form";
 
 export function PlanDraftControls({
   planId,
   durationDays,
   localTime,
-  timeScale,
   cadence,
   maxAttempts,
+  startOpen = false,
 }: {
   planId: string;
   durationDays: number;
   localTime: string;
-  timeScale: number;
   cadence: string;
   maxAttempts: number;
+  /**
+   * Open on arrival when the note gave no schedule. The values shown are
+   * placeholders, and a closed drawer under them made approving a guess the
+   * path of least resistance.
+   */
+  startOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(startOpen);
   const action = updateDraftAction.bind(null, planId);
 
   if (!open) {
     return (
-      <p style={{ margin: "calc(var(--cell) * 3) 0 0" }}>
+      <p style={{ margin: "calc(var(--cell) * 3) 0 0", display: "flex" }}>
         {/*
           The drawer edits the days, the local time and the demo clock — so
           calling it "the cadence" hid the time behind a word that does not mean
@@ -104,11 +113,53 @@ export function PlanDraftControls({
             />
           </Field>
         </div>
-        <div style={{ minWidth: 280, flex: 1 }}>
+      </div>
+
+      <div
+        style={{ display: "flex", flexWrap: "wrap", gap: "calc(var(--cell) * 1.5)", alignItems: "center" }}
+      >
+        <Button type="submit" variant="onLabel">
+          Save
+        </Button>
+        <Button variant="onLabel" onClick={() => setOpen(false)}>
+          Cancel
+        </Button>
+        {/* Its own line on a phone, not a crushed column beside the buttons. */}
+        <span style={{ color: "var(--print-3)", fontSize: 13, flex: "1 1 calc(var(--cell) * 30)" }}>
+          Values you change, and placeholders you confirm, are marked as yours.
+          What the note said stays marked as the note&rsquo;s.
+        </span>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * The demo clock — demo scaffolding, kept apart from the clinical schedule.
+ *
+ * Folded, because a doctor approving a real follow-up has no use for it; it is
+ * there so a three-minute demo can show a week of calls.
+ */
+export function DemoClock({ planId, timeScale }: { planId: string; timeScale: number }) {
+  const action = updateTimeScaleAction.bind(null, planId);
+  return (
+    <details className="disclosure" style={{ marginTop: "calc(var(--cell) * 3)" }}>
+      <summary>Demo clock</summary>
+      <form
+        action={action}
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "flex-end",
+          gap: "calc(var(--cell) * 1.5)",
+          marginTop: "calc(var(--cell) * 1.5)",
+        }}
+      >
+        <div style={{ minWidth: 260, flex: "1 1 260px", maxWidth: 420 }}>
           <Field
-            label="Demo clock"
+            label="Calendar speed"
             htmlFor="timeScale"
-            hint="Demo scaffolding, not a clinical setting. It only compresses the calendar; the calls themselves are identical."
+            hint="Not a clinical setting. It only compresses the calendar; the calls themselves are identical."
           >
             <Select
               id="timeScale"
@@ -118,20 +169,13 @@ export function PlanDraftControls({
             />
           </Field>
         </div>
-      </div>
-
-      <div style={{ display: "flex", gap: "calc(var(--cell) * 1.5)", alignItems: "center" }}>
-        <Button type="submit" variant="onLabel">
-          Save
-        </Button>
-        <Button variant="onLabel" onClick={() => setOpen(false)}>
-          Cancel
-        </Button>
-        <span className="caps" style={{ color: "var(--print-3)" }}>
-          Anything you change here is marked as yours
-        </span>
-      </div>
-    </form>
+        <div style={{ marginBottom: "calc(var(--cell) * 3)" }}>
+          <Button type="submit" variant="onLabel">
+            Set
+          </Button>
+        </div>
+      </form>
+    </details>
   );
 }
 
@@ -164,6 +208,7 @@ export function ApprovePlan({
   language,
   willRing,
   blockedReason,
+  unsetSchedule = [],
 }: {
   planId: string;
   /** Where a successful approval lands: the patient's file, and the calendar. */
@@ -184,12 +229,17 @@ export function ApprovePlan({
   calls: number;
   maxAttempts: number;
   consent: string;
-  /** BCP 47 tag with its label, e.g. "hi-IN — Hindi". What the agent will speak. */
+  /** The language's name, e.g. "Hindi". What the agent will speak. */
   language: string;
   /** True when approving will genuinely cause this phone to ring. */
   willRing: boolean;
   /** Why it will not, in one sentence. Null when it will. */
   blockedReason: string | null;
+  /**
+   * Schedule fields still on a placeholder, in words ("what time"). While any
+   * remain, approving would authorise calls at a time nobody chose.
+   */
+  unsetSchedule?: string[];
 }) {
   const [pending, startTransition] = useTransition();
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -239,11 +289,14 @@ export function ApprovePlan({
    */
   const approveButton = (
     <Button variant="primary" disabled={pending || calls === 0} onClick={approve}>
+      {/* The label carries the when; the panel around it names who and on
+          which number. At the moment of commitment the button states the
+          outcome, not just the verb. */}
       {pending
         ? "Approving…"
         : willRing
-          ? "Approve — start the follow-up"
-          : "Approve — nothing will ring yet"}
+          ? `Approve · first call ${firstCallAt}`
+          : "Approve · nothing will ring yet"}
     </Button>
   );
 
@@ -255,6 +308,40 @@ export function ApprovePlan({
    * follow-up had started. The blocker now sits on the button it blocks.
    */
   const blocked = !canApprove || refusedQuestions > 0;
+
+  /*
+   * A placeholder schedule is not a decision.
+   *
+   * The banner above said "set them before approving" while this button stayed
+   * live on the placeholder — and edits typed into the schedule drawer but not
+   * saved were silently lost on approve. The one irreversible act in the
+   * product was contradicting its own instruction. Blue, not red: nobody is at
+   * risk, the doctor just has not chosen yet. Saving the schedule clears it.
+   */
+  if (!blocked && unsetSchedule.length > 0) {
+    const words =
+      unsetSchedule.length === 1
+        ? unsetSchedule[0]
+        : `${unsetSchedule.slice(0, -1).join(", ")} and ${unsetSchedule[unsetSchedule.length - 1]}`;
+    return (
+      <p
+        role="status"
+        style={{
+          margin: 0,
+          padding: "calc(var(--cell) * 2)",
+          background: "var(--info-wash)",
+          boxShadow: "inset 0 0 0 1px var(--info)",
+          color: "var(--print)",
+          fontSize: 15,
+          lineHeight: 1.5,
+        }}
+      >
+        <strong>Set {words} to call before approving.</strong> The note doesn&rsquo;t say, so
+        the schedule above still holds a placeholder. Save the schedule and this becomes the
+        approve button.
+      </p>
+    );
+  }
 
   if (blocked) {
     return (
@@ -412,7 +499,9 @@ export function ApprovePlan({
               {/* Prose, not tracked caps: caps label a value, and this is the only
                   warning attached to the one irreversible act in the product. */}
               <span style={{ alignSelf: "center", color: "var(--print-2)", fontSize: 14 }}>
-                This cannot be undone.
+                {/* What can still change, not a warning. The plan can be
+                    cancelled at any point; only calls already placed stay. */}
+                You can cancel it later; calls already made stay on the record.
               </span>
             </div>
 
@@ -459,7 +548,7 @@ export function ApprovePlan({
                 wrapping into each other. */}
             <p className="commit-band-note">
               Calling <strong style={{ color: "var(--bench-ink)" }}>{patientName}</strong> on{" "}
-              <span className="mono">{maskedPhone}</span> — this cannot be undone.
+              <span className="mono">{maskedPhone}</span>. You can cancel it later.
             </p>
             {approveButton}
           </div>

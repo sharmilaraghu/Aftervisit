@@ -20,18 +20,25 @@ export interface LanguageOption {
   spoken?: string;
 }
 
+/*
+ * English and a few Indian languages — the practice is in India, and a short
+ * list is one the front desk can read at a glance. Labels are the language's
+ * name alone; the BCP 47 tag is the machine's word for it and still travels
+ * as the value.
+ */
 export const LANGUAGE_OPTIONS: LanguageOption[] = [
-  { value: "en-US", label: "en-US — English (US)" },
-  { value: "en-GB", label: "en-GB — English (UK)" },
-  { value: "en-IN", label: "en-IN — English (India)" },
-  { value: "hi-IN", label: "hi-IN — Hindi", spoken: "Hindi" },
-  { value: "ta-IN", label: "ta-IN — Tamil", spoken: "Tamil" },
-  { value: "te-IN", label: "te-IN — Telugu", spoken: "Telugu" },
-  { value: "kn-IN", label: "kn-IN — Kannada", spoken: "Kannada" },
-  { value: "ml-IN", label: "ml-IN — Malayalam", spoken: "Malayalam" },
-  { value: "mr-IN", label: "mr-IN — Marathi", spoken: "Marathi" },
-  { value: "bn-IN", label: "bn-IN — Bengali", spoken: "Bengali" },
+  { value: "en-IN", label: "English (India)" },
+  { value: "hi-IN", label: "Hindi", spoken: "Hindi" },
+  { value: "ta-IN", label: "Tamil", spoken: "Tamil" },
+  { value: "te-IN", label: "Telugu", spoken: "Telugu" },
+  { value: "kn-IN", label: "Kannada", spoken: "Kannada" },
+  { value: "ml-IN", label: "Malayalam", spoken: "Malayalam" },
 ];
+
+/** The language's name for display, or the tag itself for one not offered. */
+export function languageLabel(tag: string): string {
+  return LANGUAGE_OPTIONS.find((o) => o.value === tag)?.label ?? tag;
+}
 
 export function isValidLanguage(value: string): boolean {
   if (!value) return false;

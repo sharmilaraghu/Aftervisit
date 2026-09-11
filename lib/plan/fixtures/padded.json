@@ -1,0 +1,32 @@
+{
+  "handWritten": true,
+  "about": "An adversarial answer written by hand, not recorded: a model padding the list, copying style examples, quoting words the note never used, and claiming a frequency it invented. A well-behaved model will not produce one, so it is authored to prove the pipeline refuses and flags each of those.",
+  "noteBody": "Day 2 after laparoscopic cholecystectomy. Call each morning for five days. Watch for fever, any discharge from the wound, and pain getting worse. Escalate to me if the wound is hot or she has a fever.",
+  "model": "hand-written",
+  "raw": {
+    "reason": "Post-op follow-up · wound and pain",
+    "condition": "post_op_wound",
+    "durationDays": 5,
+    "durationQuote": "for five days",
+    "cadence": "daily",
+    "cadenceQuote": "every single day",
+    "localTime": "09:00",
+    "localTimeQuote": "each morning",
+    "medications": null,
+    "redFlagTerms": ["fever"],
+    "watchPoints": [
+      { "text": "fever", "quote": "Watch for fever" },
+      { "text": "wound discharge", "quote": "any discharge from the wound" },
+      { "text": "pain getting worse", "quote": "pain getting worse" }
+    ],
+    "questions": [
+      { "questionId": "fever", "prompt": "Have you had a fever?", "answerType": "boolean", "enumValues": null, "why": "Watch for fever", "watchPoint": 0 },
+      { "questionId": "discharge", "prompt": "Is there any discharge coming from the wound?", "answerType": "boolean", "enumValues": null, "why": "any discharge from the wound", "watchPoint": 1 },
+      { "questionId": "pain_score", "prompt": "On a scale of 0 to 10, how bad is the pain today?", "answerType": "scale_0_10", "enumValues": null, "why": "pain getting worse", "watchPoint": 2 },
+      { "questionId": "sleep", "prompt": "How well are you sleeping?", "answerType": "enum", "enumValues": ["well", "badly"], "why": "trouble sleeping", "watchPoint": null },
+      { "questionId": "appetite", "prompt": "Are you eating normally?", "answerType": "boolean", "enumValues": null, "why": "pain getting worse", "watchPoint": null },
+      { "questionId": "walking", "prompt": "Are you able to walk around the house?", "answerType": "boolean", "enumValues": null, "why": "Day 2 after laparoscopic cholecystectomy", "watchPoint": null },
+      { "questionId": "bowels", "prompt": "Have your bowels opened?", "answerType": "boolean", "enumValues": null, "why": "Day 2", "watchPoint": null }
+    ]
+  }
+}

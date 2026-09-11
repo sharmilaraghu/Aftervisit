@@ -58,7 +58,15 @@ export type GuardCategory =
   | "missing_emergency_stop"
   | "missing_non_advice_statement"
   | "missing_emergency_handoff"
-  | "missing_human_handoff";
+  | "missing_human_handoff"
+  /*
+   * Not raised by this file. `lib/plan/anchors.ts` refuses compiled questions
+   * on these grounds before the guard ever sees them, and records them in the
+   * same shape so a refusal reads the same on the review screen whatever
+   * refused it — and blocks dialling the same way.
+   */
+  | "not_anchored"
+  | "over_limit";
 
 export interface GuardFinding {
   category: GuardCategory;

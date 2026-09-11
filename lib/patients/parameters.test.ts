@@ -175,7 +175,7 @@ describe("cells", () => {
 
   it("shows a digit for a scale and an initial for a choice", () => {
     expect(cellLabel(row, row.readings[1])).toBe("8");
-    expect(cellLabel(bools([true]), reading(1, { valueBool: true }))).toBe("Y");
+    expect(cellLabel(bools([true]), reading(1, { valueBool: true }))).toBe("Yes");
   });
 
   /* Colour is never the only carrier: every cell says its value in words. */

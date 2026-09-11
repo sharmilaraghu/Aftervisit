@@ -93,7 +93,9 @@ export const UNIVERSAL_QUESTIONS: UniversalQuestion[] = [
    */
   {
     questionId: "symptom_change",
-    prompt: "Compared with the last time we spoke, would you say things are better, about the same, or worse?",
+    /* Anchored to the visit, not to the previous call: a call has to make
+       sense even when yesterday's never connected. */
+    prompt: "Since you left the clinic, would you say things are better, about the same, or worse?",
     answerType: "enum",
     enumValues: ["better", "same", "worse"],
     source: "default",
