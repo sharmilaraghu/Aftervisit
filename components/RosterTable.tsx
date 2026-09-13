@@ -21,7 +21,7 @@ import type { RosterRow } from "@/lib/db/queries";
 import { HEALTH_LABEL, HEALTH_ORDER, HEALTH_TONE } from "@/lib/patients/labels";
 import { maskPhone } from "@/lib/phone/normalize";
 
-export type SortKey = "name" | "age" | "reason" | "state" | "quiet";
+export type SortKey = "name" | "age" | "reason" | "state";
 
 export interface Sort {
   key: SortKey;
@@ -55,13 +55,10 @@ const COLUMNS: Column[] = [
     sort: "reason",
     ways: ["A to Z", "Z to A"],
   },
+  /* No "Silent for" column: a silence is already a state — the State column
+     says "Gone quiet" — and a second column of em-dashes said nothing about
+     the eight patients who are not silent. */
   { label: "State", sort: "state", ways: ["most urgent first", "least urgent first"] },
-  {
-    label: "Silent for",
-    className: "col-signal",
-    sort: "quiet",
-    ways: ["shortest silence first", "longest silence first"],
-  },
 ];
 
 /** The label a status line uses to name the active sort. */
@@ -80,7 +77,6 @@ const RANK: Record<SortKey, (a: RosterRow, b: RosterRow) => number> = {
   // Clinical order, never alphabetical: "escalated" must not land beside
   // "completed" because both start with the same letter.
   state: (a, b) => HEALTH_ORDER[a.health] - HEALTH_ORDER[b.health],
-  quiet: (a, b) => (a.quietFor ?? 0) - (b.quietFor ?? 0),
 };
 
 /** The tiebreak, and the reason the order is stable across re-renders. */
@@ -89,19 +85,7 @@ const settle = (a: RosterRow, b: RosterRow) =>
 
 export function sortRoster(rows: RosterRow[], sort: Sort): RosterRow[] {
   const sign = sort.dir === "asc" ? 1 : -1;
-  return [...rows].sort((a, b) => {
-    /*
-     * A null `quietFor` is a patient never reached at all, so there is no
-     * duration to rank them by — they are neither the quietest nor the
-     * loudest. They sink in both directions rather than pretending to be zero
-     * days silent, and their State badge is what still speaks for them.
-     */
-    if (sort.key === "quiet" && (a.quietFor === null || b.quietFor === null)) {
-      if (a.quietFor === b.quietFor) return settle(a, b);
-      return a.quietFor === null ? 1 : -1;
-    }
-    return sign * RANK[sort.key](a, b) || settle(a, b);
-  });
+  return [...rows].sort((a, b) => sign * RANK[sort.key](a, b) || settle(a, b));
 }
 
 export function RosterTable({ rows }: { rows: RosterRow[] }) {
@@ -301,18 +285,6 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
                         {HEALTH_LABEL[p.health]}
                       </Badge>
                     </Link>
-                  </td>
-                  <td className="col-signal" style={{ padding: CELL, whiteSpace: "nowrap" }}>
-                    {p.quietFor !== null && p.quietFor >= 3 ? (
-                      /* A duration, not a second alarm. The State column already
-                         prints the red for this — "Drifting" — and two reds in
-                         one row read as two problems. */
-                      <Badge tone="plain" quiet>
-                        Quiet <span className="mono">{p.quietFor}</span> days
-                      </Badge>
-                    ) : (
-                      <span style={{ color: "var(--print-3)" }}>&mdash;</span>
-                    )}
                   </td>
                 </tr>
               );

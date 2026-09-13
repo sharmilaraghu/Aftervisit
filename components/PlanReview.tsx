@@ -25,6 +25,7 @@ export function PlanDraftControls({
   cadence,
   maxAttempts,
   startOpen = false,
+  marks,
 }: {
   planId: string;
   durationDays: number;
@@ -32,13 +33,21 @@ export function PlanDraftControls({
   cadence: string;
   maxAttempts: number;
   /**
+   * Where each value came from, shown under its own field. Passed on a draft,
+   * where the form *is* the schedule: the read-only values used to sit directly
+   * above an open form holding the same numbers, so the page said everything
+   * twice. With marks, the form is always open and there is nothing to toggle.
+   */
+  marks?: Partial<Record<"durationDays" | "localTime" | "cadence" | "maxAttempts", React.ReactNode>>;
+  /**
    * Open on arrival when the note gave no schedule. The values shown are
    * placeholders, and a closed drawer under them made approving a guess the
    * path of least resistance.
    */
   startOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(startOpen);
+  const inline = marks !== undefined;
+  const [open, setOpen] = useState(startOpen || inline);
   const action = updateDraftAction.bind(null, planId);
 
   if (!open) {
@@ -59,16 +68,21 @@ export function PlanDraftControls({
 
   return (
     <form
+      id="schedule"
       action={action}
-      style={{
-        marginTop: "calc(var(--cell) * 3)",
-        paddingTop: "calc(var(--cell) * 3)",
-        borderTop: "1px solid var(--rule)",
-      }}
+      style={
+        inline
+          ? { marginBottom: "calc(var(--cell) * 2)" }
+          : {
+              marginTop: "calc(var(--cell) * 3)",
+              paddingTop: "calc(var(--cell) * 3)",
+              borderTop: "1px solid var(--rule)",
+            }
+      }
     >
       <div style={{ display: "flex", flexWrap: "wrap", gap: "calc(var(--cell) * 3)" }}>
         <div style={{ minWidth: 144 }}>
-          <Field label="Days" htmlFor="durationDays">
+          <Field label="Days" htmlFor="durationDays" hint={marks?.durationDays}>
             <TextInput
               id="durationDays"
               name="durationDays"
@@ -79,7 +93,7 @@ export function PlanDraftControls({
           </Field>
         </div>
         <div style={{ minWidth: 144 }}>
-          <Field label="Best time to call" htmlFor="localTime">
+          <Field label="Best time to call" htmlFor="localTime" hint={marks?.localTime}>
             <TextInput id="localTime" name="localTime" mono defaultValue={localTime} />
           </Field>
         </div>
@@ -87,7 +101,7 @@ export function PlanDraftControls({
           {/* Every value on the panel above carries a provenance mark. Cadence
               and attempts carried one while having no control anywhere in the
               product, which made the mark a claim the interface could not keep. */}
-          <Field label="How often" htmlFor="cadence">
+          <Field label="How often" htmlFor="cadence" hint={marks?.cadence}>
             <Select
               id="cadence"
               name="cadence"
@@ -101,7 +115,7 @@ export function PlanDraftControls({
           </Field>
         </div>
         <div style={{ minWidth: 160 }}>
-          <Field label="Attempts a day" htmlFor="maxAttempts">
+          <Field label="Attempts a day" htmlFor="maxAttempts" hint={marks?.maxAttempts}>
             <Select
               id="maxAttempts"
               name="maxAttempts"
@@ -119,11 +133,17 @@ export function PlanDraftControls({
         style={{ display: "flex", flexWrap: "wrap", gap: "calc(var(--cell) * 1.5)", alignItems: "center" }}
       >
         <Button type="submit" variant="onLabel">
-          Save
+          {inline ? "Save the schedule" : "Save"}
         </Button>
-        <Button variant="onLabel" onClick={() => setOpen(false)}>
-          Cancel
-        </Button>
+        {inline ? (
+          <Button type="reset" variant="onLabel">
+            Undo changes
+          </Button>
+        ) : (
+          <Button variant="onLabel" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+        )}
         {/* Its own line on a phone, not a crushed column beside the buttons. */}
         <span style={{ color: "var(--print-3)", fontSize: 13, flex: "1 1 calc(var(--cell) * 30)" }}>
           Values you change, and placeholders you confirm, are marked as yours.
@@ -143,8 +163,13 @@ export function PlanDraftControls({
 export function DemoClock({ planId, timeScale }: { planId: string; timeScale: number }) {
   const action = updateTimeScaleAction.bind(null, planId);
   return (
-    <details className="disclosure" style={{ marginTop: "calc(var(--cell) * 3)" }}>
-      <summary>Demo clock</summary>
+    /* Bench ink on the graphite ground: the sheet's greys measured 3.0:1 here.
+       The form itself sits on a sheet, where its own greys are legible. */
+    <details
+      className="disclosure"
+      style={{ marginTop: "calc(var(--cell) * 3)", color: "var(--bench-ink-2)", fontSize: 14 }}
+    >
+      <summary style={{ color: "var(--bench-ink-2)" }}>Demo clock — for demos, not clinical use</summary>
       <form
         action={action}
         style={{
@@ -153,6 +178,8 @@ export function DemoClock({ planId, timeScale }: { planId: string; timeScale: nu
           alignItems: "flex-end",
           gap: "calc(var(--cell) * 1.5)",
           marginTop: "calc(var(--cell) * 1.5)",
+          padding: "calc(var(--cell) * 2) calc(var(--cell) * 2.5) 0",
+          background: "var(--label)",
         }}
       >
         <div style={{ minWidth: 260, flex: "1 1 260px", maxWidth: 420 }}>
@@ -252,6 +279,11 @@ export function ApprovePlan({
    * rendered. `rootMargin` trims the band's own height off the bottom of the
    * root, or the two would swap places while the panel is still underneath it.
    */
+  /* What stands between the doctor and approving, if anything. The band below
+     follows the page in every case — held with its reason, or live. */
+  const blocked = !canApprove || refusedQuestions > 0;
+  const mode = blocked ? "blocked" : unsetSchedule.length > 0 ? "unset" : "ready";
+
   const panel = useRef<HTMLDivElement | null>(null);
   const [panelSeen, setPanelSeen] = useState(true);
   useEffect(() => {
@@ -266,7 +298,9 @@ export function ApprovePlan({
     );
     io.observe(node);
     return () => io.disconnect();
-  }, []);
+    /* Re-observe when the panel swaps: saving the schedule turns the held
+       notice into the authorisation panel, a different node. */
+  }, [mode]);
 
   const approve = () =>
     startTransition(async () => {
@@ -306,8 +340,38 @@ export function ApprovePlan({
    * approve button live two thousand pixels below it. A doctor could do the
    * exact opposite of an explicit instruction in one click and believe a
    * follow-up had started. The blocker now sits on the button it blocks.
+   *
+   * And it follows the page. A held plan used to show its reason only at the
+   * foot, 2000px down, so a doctor reading the questions had no approve in
+   * sight at all. The band now carries the held button and the reason, and on
+   * a placeholder schedule a jump straight to the fields.
    */
-  const blocked = !canApprove || refusedQuestions > 0;
+  const held = (notice: React.ReactNode) => (
+    <>
+      <div ref={panel}>{notice}</div>
+      {panelSeen ? null : (
+        <div className="commit-band">
+          <div className="commit-band-inner">
+            <p className="commit-band-note">
+              {mode === "unset"
+                ? "Set the call time before approving — the note doesn’t say."
+                : "Rewrite or remove the refused questions before approving."}
+            </p>
+            {mode === "unset" ? (
+              <Button variant="ghost" href="#schedule">
+                Set the schedule
+              </Button>
+            ) : null}
+            {/* Outlined, not a dimmed amber: a disabled amber measured 2.4:1
+                and still read as the page's action. */}
+            <Button variant="ghost" disabled>
+              Approve
+            </Button>
+          </div>
+        </div>
+      )}
+    </>
+  );
 
   /*
    * A placeholder schedule is not a decision.
@@ -323,7 +387,7 @@ export function ApprovePlan({
       unsetSchedule.length === 1
         ? unsetSchedule[0]
         : `${unsetSchedule.slice(0, -1).join(", ")} and ${unsetSchedule[unsetSchedule.length - 1]}`;
-    return (
+    return held(
       <p
         role="status"
         style={{
@@ -336,15 +400,14 @@ export function ApprovePlan({
           lineHeight: 1.5,
         }}
       >
-        <strong>Set {words} to call before approving.</strong> The note doesn&rsquo;t say, so
-        the schedule above still holds a placeholder. Save the schedule and this becomes the
-        approve button.
+        <strong>Set {words} to call before approving.</strong> Save the schedule and this
+        becomes the approve button.
       </p>
     );
   }
 
   if (blocked) {
-    return (
+    return held(
       <p
         role="alert"
         style={{

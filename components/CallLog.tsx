@@ -42,7 +42,10 @@ export function CallLog({
   calls,
   maxAttempts,
   timezone,
+  showSaid = true,
 }: {
+  /** False on the desk record: what the patient said is the doctor's to read. */
+  showSaid?: boolean;
   calls: CallRow[];
   /** Null before a plan exists — the ladder's ceiling is then unknown, not 1. */
   maxAttempts: number | null;
@@ -87,12 +90,13 @@ export function CallLog({
   return (
     <>
       <div style={{ overflowX: "auto" }}>
-        <table
-          style={{ width: "100%", borderCollapse: "collapse", minWidth: 720, fontSize: 14 }}
-        >
+        {/* A table on a desk, cards on a phone (`.call-log` in globals.css):
+            scrolled sideways, the column that matters — what they said — was
+            the one cut off. */}
+        <table className="call-log" style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
           <thead>
             <tr style={{ borderBottom: "1px solid var(--rule-ink)" }}>
-              {["Day", "Attempt", "Outcome", "What they said", "When"].map((h) => (
+              {["Day", "Retry", "Outcome", ...(showSaid ? ["What they said"] : []), "When"].map((h) => (
                 <th
                   key={h}
                   className="caps"
@@ -123,7 +127,7 @@ export function CallLog({
                     { borderBottom: "1px solid var(--rule-2)", "--i": i } as React.CSSProperties
                   }
                 >
-                  <td className="mono" style={{ padding: CELL }}>
+                  <td className="mono call-day" style={{ padding: CELL }}>
                     <Link
                       href={`/calls/${c.id}`}
                       style={{
@@ -136,16 +140,16 @@ export function CallLog({
                       {c.occurrence}
                     </Link>
                   </td>
-                  <td
-                    className="mono"
-                    style={{
-                      padding: CELL,
-                      color: c.attempt > 1 ? "var(--print)" : "var(--print-3)",
-                    }}
-                  >
-                    {maxAttempts === null ? c.attempt : `${c.attempt} of ${maxAttempts}`}
+                  {/* Only a retry is worth a mark. "1 of 3" on every row was the
+                      ladder printed where nothing had climbed it. */}
+                  <td className="mono call-retry" style={{ padding: CELL, color: "var(--print)" }}>
+                    {c.attempt > 1
+                      ? maxAttempts === null
+                        ? `retry ${c.attempt}`
+                        : `${c.attempt} of ${maxAttempts}`
+                      : ""}
                   </td>
-                  <td style={{ padding: CELL }}>
+                  <td className="call-outcome" style={{ padding: CELL }}>
                     <Badge tone={tone.tone} quiet={tone.quiet}>
                       {outcomeLabel(c.status, c.outcome, c.failureCode)}
                     </Badge>
@@ -155,7 +159,8 @@ export function CallLog({
                     It sat in the database unread while this table showed two
                     timestamps instead.
                   */}
-                  <td style={{ padding: CELL, color: "var(--print-2)", maxWidth: 420 }}>
+                  {showSaid ? (
+                  <td className="call-said" style={{ padding: CELL, color: "var(--print-2)", maxWidth: 420 }}>
                     {/*
                       A call that never connected has no recap and used to show
                       a bare em-dash, which reads as "we have nothing" when in
@@ -180,8 +185,9 @@ export function CallLog({
                       </span>
                     ) : null}
                   </td>
+                  ) : null}
                   <td
-                    className="mono"
+                    className="mono call-when"
                     style={{ padding: CELL, color: "var(--print-3)", whiteSpace: "nowrap" }}
                   >
                     {formatStamp(c.finishedAt ?? c.scheduledFor, timezone)}

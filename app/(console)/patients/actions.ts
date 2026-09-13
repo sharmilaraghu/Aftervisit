@@ -29,7 +29,6 @@ import { resumePlan } from "@/lib/schedule/store";
 import { REJECTION_TEXT, normalizePhone } from "@/lib/phone/normalize";
 import { PRACTICE_TIMEZONE, isValidTimezone } from "@/lib/patients/timezones";
 import { isValidLanguage } from "@/lib/patients/languages";
-import { localDate } from "@/lib/time/clock";
 import { VISIT_KINDS, type ConsentState, type VisitKind } from "@/lib/db/enums";
 import type { PatientFormState } from "@/lib/patients/form";
 
@@ -180,18 +179,11 @@ export async function registerVisitAction(
 
   const visitId = await createVisit({ patientId: id, ...visit });
 
-  /*
-   * Straight to the doctor's list, on the tab the booking landed in. "Today"
-   * is the patient's own, for the same reason the form defaults to it: a
-   * server in another zone must not file this morning's visit under tomorrow.
-   */
-  const today = localDate(new Date(), input.timezone);
-  const day =
-    visit.visitDate > today ? "upcoming" : visit.visitDate < today ? "overdue" : "today";
-
+  /* Straight to the doctor's list. It has no tabs: the notice there says
+     when a visit booked for a later day will appear. */
   revalidatePath("/patients");
   revalidatePath("/consult");
-  redirect(`/consult?day=${day}&registered=${visitId}`);
+  redirect(`/consult?registered=${visitId}`);
 }
 
 export async function updatePatientAction(
@@ -258,6 +250,9 @@ export async function resumeStoppedPlanAction(
   await resumePlan(planId, readConfig().clinicianName);
   revalidatePath("/patients");
   revalidatePath(`/patients/${patientId}`);
+  /* Follow-ups shows paused plans too, and offers this same control. */
+  revalidatePath("/dashboard");
+  revalidatePath(`/followups/${patientId}`);
 }
 
 export async function deletePatientAction(id: string): Promise<void> {

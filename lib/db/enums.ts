@@ -131,7 +131,8 @@ export type VisitKind = "consultation" | "post_op";
  * exists because a booking that never happened must not sit on the list
  * forever.
  */
-export type VisitStatus = "waiting" | "seen" | "cancelled";
+/** `no_show`: the patient never arrived. Reversible, unlike `seen`. */
+export type VisitStatus = "waiting" | "seen" | "cancelled" | "no_show";
 
 /**
  * How a triage verdict was reached.
@@ -192,7 +193,7 @@ export const CONSENT_STATES = ["unknown", "granted", "declined"] as const;
 export const COMPILE_STATUSES = ["pending", "compiled", "refused"] as const;
 export const COMPILE_PROVIDERS = ["gemini", "openai"] as const;
 export const VISIT_KINDS = ["consultation", "post_op"] as const;
-export const VISIT_STATUSES = ["waiting", "seen", "cancelled"] as const;
+export const VISIT_STATUSES = ["waiting", "seen", "cancelled", "no_show"] as const;
 export const TRIAGE_STATUSES = ["ok", "unavailable", "error", "unparseable"] as const;
 export const TRIAGE_VERDICTS = ["severe", "escalate", "low"] as const;
 export const PLAN_STATUSES = [

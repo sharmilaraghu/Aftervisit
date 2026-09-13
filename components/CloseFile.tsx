@@ -34,10 +34,12 @@ export function CloseFile({
   const [summary, setSummary] = useState("");
   const [pending, startTransition] = useTransition();
 
+  /* "End follow-up" while calls are still due — the same name the escalation
+     panel uses; "Close file" once the window has already run out. */
   if (!armed) {
     return (
       <Button variant="onLabel" onClick={() => setArmed(true)}>
-        Close file
+        {finished ? "Close file" : "End follow-up"}
       </Button>
     );
   }
@@ -52,14 +54,14 @@ export function CloseFile({
       }}
     >
       {!finished ? (
-        <span style={{ fontSize: 14, color: "var(--print-2)" }}>
-          Every call still scheduled for {patientName} is dropped. The calls already made
-          stay on the record.
+        <span style={{ fontSize: 14, color: "var(--print)" }}>
+          <strong>All remaining calls to {patientName.split(" ")[0]} are cancelled.</strong> This
+          can&rsquo;t be undone.
         </span>
       ) : null}
       <label style={{ display: "grid", gap: "calc(var(--cell) * 0.75)" }}>
         <span style={{ fontSize: 14, fontWeight: 600, color: "var(--print-2)" }}>
-          How did it resolve?
+          What happened? <span style={{ fontWeight: 400, color: "var(--print-3)" }}>(optional)</span>
         </span>
         <Textarea
           rows={2}
@@ -71,6 +73,8 @@ export function CloseFile({
       <div style={{ display: "flex", flexWrap: "wrap", gap: "calc(var(--cell) * 1.5)" }}>
         <Button
           variant="primary"
+          /* Red when it cancels calls: that is the irreversible act. */
+          style={finished ? undefined : { background: "var(--danger)", color: "#ffffff", borderColor: "var(--danger)" }}
           disabled={pending}
           onClick={() =>
             startTransition(async () => {
@@ -79,10 +83,10 @@ export function CloseFile({
             })
           }
         >
-          {pending ? "Closing…" : "Close the file"}
+          {pending ? "Saving…" : finished ? "Close file" : "End follow-up"}
         </Button>
         <Button variant="onLabel" disabled={pending} onClick={() => setArmed(false)}>
-          Keep it open
+          Back
         </Button>
       </div>
     </div>

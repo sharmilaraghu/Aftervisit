@@ -77,7 +77,7 @@ export function PatientControls({
           {explain}
         </span>
         <Button
-          variant="danger"
+          variant="ghost"
           disabled={pending}
           onClick={() => startTransition(() => deletePatientAction(id))}
         >
@@ -138,7 +138,7 @@ export function PatientControls({
           calls", and the two are the safest and the least reversible thing on
           the page. */}
       <span style={{ marginLeft: "auto" }}>
-        <Button variant="danger" onClick={() => setArmed("delete")}>
+        <Button variant="ghost" onClick={() => setArmed("delete")}>
           Delete patient
         </Button>
       </span>

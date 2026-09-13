@@ -71,6 +71,13 @@
       "when": 1789118772764,
       "tag": "0009_tough_giant_man",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1789136282083,
+      "tag": "0010_tiny_morlun",
+      "breakpoints": true
     }
   ]
 }

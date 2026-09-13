@@ -152,9 +152,12 @@ elif [ "$OPEN_GATE" = "1" ]; then
   printf '%s  CALLS ARE LIVE and the dial allowlist is OPEN. Any number on an%s\n' "$RED$BOLD" "$OFF"
   printf '%s  approved plan will be called. This costs money and reaches people.%s\n' "$RED$BOLD" "$OFF"
 elif [ "$ARMED" = "0" ]; then
-  warn "  CALLS ARE LIVE, but the dial allowlist is EMPTY."
-  echo "$DIM  Every scheduled call will be refused with a visible reason.$OFF"
-  echo "$DIM  That is the safe default: the scheduler dials on its own.$OFF"
+  # An empty CARELOOP_CALL_ALLOWLIST narrows nothing — it is the "no deployment
+  # lock" state, not a safe default. This line used to claim every call would be
+  # refused, which stopped being true when the allowlist became optional.
+  printf '%s  CALLS ARE LIVE and no dial allowlist is set. Consent is the only%s\n' "$RED$BOLD" "$OFF"
+  printf '%s  gate: any consenting patient on an approved plan will be called.%s\n' "$RED$BOLD" "$OFF"
+  echo "$DIM  Set CARELOOP_CALL_ALLOWLIST to lock this deployment down.$OFF"
 else
   printf '%s  CALLS ARE LIVE — %s number(s) armed to dial. This costs money%s\n' "$RED$BOLD" "$ARMED" "$OFF"
   printf '%s  and reaches real people.%s\n' "$RED$BOLD" "$OFF"

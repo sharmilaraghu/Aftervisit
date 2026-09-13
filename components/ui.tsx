@@ -74,11 +74,18 @@ export function Panel({
   children,
   style,
   headingLevel = 2,
+  band,
 }: {
   title?: ReactNode;
   aside?: ReactNode;
   children: ReactNode;
   style?: CSSProperties;
+  /**
+   * A coloured band for the header, in the system's own vocabulary — colour
+   * arrives as a full band with a printed word on it. `info` marks context
+   * someone else supplied (the front desk's words).
+   */
+  band?: "info" | "danger";
   /**
    * Panel titles are the page's real structure, so they are real headings.
    *
@@ -99,11 +106,12 @@ export function Panel({
             justifyContent: "space-between",
             gap: "calc(var(--cell) * 2)",
             padding: "calc(var(--cell) * 1.25) calc(var(--cell) * 2)",
-            borderBottom: "1px solid var(--rule-ink)",
+            borderBottom: band ? "none" : "1px solid var(--rule-ink)",
+            background: band ? `var(--${band})` : undefined,
           }}
         >
           {/* `.caps` carries the type; only the heading's own margin is reset. */}
-          <Heading className="caps" style={{ color: "var(--print)", margin: 0 }}>
+          <Heading className="caps" style={{ color: band ? "#ffffff" : "var(--print)", margin: 0 }}>
             {title}
           </Heading>
           {aside}
@@ -179,10 +187,10 @@ export function WeekBand({
 }
 
 type ButtonProps = {
-  variant?: "primary" | "ghost" | "onLabel" | "danger";
+  variant?: "primary" | "ghost" | "onLabel";
   children: ReactNode;
   href?: string;
-  type?: "button" | "submit";
+  type?: "button" | "submit" | "reset";
   onClick?: () => void;
   disabled?: boolean;
   style?: CSSProperties;
@@ -208,7 +216,11 @@ export function Button({
     alignItems: "center",
     gap: "calc(var(--cell) * 1)",
     padding: "calc(var(--cell) * 1.5) calc(var(--cell) * 2.5)",
-    border: "1px solid transparent",
+    /* Longhands, not `border`: variants set `borderColor`, and React warns when
+       a re-render swaps variants across a shorthand and its longhand. */
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "transparent",
     borderRadius: "var(--radius)",
     cursor: disabled ? "not-allowed" : "pointer",
     opacity: disabled ? 0.45 : 1,
@@ -235,14 +247,6 @@ export function Button({
       background: "transparent",
       color: "var(--print)",
       borderColor: "var(--rule-ink)",
-    },
-    /* Red means danger, so it is for the acts that destroy something — never
-       for emphasis. An outline, not a fill: the act still arms before firing,
-       and a solid red button would out-shout the page's one amber. */
-    danger: {
-      background: "transparent",
-      color: "var(--bench-ink)",
-      borderColor: "var(--danger)",
     },
   };
 
@@ -384,14 +388,20 @@ export function Segmented({
   options,
   current,
   onSelect,
+  on = "bench",
 }: {
   label: string;
   options: { key: string; label: string; count?: number; href?: string }[];
   current: string;
   onSelect?: (key: string) => void;
+  /**
+   * Which ground it sits on. On label stock the options are outlined, so they
+   * read as controls rather than as a line of prose.
+   */
+  on?: "bench" | "label";
 }) {
   return (
-    <div role="group" aria-label={label} className="seg">
+    <div role="group" aria-label={label} className={on === "label" ? "seg seg-label" : "seg"}>
       {options.map((o) => {
         const on = o.key === current;
         const inner = (

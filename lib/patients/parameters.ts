@@ -28,6 +28,8 @@ export interface ParameterReading {
   valueText: string | null;
   utterance: string | null;
   callId: string | null;
+  /** When that day's call was scheduled — so a change can be dated, not numbered. */
+  date?: Date | null;
 }
 
 export interface ParameterRow {
@@ -167,6 +169,101 @@ export function allSignals(rows: ParameterRow[]): Signal[] {
  */
 export function worstSignal(rows: ParameterRow[]): Signal | null {
   return allSignals(rows)[0] ?? null;
+}
+
+/** An answer in words — "severe", "yes", "7 of 10" — never a code. */
+export function answerWord(reading: ParameterReading): string | null {
+  if (reading.status !== "answered") return null;
+  if (typeof reading.valueNumber === "number") return `${reading.valueNumber} of 10`;
+  if (reading.valueBool !== null) return reading.valueBool ? "yes" : "no";
+  if (reading.valueText) return reading.valueText.replace(/_/g, " ");
+  return null;
+}
+
+/** Whether the plan's own rules — never a guess — call this answer escalating. */
+function escalatesByRule(row: ParameterRow, r: ParameterReading): boolean {
+  if (r.status !== "answered") return false;
+  if (row.escalatingBool !== null && r.valueBool !== null) return r.valueBool === row.escalatingBool;
+  if (row.escalatingValues.length && r.valueText) return row.escalatingValues.includes(r.valueText);
+  if (row.threshold !== null && typeof r.valueNumber === "number") return r.valueNumber >= row.threshold;
+  return false;
+}
+
+/** A question whose answer moved, or landed on a value the plan escalates. */
+export interface ChangeLine {
+  questionId: string;
+  prompt: string;
+  /** The first answer, in words. Equal to `to` when it never moved but escalates. */
+  from: string;
+  to: string;
+  /** The reading where the latest answer began — its date and the patient's words. */
+  since: ParameterReading;
+  escalating: boolean;
+}
+
+/** A question that said the same thing every time it was answered. */
+export interface SteadyLine {
+  questionId: string;
+  prompt: string;
+  answer: string;
+  answered: number;
+  asked: number;
+}
+
+/**
+ * What changed across the calls, assembled from the answers — never generated.
+ *
+ * The replacement for the day-by-day grid. A doctor does not want a matrix of
+ * every answer; they want what moved. Every line is arithmetic on the stored
+ * answers and checkable against the call it links to: "none → severe on 9 Sep,
+ * in the patient's words". Nothing here is a verdict.
+ *
+ * Needs two answered calls before anything can be said to have changed; with
+ * one, both lists are empty and the assistant's summary stands alone.
+ */
+export function whatChanged(rows: ParameterRow[]): { changed: ChangeLine[]; steady: SteadyLine[] } {
+  const changed: ChangeLine[] = [];
+  const steady: SteadyLine[] = [];
+
+  for (const row of rows) {
+    const answered = row.readings.filter((r) => answerWord(r) !== null);
+    if (answered.length < 2) continue;
+
+    const words = answered.map((r) => answerWord(r) as string);
+    const latest = words[words.length - 1];
+    /* Where the latest answer began: walk back while it holds. */
+    let start = answered.length - 1;
+    while (start > 0 && words[start - 1] === latest) start -= 1;
+
+    const moved = new Set(words).size > 1;
+    const escalating = escalatesByRule(row, answered[answered.length - 1]);
+
+    if (moved || escalating) {
+      changed.push({
+        questionId: row.questionId,
+        prompt: row.prompt,
+        from: words[0],
+        to: latest,
+        since: answered[start],
+        escalating,
+      });
+    } else {
+      steady.push({
+        questionId: row.questionId,
+        prompt: row.prompt,
+        answer: latest,
+        answered: answered.length,
+        asked: row.readings.filter((r) => r.status !== null).length,
+      });
+    }
+  }
+
+  /* Escalating first, then the most recent change first. */
+  changed.sort(
+    (a, b) =>
+      Number(b.escalating) - Number(a.escalating) || b.since.occurrence - a.since.occurrence,
+  );
+  return { changed, steady };
 }
 
 /** How a reading renders in a cell. Presentation only; no judgement. */

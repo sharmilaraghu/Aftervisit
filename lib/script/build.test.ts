@@ -232,3 +232,45 @@ describe("assembleTask — the script itself", () => {
     expect(retry).toContain("Do not mention the earlier attempts");
   });
 });
+
+describe("assembleTask — asking for a person, and other languages", () => {
+  /*
+   * A patient who asks for the care team is not answering the next question.
+   * It stopped the call no differently from a closing — "record that they
+   * asked and close politely" — and left the agent free to finish the list.
+   */
+  it("treats a request for the care team as a stop: skip the rest, say it will be passed on", () => {
+    const { task } = build();
+    expect(task).toContain("ask to speak to anyone from the care team or the practice");
+    expect(task).toContain("I'll let the care team know right now, and someone will call you back.");
+    const section = task.slice(task.indexOf("ask to speak to anyone from the care team"));
+    expect(section).toContain("stop asking questions immediately");
+    expect(section).toContain("do not ask the remaining questions");
+    // Tied to the field the extractor reads — the floor rule that pauses the plan.
+    expect(section).toContain("Record requests_clinician as yes");
+    // A relative on the line is not a request for the care team.
+    expect(section).toContain("Wanting to hand the phone to a relative or friend is not this");
+  });
+
+  it("opens in the patient's language, from the first word", () => {
+    const { task } = build({ speakLanguage: "Hindi" });
+    const note = task.indexOf("SPEAK THEIR LANGUAGE");
+    const open = task.indexOf("HOW TO OPEN");
+    expect(note).toBeGreaterThan(-1);
+    expect(note).toBeLessThan(open);
+    expect(task).toContain("Never open in English");
+    expect(task).toContain("Say this in Hindi, and nothing more");
+    expect(task).toContain('Say in Hindi: "Thank you for telling me');
+  });
+
+  it("keeps English calls unchanged in shape", () => {
+    const { task } = build();
+    expect(task).not.toContain("SPEAK THEIR LANGUAGE");
+    expect(task).toContain("Say this, and nothing more");
+  });
+
+  it("a non-English task still passes every guard clause", () => {
+    const { task, approvedQuestions } = build({ speakLanguage: "Tamil" });
+    expect(inspectTask(task, { approvedQuestions }).findings).toEqual([]);
+  });
+});

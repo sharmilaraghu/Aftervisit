@@ -4,50 +4,113 @@
  * The doctor's one control: the note.
  *
  * Everything else about the follow-up — the questions, the schedule, what to
- * escalate on — is compiled from this text and shown on the next screen, where
+ * escalate on — is drafted from this text and shown on the next screen, where
  * it can be corrected before anything is approved.
  *
  * One optional second box: what should bring the patient back to the doctor.
- * It is kept verbatim — triage reads each call against these words — so a
- * doctor who has a view says it here, and one who has none leaves it empty and
- * the standard red flags still stand.
+ * It is kept verbatim — triage reads each call against these words — so it
+ * carries the escalation red as an index bar and a printed label.
+ *
+ * The draft survives an interruption. A GP called away mid-note used to come
+ * back to an empty box: both fields now live in this browser's storage,
+ * keyed to the visit, until the plan is drafted.
  */
 
-import { useActionState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 
 import { Button, Field, Panel, Textarea, describedBy } from "@/components/ui";
 import { consultAction } from "@/app/(console)/plans/actions";
 import { EMPTY_COMPILE_FORM } from "@/lib/patients/plan-form";
-import type { VisitKind } from "@/lib/db/enums";
+import type { ConsentState, VisitKind } from "@/lib/db/enums";
 
 const PLACEHOLDER: Record<VisitKind, string> = {
-  /* Framed as an example. It used to open with "Day 2 after…" in dark mono,
-     which read as a note already written — and contradicted a patient whose
-     complaint said day 3. */
+  /* No pronoun: it read "she" on a page for a man, and looked like a note
+     someone had already written. */
   consultation:
-    "For example: started metformin 500mg BD today for newly diagnosed type 2 diabetes.\n" +
-    "Follow up daily for a week. I want to know she is taking it and tolerating it.",
+    "e.g. Started metformin 500 mg BD for new type 2 diabetes. Call daily for a week — " +
+    "is the patient taking it, any stomach upset?",
   post_op:
-    "For example: after laparoscopic cholecystectomy, follow up daily for five days. " +
-    "Wound dry, pain settling, eating. Watch the wound and her appetite.",
+    "e.g. Lap cholecystectomy yesterday. Call daily for five days — wound, pain, eating.",
+};
+
+const ESCALATE_PLACEHOLDER: Record<VisitKind, string> = {
+  consultation: "e.g. vomiting, cannot keep fluids down, or feels faint.",
+  post_op: "e.g. fever over 38, the wound hot or weeping, or not eating.",
+};
+
+/* Wrapped so every storage read and write can fail quietly: private windows
+   and blocked site data throw on access. */
+const store = {
+  read(key: string): { note: string; escalation: string } | null {
+    try {
+      const raw = window.localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  },
+  write(key: string, value: { note: string; escalation: string } | null) {
+    try {
+      if (value) window.localStorage.setItem(key, JSON.stringify(value));
+      else window.localStorage.removeItem(key);
+    } catch {
+      /* The draft is a convenience; losing it is not an error. */
+    }
+  },
 };
 
 export function ConsultForm({
   visitId,
   kind,
   canCompile,
+  language,
+  consent,
 }: {
   visitId: string;
   kind: VisitKind;
   canCompile: boolean;
+  /** The language the calls will use, e.g. "Tamil". */
+  language: string;
+  consent: ConsentState;
 }) {
   const [state, formAction, pending] = useActionState(
     consultAction.bind(null, visitId),
     EMPTY_COMPILE_FORM,
   );
+  const key = `consult-draft:${visitId}`;
+  const noteRef = useRef<HTMLTextAreaElement>(null);
+  const escalationRef = useRef<HTMLTextAreaElement>(null);
+  const [slow, setSlow] = useState(false);
+
+  /* Restore after mount, straight into the fields — reading storage during
+     render would disagree with the server's empty render. Only an empty field
+     is filled, so a returned error's values are never overwritten. */
+  useEffect(() => {
+    const draft = store.read(key);
+    if (!draft) return;
+    if (noteRef.current && !noteRef.current.value) noteRef.current.value = draft.note;
+    if (escalationRef.current && !escalationRef.current.value) {
+      escalationRef.current.value = draft.escalation;
+    }
+  }, [key]);
+
+  const saveDraft = () => {
+    const note = noteRef.current?.value ?? "";
+    const escalation = escalationRef.current?.value ?? "";
+    store.write(key, note || escalation ? { note, escalation } : null);
+  };
+
+  /* Past eight seconds the wait needs saying again, or it reads as stuck. The
+     flag is reset when the form is submitted, not here. */
+  useEffect(() => {
+    if (!pending) return;
+    const t = setTimeout(() => setSlow(true), 8000);
+    return () => clearTimeout(t);
+  }, [pending]);
 
   return (
-    <form action={formAction}>
+    <form action={formAction} onSubmit={() => setSlow(false)}>
       <Panel title="Follow-up note" style={{ marginBottom: "calc(var(--cell) * 2)" }}>
         <div style={{ padding: "calc(var(--cell) * 3)" }}>
           {!canCompile ? (
@@ -87,83 +150,92 @@ export function ConsultForm({
           <Field
             label="What you found, and what to follow up"
             htmlFor="note"
-            hint="Your own words, at least a sentence or two. Say how long and how often if you have a view; say what should be escalated. Nothing you did not write ends up in the questions."
+            hint="Shorthand is fine. Say how long and how often if you have a view. Kept in this browser until you draft the plan."
           >
             <Textarea
+              ref={noteRef}
               id="note"
               name="note"
-              rows={9}
+              rows={8}
+              autoFocus
               defaultValue={state.values.note}
-              /* Ctrl/⌘ + Enter compiles without leaving the keyboard — the
-                 note is the one thing typed here, many times a day. */
+              onChange={saveDraft}
+              /* Ctrl/⌘ + Enter drafts the plan without leaving the keyboard. */
               onKeyDown={(e) => {
                 if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !pending) {
                   e.preventDefault();
                   e.currentTarget.form?.requestSubmit();
                 }
               }}
-              style={{ fontFamily: "var(--mono)", fontSize: 14, lineHeight: 1.7 }}
+              className="note-field"
               placeholder={PLACEHOLDER[kind]}
               invalid={Boolean(state.error)}
               aria-describedby={describedBy("note", { hint: true })}
             />
           </Field>
 
-          <Field
-            label="Escalate to me if… (optional)"
-            htmlFor="escalation"
-            hint="Kept word for word. Every call is read against it, on top of the standard red flags."
-          >
-            <Textarea
-              id="escalation"
-              name="escalation"
-              rows={2}
-              defaultValue={state.values.escalation}
-              style={{ fontFamily: "var(--mono)", fontSize: 14, lineHeight: 1.7 }}
-              placeholder="For example: fever over 38, the wound hot or weeping, or she stops eating."
-              aria-describedby={describedBy("escalation", { hint: true })}
-            />
-          </Field>
+          <div className="escalate-block">
+            <Field
+              label="Escalate to me if… (optional)"
+              htmlFor="escalation"
+              hint="Kept word for word. Every call is read against it, on top of the standard red flags."
+            >
+              <Textarea
+                id="escalation"
+                name="escalation"
+                rows={3}
+                ref={escalationRef}
+                defaultValue={state.values.escalation}
+                onChange={saveDraft}
+                className="note-field"
+                placeholder={ESCALATE_PLACEHOLDER[kind]}
+                aria-describedby={describedBy("escalation", { hint: true })}
+              />
+            </Field>
+          </div>
         </div>
       </Panel>
 
-      <div
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: "calc(var(--cell) * 1.5)",
-          alignItems: "center",
-        }}
-      >
-        <Button type="submit" variant="primary" disabled={pending}>
-          {pending ? "Reading the note…" : "Compile the follow-up"}
-        </Button>
-        {pending ? (
-          <Button variant="ghost" disabled>
-            Cancel
+      <div className="consult-actions">
+        <span className="btn-primary-wrap">
+          <Button type="submit" variant="primary" disabled={pending}>
+            {pending ? "Reading your note…" : "Draft the follow-up plan"}
           </Button>
+        </span>
+        {pending ? (
+          /* No disabled Cancel while pending: an unusable control is noise. */
+          <span role="status" style={{ color: "var(--bench-ink-2)", fontSize: 14 }}>
+            {slow
+              ? "Still reading — a long note takes up to 20 seconds."
+              : "Drafting the questions from your note. Nothing is dialled."}
+          </span>
         ) : (
           <>
-            <Button variant="ghost" href="/consult">
-              Cancel
-            </Button>
-            <span style={{ color: "var(--bench-ink-3)", fontSize: 13 }}>
+            <Link href="/consult" style={{ color: "var(--bench-ink-2)", fontSize: 14, textUnderlineOffset: 3 }}>
+              Back to consultations
+            </Link>
+            <span className="consult-kbd" style={{ color: "var(--bench-ink-3)", fontSize: 13 }}>
               or press <kbd className="mono">Ctrl</kbd>/<kbd className="mono">⌘</kbd> +{" "}
               <kbd className="mono">Enter</kbd>
             </span>
           </>
         )}
-        {/*
-          The only account of a wait that can run past ten seconds. A dimmed
-          button says a control is unavailable, not that work is under way, and
-          a screen reader gets nothing from it at all.
-        */}
-        {pending ? (
-          <span role="status" style={{ color: "var(--bench-ink-2)", fontSize: 14 }}>
-            Compiling the questions from your note. Nothing is dialled yet.
-          </span>
-        ) : null}
       </div>
+
+      {/* The reassurance belongs before the press, not after it. Consent is
+          one quiet clause here, not a banner: it is the front desk's field,
+          and the approve screen says it again where it decides anything. */}
+      {!pending ? (
+        <p className="consult-assure measure">
+          You&rsquo;ll review every question before anything is scheduled, and nothing you
+          didn&rsquo;t write is asked. Calls will be in {language}.
+          {consent === "declined"
+            ? " This patient declined automated calls, so none will be placed."
+            : consent !== "granted"
+              ? " Calls wait until the front desk records consent."
+              : ""}
+        </p>
+      ) : null}
     </form>
   );
 }
