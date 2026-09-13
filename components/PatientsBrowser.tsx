@@ -15,10 +15,13 @@ import { Button, Segmented, TextInput } from "@/components/ui";
 import { RosterTable } from "@/components/RosterTable";
 import type { RosterRow } from "@/lib/db/queries";
 
-type Filter = "all" | "needs" | "running" | "done";
+type Filter = "all" | "needs" | "doctor" | "running" | "done";
 
+/* The same split, and the same words, as the doctor's Follow-ups: someone who
+   needs attention is not the same as someone waiting to be seen. */
 const IN_FILTER: Record<Exclude<Filter, "all">, readonly RosterRow["health"][]> = {
-  needs: ["escalated", "never_reached", "drifting", "needs_plan", "awaiting_approval"],
+  needs: ["escalated", "never_reached", "drifting"],
+  doctor: ["needs_plan", "awaiting_approval"],
   running: ["on_track", "paused"],
   done: ["completed"],
 };
@@ -38,7 +41,8 @@ export function PatientsBrowser({ rows }: { rows: RosterRow[] }) {
   );
 
   return (
-    <>
+    /* One sheet: the controls belong to the list they filter, not to the bench. */
+    <div className="sheet">
       <div className="patients-tools">
         <div className="patients-search">
           <label htmlFor="patient-search" className="sr-only">
@@ -52,25 +56,30 @@ export function PatientsBrowser({ rows }: { rows: RosterRow[] }) {
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
-        <Segmented
+        <div className="patients-filter">
+          <span className="caps patients-filter-label" aria-hidden>
+            Show
+          </span>
+          <Segmented
           label="Filter patients"
+          on="label"
           current={filter}
           onSelect={(k) => setFilter(k as Filter)}
           options={[
             { key: "all", label: "All", count: count("all") },
             { key: "needs", label: "Needs attention", count: count("needs") },
+            { key: "doctor", label: "Waiting on the doctor", count: count("doctor") },
             { key: "running", label: "Running", count: count("running") },
             { key: "done", label: "Finished", count: count("done") },
           ]}
-        />
+          />
+        </div>
       </div>
 
       {shown.length > 0 ? (
-        <div className="sheet">
-          <RosterTable rows={shown} />
-        </div>
+        <RosterTable rows={shown} />
       ) : (
-        <div className="sheet" style={{ padding: "calc(var(--cell) * 3)" }}>
+        <div style={{ padding: "calc(var(--cell) * 3)" }}>
           <p style={{ margin: "0 0 calc(var(--cell) * 2)", color: "var(--print)" }}>
             Nobody matches{q ? ` “${query.trim()}”` : ""} in this view.
           </p>
@@ -85,6 +94,6 @@ export function PatientsBrowser({ rows }: { rows: RosterRow[] }) {
           </Button>
         </div>
       )}
-    </>
+    </div>
   );
 }

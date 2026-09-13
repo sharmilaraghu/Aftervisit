@@ -6,6 +6,7 @@ import {
   cellTone,
   cellTitle,
   signalsFor,
+  whatChanged,
   worstSignal,
   type ParameterReading,
   type ParameterRow,
@@ -237,5 +238,38 @@ describe("cellLabel disambiguates within the option list", () => {
   it("falls back to a plain initial when the row has no option list", () => {
     const free: ParameterRow = { ...severity, enumValues: null };
     expect(cellLabel(free, reading(1, { valueText: "better" }))).toBe("B");
+  });
+});
+
+describe("whatChanged", () => {
+  it("lists an answer that moved, first to latest, dated at the change", () => {
+    const row = scale([2, 2, 5]);
+    row.threshold = null;
+    const { changed, steady } = whatChanged([row]);
+    expect(steady).toEqual([]);
+    expect(changed).toHaveLength(1);
+    expect(changed[0]).toMatchObject({ from: "2 of 10", to: "5 of 10", escalating: false });
+    expect(changed[0].since.occurrence).toBe(3);
+  });
+
+  it("lists an unchanged answer when the plan's own rule escalates it", () => {
+    const { changed } = whatChanged([bools([true, true])]);
+    expect(changed[0]).toMatchObject({ from: "yes", to: "yes", escalating: true });
+  });
+
+  it("collapses a steady answer into one line, counting unclear calls", () => {
+    const { changed, steady } = whatChanged([bools([false, null, false])]);
+    expect(changed).toEqual([]);
+    expect(steady[0]).toMatchObject({ answer: "no", answered: 2, asked: 3 });
+  });
+
+  it("says nothing from a single answered call", () => {
+    expect(whatChanged([bools([true])])).toEqual({ changed: [], steady: [] });
+  });
+
+  it("dates the start of the latest run, not the first change", () => {
+    const row = scale([1, 6, 6]);
+    row.threshold = null;
+    expect(whatChanged([row]).changed[0].since.occurrence).toBe(2);
   });
 });

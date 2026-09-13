@@ -55,13 +55,16 @@ export const HEALTH_LABEL: Record<PlanHealth, string> = {
   needs_plan: "Needs a plan",
   never_reached: "Never reached",
   on_track: "On track",
-  drifting: "Drifting",
-  escalated: "Escalated",
+  /* One word for "a doctor must look", shared with Follow-ups. "Escalated" and
+     "Drifting" were two more names for the same band there. */
+  drifting: "Gone quiet",
+  escalated: "Needs attention",
   /* The plan page's own stamp for the same state — and short enough that the
      roster's State column no longer clips it at phone width. */
   awaiting_approval: "Plan to review",
   paused: "Paused",
-  completed: "Completed",
+  /* "Finished", as on Follow-ups and the visit page. */
+  completed: "Finished",
 };
 
 /*

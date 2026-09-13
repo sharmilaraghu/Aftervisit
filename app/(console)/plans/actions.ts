@@ -448,7 +448,7 @@ export async function approvePlanAction(
    * `redirect` throws, so nothing after this runs.
    */
   revalidatePath(`/patients/${patientId}`);
-  redirect(`/patients/${patientId}?approved=1`);
+  redirect(`/followups/${patientId}?approved=1`);
 }
 
 /** Stop a plan for good. Pending calls are skipped; the history stays. */

@@ -160,3 +160,41 @@ export async function markVisitSeen(visitId: string, planId: string): Promise<bo
   `);
   return rows.rows.length > 0;
 }
+
+/**
+ * The patient never arrived.
+ *
+ * Conditional on `waiting`, so a visit written up in another tab cannot be
+ * turned into a no-show after the fact. The patient keeps no plan, so the
+ * roster still shows them as needing one — the front desk rebooks from there.
+ */
+export async function markVisitNoShow(visitId: string): Promise<boolean> {
+  const rows = await getDb().execute(sql`
+    update visits set status = 'no_show'
+    where id = ${visitId} and status = 'waiting'
+    returning id
+  `);
+  return rows.rows.length > 0;
+}
+
+/** They turned up after all: back onto the list, exactly as it was. */
+export async function reopenVisit(visitId: string): Promise<boolean> {
+  const rows = await getDb().execute(sql`
+    update visits set status = 'waiting'
+    where id = ${visitId} and status = 'no_show'
+    returning id
+  `);
+  return rows.rows.length > 0;
+}
+
+/** The visits booked for `day` whose patient never came. */
+export async function getNoShowsOn(day: string): Promise<WaitingVisit[]> {
+  const rows = await getDb().execute(sql`
+    select ${VISIT_COLUMNS}
+    from visits v
+    join patients pt on pt.id = v.patient_id
+    where v.status = 'no_show' and v.visit_date = ${day}::date and pt.archived_at is null
+    order by v.created_at
+  `);
+  return rows.rows as unknown as WaitingVisit[];
+}

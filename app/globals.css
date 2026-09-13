@@ -798,6 +798,137 @@ select {
   inset: 0;
 }
 
+/* A second act on the row sits above the stretched hit area. */
+.visit-secondary {
+  position: relative;
+  z-index: 1;
+}
+
+/* Quieter than the row's button: an underlined word, still a 36px target. */
+.visit-textbtn {
+  min-height: 36px;
+  padding: 0 calc(var(--cell) * 1);
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  color: var(--print-2);
+  text-decoration: underline;
+  text-decoration-color: var(--rule);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.visit-textbtn:hover {
+  color: var(--print);
+  text-decoration-color: var(--print-3);
+}
+
+.visit-textbtn:focus-visible {
+  outline: 2px solid var(--amber-deep);
+  outline-offset: 2px;
+}
+
+.visit-textbtn:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* Seen and no-show rows are history: quieter, so the waiting rows lead. */
+.visit-row[data-mode="seen"],
+.visit-row[data-mode="noshow"] {
+  background: var(--label-2);
+}
+
+.visit-row[data-mode="noshow"] .visit-body {
+  opacity: 0.72;
+}
+
+/* The next patient: a small stamp beside the name. The row's amber button
+   already marks it; a stripe down the edge said the same thing a third time. */
+.visit-next {
+  display: inline-block;
+  margin-left: calc(var(--cell) * 1);
+  padding: 1px calc(var(--cell) * 0.75);
+  vertical-align: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--amber-deep);
+  background: var(--amber-wash);
+}
+
+/*
+ * The day in figures.
+ *
+ * Tiles on the graphite ground, each with the colour the console gives that
+ * state as a rule along its top — colour carried as a mark, not a fill, so the
+ * one amber button below still owns the page.
+ */
+.consult-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(calc(var(--cell) * 20), 1fr));
+  gap: calc(var(--cell) * 1.5);
+  margin-bottom: calc(var(--cell) * 1.5);
+}
+
+.consult-stat {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--cell) * 0.5);
+  padding: calc(var(--cell) * 2) calc(var(--cell) * 2.5);
+  background: var(--bench-2);
+  border-top: 3px solid var(--bench-line-strong);
+}
+
+.consult-stat[data-tone="amber"] {
+  border-top-color: var(--amber);
+}
+
+.consult-stat[data-tone="clear"] {
+  border-top-color: #2f9e6a;
+}
+
+.consult-stat[data-tone="info"] {
+  border-top-color: #5b8ce0;
+}
+
+.consult-stat[data-tone="plain"] {
+  border-top-color: var(--bench-ink);
+}
+
+.consult-stat-value {
+  font-size: 32px;
+  line-height: 1;
+  color: var(--bench-ink);
+}
+
+.consult-stat-label {
+  font-size: 13px;
+  color: var(--bench-ink-2);
+}
+
+.consult-progress {
+  display: flex;
+  height: 6px;
+  margin-bottom: calc(var(--cell) * 3);
+  background: var(--bench-3);
+  overflow: hidden;
+}
+
+.consult-progress > span[data-tone="clear"] {
+  background: #2f9e6a;
+}
+
+.consult-progress > span[data-tone="muted"] {
+  background: var(--bench-ink-3);
+}
+
+.consult-progress > span[data-tone="amber"] {
+  background: var(--amber);
+}
+
 @media (max-width: 720px) {
   .visit-row {
     flex-wrap: wrap;
@@ -825,8 +956,9 @@ select {
 }
 
 @media (min-width: 1000px) {
+  /* The note is the page's one task, so it takes the wide column. */
   .consult-grid {
-    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    grid-template-columns: minmax(0, 0.62fr) minmax(0, 1.38fr);
   }
 
   .consult-grid > :first-child {
@@ -835,17 +967,118 @@ select {
   }
 }
 
+/*
+ * The escalation field on the consult form: red is the escalation vocabulary,
+ * carried as an index bar down the block's edge and a printed label — never as
+ * a fill, so the textarea does not read as an error.
+ */
+.escalate-block {
+  margin-top: calc(var(--cell) * 1);
+  padding: calc(var(--cell) * 2) 0 calc(var(--cell) * 0.5) calc(var(--cell) * 2);
+  box-shadow: inset 3px 0 0 var(--danger);
+}
+
+/* The note field is prose, not code: sans, and 16px so iOS does not zoom. */
+.note-field {
+  font-family: var(--sans) !important;
+  font-size: 16px !important;
+  line-height: 1.6 !important;
+}
+
+.consult-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--cell) * 1.5) calc(var(--cell) * 2.5);
+  align-items: center;
+}
+
+.consult-assure {
+  margin: calc(var(--cell) * 1.5) 0 0;
+  color: var(--bench-ink-2);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+@media (pointer: coarse) {
+  .consult-kbd {
+    display: none;
+  }
+}
+
+@media (max-width: 639px) {
+  .consult-actions > .btn-primary-wrap {
+    flex: 1 1 100%;
+  }
+
+  .consult-actions > .btn-primary-wrap > * {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/*
+ * The roster's controls, as a bar on the sheet rather than three things
+ * floating on the bench.
+ *
+ * The filters used to be graphite-on-graphite text beside a white search box:
+ * nothing said they were a control, and the count beside each word read as
+ * part of a sentence. On label stock, with a printed "Show" in front of them,
+ * they read as what they are.
+ */
 .patients-tools {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: calc(var(--cell) * 1.5);
-  margin-bottom: calc(var(--cell) * 2);
+  gap: calc(var(--cell) * 2);
+  padding: calc(var(--cell) * 2) calc(var(--cell) * 2.5);
+  background: var(--label);
+  border-bottom: 1px solid var(--rule);
 }
 
 .patients-search {
   flex: 1 1 calc(var(--cell) * 30);
-  max-width: calc(var(--cell) * 50);
+  max-width: calc(var(--cell) * 44);
+}
+
+.patients-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--cell) * 1.5);
+  min-width: 0;
+}
+
+.patients-filter-label {
+  color: var(--print-3);
+}
+
+/* On label stock: outlined chips, filled when chosen. */
+.seg-label {
+  background: transparent;
+  padding: 0;
+  gap: calc(var(--cell) * 1);
+}
+
+.seg-label .seg-opt {
+  color: var(--print-2);
+  box-shadow: inset 0 0 0 1px var(--rule);
+}
+
+.seg-label .seg-opt:hover {
+  color: var(--print);
+  box-shadow: inset 0 0 0 1px var(--rule-ink);
+}
+
+.seg-label .seg-opt[aria-current],
+.seg-label .seg-opt[aria-pressed="true"] {
+  background: var(--rule-ink);
+  color: var(--label);
+  box-shadow: none;
+}
+
+.seg-label .seg-count {
+  color: inherit;
+  opacity: 0.75;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -976,7 +1209,9 @@ select {
 .plan-page {
   max-width: 944px;
   margin: 0 auto;
-  padding-block: calc(var(--cell) * 5) calc(var(--cell) * 10);
+  /* Deep enough at the foot that the fixed approve band (stacked, ~140px on
+     a phone) never sits over the last controls. */
+  padding-block: calc(var(--cell) * 5) calc(var(--cell) * 22);
   padding-inline: calc(var(--cell) * 3);
 }
 
@@ -1050,6 +1285,68 @@ select {
 
   .plan-note-fold {
     display: none;
+  }
+}
+
+/*
+ * The call log: a table from 640px, a stack of cards below it.
+ *
+ * Day and outcome on the first line, the patient's words full width under
+ * them, the time last. The empty retry cell drops out.
+ */
+.call-log {
+  min-width: 640px;
+}
+
+@media (max-width: 639px) {
+  .call-log {
+    min-width: 0;
+  }
+
+  .call-log thead {
+    display: none;
+  }
+
+  .call-log tr {
+    display: grid;
+    grid-template-columns: auto auto 1fr;
+    grid-template-areas:
+      "day outcome retry"
+      "said said said"
+      "when when when";
+    align-items: center;
+    padding-block: calc(var(--cell) * 1);
+  }
+
+  .call-log td {
+    padding-block: calc(var(--cell) * 0.5) !important;
+  }
+
+  .call-log .call-day {
+    grid-area: day;
+  }
+
+  .call-log .call-outcome {
+    grid-area: outcome;
+  }
+
+  .call-log .call-retry {
+    grid-area: retry;
+    justify-self: end;
+  }
+
+  .call-log .call-retry:empty {
+    display: none;
+  }
+
+  .call-log .call-said {
+    grid-area: said;
+    max-width: none !important;
+  }
+
+  .call-log .call-when {
+    grid-area: when;
+    font-size: 12px;
   }
 }
 

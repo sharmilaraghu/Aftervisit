@@ -2,26 +2,27 @@
  * One visit: who this is, what they came in with, what came before, and the
  * box for the note.
  *
- * Side by side on a wide screen, so the complaint and the patient's history
- * stay in view while the note is written against them. A visit already written
- * up sends the doctor to its plan rather than showing a second, empty box —
- * the note exists, and this is where it went.
+ * The note is the page's one task, so it takes the wide column and the focus.
+ * The front desk's words sit beside it under a blue band — context someone else
+ * supplied, not a grounding source — and a returning patient's earlier
+ * follow-ups sit under that. A visit already written up sends the doctor to its
+ * plan rather than showing a second, empty box.
  *
- * The doctor's screen: no phone number. The front desk reads it from the
- * patient record; nobody dials from here.
+ * The doctor's screen: no phone number and no consent banner. Both are the
+ * front desk's; the form says in one clause whether calls are waiting on
+ * consent, and the approve screen says it again where it decides anything.
  */
 
 import { notFound, redirect } from "next/navigation";
 
-import { Avatar, Badge, Breadcrumb, Panel } from "@/components/ui";
+import { Badge, Breadcrumb, Panel, type Tone } from "@/components/ui";
 import { ConsultForm } from "@/components/ConsultForm";
 import { getVisit } from "@/lib/db/visits";
 import { getPatientSummary, type PatientSummary } from "@/lib/db/summary";
 import { hasProvider } from "@/lib/plan/provider";
-import { CONSENT_LABEL, CONSENT_TONE } from "@/lib/patients/labels";
 import { languageLabel } from "@/lib/patients/languages";
 import { formatCalendarDay, formatDay } from "@/lib/format";
-import type { VisitKind, VisitStatus } from "@/lib/db/enums";
+import type { VisitKind } from "@/lib/db/enums";
 
 export const dynamic = "force-dynamic";
 
@@ -30,20 +31,14 @@ const KIND_LABEL: Record<VisitKind, string> = {
   post_op: "Post-operative follow-up",
 };
 
-const VISIT_STATUS_LABEL: Record<VisitStatus, string> = {
-  waiting: "Note due",
-  seen: "Written up",
-  cancelled: "Cancelled",
-};
-
-/** How an earlier follow-up ended, in a doctor's words — not the enum. */
-function outcome(course: PatientSummary["courses"][number]): string {
-  if (course.status === "active" || course.status === "paused") return "Still running";
-  if (course.status === "awaiting_approval") return "Never approved";
-  if (course.status === "cancelled") return "Cancelled";
-  if (course.closeReason === "superseded") return "Replaced by a later plan";
-  if (course.closeReason === "clinician_closed") return "Closed by you";
-  return "Window closed";
+/** How an earlier follow-up ended, in a doctor's words — and its colour. */
+function outcome(course: PatientSummary["courses"][number]): { label: string; tone: Tone } {
+  if (course.status === "active" || course.status === "paused") return { label: "Still running", tone: "info" };
+  if (course.status === "awaiting_approval") return { label: "Never approved", tone: "plain" };
+  if (course.status === "cancelled") return { label: "Cancelled", tone: "plain" };
+  if (course.closeReason === "superseded") return { label: "Replaced by a later plan", tone: "plain" };
+  if (course.closeReason === "clinician_closed") return { label: "Closed by you", tone: "clear" };
+  return { label: "Finished", tone: "clear" };
 }
 
 /* Enough to decide with, not a record to read: the full history is one click
@@ -62,6 +57,7 @@ export default async function ConsultVisitPage({
 
   const open = visit.status === "waiting";
   const history = (await getPatientSummary(visit.patientId)).courses.slice(0, HISTORY_LIMIT);
+  const language = languageLabel(visit.language);
 
   return (
     <div
@@ -71,7 +67,7 @@ export default async function ConsultVisitPage({
         padding: "calc(var(--cell) * 5) calc(var(--cell) * 3) calc(var(--cell) * 10)",
       }}
     >
-      <header style={{ marginBottom: "calc(var(--cell) * 4)" }}>
+      <header style={{ marginBottom: "calc(var(--cell) * 3)" }}>
         <Breadcrumb
           items={[{ label: "Consultations", href: "/consult" }, { label: visit.patientName }]}
         />
@@ -79,80 +75,68 @@ export default async function ConsultVisitPage({
         <h1
           className="display"
           style={{
-            fontSize: "clamp(28px, 3.6vw, 44px)",
+            fontSize: "clamp(26px, 2.6vw, 34px)",
             margin: "0 0 calc(var(--cell) * 1)",
             color: "var(--bench-ink)",
           }}
         >
           {visit.patientName}
         </h1>
-        <p style={{ margin: "0 0 calc(var(--cell) * 1.5)", color: "var(--bench-ink-2)", fontSize: 15 }}>
-          <span className="mono">{visit.age}</span> · speaks {languageLabel(visit.language)}
-        </p>
-
-        {/* The patient's state first, as a stamp, then the facts about the
-            visit. Under the name, not floated to the far edge of the page. */}
-        <div
+        {/* One line of facts. "Note due" went: the page is the note. */}
+        <p
           style={{
             display: "flex",
             flexWrap: "wrap",
-            gap: "calc(var(--cell) * 1)",
             alignItems: "center",
+            gap: "calc(var(--cell) * 1.5)",
+            margin: 0,
+            color: "var(--bench-ink-2)",
+            fontSize: 15,
           }}
         >
-          <Badge tone="plain">{VISIT_STATUS_LABEL[visit.status]}</Badge>
-          <Badge tone="plain" quiet>
-            {KIND_LABEL[visit.kind]} · {formatCalendarDay(visit.visitDate)}
+          <span>
+            <span className="mono">{visit.age}</span> · speaks {language}
+          </span>
+          <Badge tone={visit.kind === "post_op" ? "info" : "plain"} quiet>
+            {KIND_LABEL[visit.kind]} · <span className="mono">{formatCalendarDay(visit.visitDate)}</span>
           </Badge>
-          <Badge tone={CONSENT_TONE[visit.consent]} quiet>
-            {CONSENT_LABEL[visit.consent]}
-          </Badge>
-        </div>
+          {visit.status === "no_show" ? (
+            <Badge tone="plain">Didn&rsquo;t turn up</Badge>
+          ) : null}
+        </p>
       </header>
 
       <div className="consult-grid">
         <div style={{ display: "grid", gap: "calc(var(--cell) * 2)" }}>
-          <Panel title="What they came in with">
-            <div
-              style={{
-                display: "flex",
-                gap: "calc(var(--cell) * 2)",
-                alignItems: "flex-start",
-                padding: "calc(var(--cell) * 3)",
-              }}
-            >
-              <Avatar name={visit.patientName} />
-              <p
-                style={{
-                  margin: 0,
-                  minWidth: 0,
-                  fontSize: 15,
-                  lineHeight: 1.6,
-                  whiteSpace: "pre-wrap",
-                  color: "var(--print)",
-                }}
-              >
-                {visit.reportedSymptoms}
-              </p>
-            </div>
+          <Panel title="Front desk · What they came in with" band="info">
             <p
               style={{
                 margin: 0,
-                padding: "calc(var(--cell) * 1.5) calc(var(--cell) * 3)",
+                padding: "calc(var(--cell) * 2.5) calc(var(--cell) * 3)",
+                fontSize: 15,
+                lineHeight: 1.6,
+                whiteSpace: "pre-wrap",
+                color: "var(--print)",
+              }}
+            >
+              {visit.reportedSymptoms}
+            </p>
+            <p
+              style={{
+                margin: 0,
+                padding: "calc(var(--cell) * 1.25) calc(var(--cell) * 3)",
                 borderTop: "1px solid var(--rule-2)",
                 color: "var(--print-3)",
                 fontSize: 13,
               }}
             >
-              The front desk&rsquo;s words. Context only: the questions are grounded in your
-              note alone.
+              Context only. The questions come from your note alone.
             </p>
           </Panel>
 
           {/*
             What came before, for a returning patient — the reason a doctor
-            would otherwise open the record in another tab. Earlier follow-ups,
-            how each ended, and what the doctor wrote when they closed it.
+            would otherwise open the record in another tab.
           */}
           {history.length > 0 ? (
             <Panel
@@ -164,79 +148,59 @@ export default async function ConsultVisitPage({
               }
             >
               <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-                {history.map((course, i) => (
-                  <li
-                    key={course.planId}
-                    style={{
-                      padding: "calc(var(--cell) * 1.75) calc(var(--cell) * 3)",
-                      borderTop: i > 0 ? "1px solid var(--rule-2)" : undefined,
-                    }}
-                  >
-                    <div
+                {history.map((course, i) => {
+                  const end = outcome(course);
+                  return (
+                    <li
+                      key={course.planId}
                       style={{
-                        display: "flex",
-                        flexWrap: "wrap",
-                        alignItems: "baseline",
-                        justifyContent: "space-between",
-                        gap: "calc(var(--cell) * 1)",
+                        padding: "calc(var(--cell) * 1.75) calc(var(--cell) * 3)",
+                        borderTop: i > 0 ? "1px solid var(--rule-2)" : undefined,
                       }}
                     >
-                      <span style={{ fontSize: 15, fontWeight: 600, color: "var(--print)" }}>
-                        {course.reason}
-                      </span>
-                      <Badge tone="plain" quiet>
-                        {outcome(course)}
-                      </Badge>
-                    </div>
-                    <p className="mono" style={{ margin: "2px 0 0", fontSize: 12, color: "var(--print-3)" }}>
-                      {course.startsAt ? formatDay(course.startsAt, visit.timezone) : "never started"}
-                      {course.closedAt ? ` → ${formatDay(course.closedAt, visit.timezone)}` : ""}
-                      {course.calls > 0 ? ` · ${course.reached} of ${course.calls} calls answered` : ""}
-                    </p>
-                    {course.closingSummary ? (
-                      <p style={{ margin: "calc(var(--cell) * 1) 0 0", fontSize: 14, lineHeight: 1.5, color: "var(--print)" }}>
-                        {course.closingSummary}
+                      <div
+                        style={{
+                          display: "flex",
+                          flexWrap: "wrap",
+                          alignItems: "baseline",
+                          justifyContent: "space-between",
+                          gap: "calc(var(--cell) * 1)",
+                        }}
+                      >
+                        <span style={{ fontSize: 15, fontWeight: 600, color: "var(--print)" }}>
+                          {course.reason}
+                        </span>
+                        <Badge tone={end.tone} quiet>
+                          {end.label}
+                        </Badge>
+                      </div>
+                      <p className="mono" style={{ margin: "2px 0 0", fontSize: 12, color: "var(--print-3)" }}>
+                        {course.startsAt ? formatDay(course.startsAt, visit.timezone) : "never started"}
+                        {course.closedAt ? ` → ${formatDay(course.closedAt, visit.timezone)}` : ""}
+                        {course.calls > 0 ? ` · ${course.reached} of ${course.calls} calls answered` : ""}
                       </p>
-                    ) : null}
-                  </li>
-                ))}
+                      {course.closingSummary ? (
+                        <p style={{ margin: "calc(var(--cell) * 1) 0 0", fontSize: 14, lineHeight: 1.5, color: "var(--print)" }}>
+                          {course.closingSummary}
+                        </p>
+                      ) : null}
+                    </li>
+                  );
+                })}
               </ul>
             </Panel>
           ) : null}
         </div>
 
         <div>
-          {/*
-            Said before the doctor writes, not after they approve. A plan for a
-            patient without consent is allowed — the desk may record it later —
-            but every call it schedules is refused until then, and learning that
-            at the approve button costs the doctor the note they just wrote.
-            Blue, not amber or red: it informs, and nobody is at risk.
-          */}
-          {open && visit.consent !== "granted" ? (
-            <p
-              role="note"
-              style={{
-                margin: "0 0 calc(var(--cell) * 2)",
-                padding: "calc(var(--cell) * 2)",
-                background: "var(--info-wash)",
-                boxShadow: "inset 0 0 0 1px var(--info)",
-                color: "var(--print)",
-                fontSize: 14,
-                lineHeight: 1.5,
-              }}
-            >
-              <strong>
-                {visit.consent === "declined"
-                  ? "This patient declined automated calls."
-                  : "Consent to automated calls is not recorded."}
-              </strong>{" "}
-              You can write the note and review the plan, but nothing will dial until the
-              front desk records that the patient agreed.
-            </p>
-          ) : null}
           {open ? (
-            <ConsultForm visitId={visit.id} kind={visit.kind} canCompile={hasProvider()} />
+            <ConsultForm
+              visitId={visit.id}
+              kind={visit.kind}
+              canCompile={hasProvider()}
+              language={language}
+              consent={visit.consent}
+            />
           ) : (
             <Panel title="Not open">
               <p
@@ -245,7 +209,9 @@ export default async function ConsultVisitPage({
               >
                 {visit.status === "cancelled"
                   ? "This visit was cancelled."
-                  : "This visit was written up, but its plan is gone. Book another visit from the patient's record."}
+                  : visit.status === "no_show"
+                    ? "Marked as didn't turn up. If they arrived after all, put them back on the list from Consultations."
+                    : "This visit was written up, but its plan is gone. Book another visit from the patient's record."}
               </p>
             </Panel>
           )}

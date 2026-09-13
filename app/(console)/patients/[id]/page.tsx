@@ -1,134 +1,50 @@
 /**
- * One patient.
+ * One patient, for the front desk.
  *
- * The roster answers "who needs me?"; this page answers "what happened?". So
- * the evidence is the spine of it: the week band, then every call that produced
- * it, in order, with what each one ended as. Numbers first, prose second.
- *
- * The note sits at the bottom rather than the top on purpose — it is the input
- * to the plan, and by the time you are on this page you are reading outcomes.
+ * Contact details, consent, when the next call goes out, the call log, and the
+ * controls that are the desk's to use — edit, book a visit, stop calls, delete.
+ * The clinical reading of the follow-up (how the patient is doing, what they
+ * answered, what needs deciding) is the doctor's, at /followups/[id]; here an
+ * open escalation is one line saying it is with the doctor, with no content a
+ * receptionist might pass on and no control to close it.
  */
 
-import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { CallLog } from "@/components/CallLog";
 import { PatientControls } from "@/components/PatientControls";
-import { TreatmentControls } from "@/components/TreatmentControls";
-import { AmendNote } from "@/components/AmendNote";
-import { readConfig } from "@/lib/config";
-import { ParameterGrid } from "@/components/ParameterGrid";
 import { Badge, Breadcrumb, Button, Panel } from "@/components/ui";
 import { getPatientDetail } from "@/lib/db/patients";
 import { getPatientSummary } from "@/lib/db/summary";
-import { getParameterGrid } from "@/lib/db/parameters";
-import { PatientSummary } from "@/components/PatientSummary";
-import {
-  CONSENT_LABEL,
-  CONSENT_TONE,
-  HEALTH_LABEL,
-  HEALTH_TONE,
-} from "@/lib/patients/labels";
+import { readConfig } from "@/lib/config";
+import { CONSENT_LABEL, CONSENT_TONE, HEALTH_LABEL } from "@/lib/patients/labels";
 import { formatDay, formatStamp } from "@/lib/format";
 import { maskPhone } from "@/lib/phone/normalize";
-import { getWaitingVisits } from "@/lib/db/visits";
-import { localDate } from "@/lib/time/clock";
 import { languageLabel } from "@/lib/patients/languages";
 
 export const dynamic = "force-dynamic";
-
-/** One note, as written. Repeated for the folded ones, so they read the same. */
-function Note({
-  note,
-  timezone,
-}: {
-  note: { id: string; createdAt: Date; body: string; escalationNote: string | null };
-  timezone: string;
-}) {
-  return (
-    <div style={{ padding: "calc(var(--cell) * 3)", borderTop: "1px solid var(--rule)" }}>
-      <p className="caps" style={{ margin: "0 0 calc(var(--cell) * 1)", color: "var(--print-3)" }}>
-        {formatDay(note.createdAt, timezone)}
-      </p>
-      <p
-        className="mono measure"
-        style={{
-          margin: 0,
-          whiteSpace: "pre-wrap",
-          color: "var(--print-2)",
-          fontSize: 13,
-          lineHeight: 1.7,
-        }}
-      >
-        {note.body}
-      </p>
-      {note.escalationNote ? (
-        <p style={{ margin: "calc(var(--cell) * 1.5) 0 0", color: "var(--print-2)", fontSize: 14 }}>
-          <span className="caps" style={{ color: "var(--print-3)" }}>Escalate to me if</span>{" "}
-          {note.escalationNote}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
 
 export default async function PatientPage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ created?: string; approved?: string }>;
+  searchParams: Promise<{ created?: string }>;
 }) {
   const { id } = await params;
-  const { created, approved } = await searchParams;
+  const { created } = await searchParams;
   const detail = await getPatientDetail(id);
   if (!detail) notFound();
 
   const summary = await getPatientSummary(id);
-  /* Only for the current course: a grid spanning two plans would put two
-     different sets of questions on one axis. */
-  const parameters = detail.planId ? await getParameterGrid(detail.planId) : [];
-
   const { patient, calls } = detail;
-
-  /*
-   * After an approval the doctor's next move is the next patient, not this
-   * record. Oldest booking first, overdue included — the same order as the
-   * consult list — and only looked up then: this page otherwise never needs it.
-   */
-  const next = approved
-    ? (await getWaitingVisits()).find(
-        (v) => v.patientId !== patient.id && v.visitDate <= localDate(new Date(), v.timezone),
-      )
-    : undefined;
-
-  const planLive = ["active", "paused"].includes(detail.planStatus ?? "");
+  const live = detail.planStatus === "active" || detail.planStatus === "paused";
   const editable = !patient.archivedAt;
-
-  /*
-   * One primary action, chosen by state.
-   *
-   * It used to be a whole Panel each — "No plan yet" and "Waiting on you" —
-   * wrapping a sentence and a button, above a sheet that says the same thing
-   * in a badge. The button is the only part a doctor uses.
-   */
-  const primary =
-    !editable
-      ? null
-      : detail.planStatus === "awaiting_approval" && detail.planId
-        ? { href: `/plans/${detail.planId}`, label: "Review and approve" }
-        : planLive
-          ? null
-          : {
-              href: `/register?patient=${patient.id}`,
-              label: detail.planId ? "Book another visit" : "Book a visit",
-            };
-
-  /* The newest escalation still open. The rest keep the link to Today. */
-  const waiting = summary.escalations.find(
-    (e) => e.status === "open" || e.status === "acknowledged",
-  );
+  const waiting = summary.escalations.find((e) => e.status === "open" || e.status === "acknowledged");
+  const now = new Date();
+  const nextCall = calls
+    .filter((c) => c.status === "scheduled" && c.scheduledFor > now)
+    .sort((a, b) => a.scheduledFor.getTime() - b.scheduledFor.getTime())[0];
 
   return (
     <div
@@ -138,9 +54,8 @@ export default async function PatientPage({
         padding: "calc(var(--cell) * 5) calc(var(--cell) * 3) calc(var(--cell) * 10)",
       }}
     >
-      <header style={{ marginBottom: "calc(var(--cell) * 4)" }}>
+      <header style={{ marginBottom: "calc(var(--cell) * 3)" }}>
         <Breadcrumb items={[{ label: "Patients", href: "/patients" }, { label: patient.name }]} />
-
         <div
           style={{
             display: "flex",
@@ -153,85 +68,38 @@ export default async function PatientPage({
           <div>
             <h1
               className="display"
-              style={{
-                fontSize: "clamp(28px, 3.6vw, 44px)",
-                margin: "0 0 calc(var(--cell) * 1)",
-                color: "var(--bench-ink)",
-              }}
+              style={{ fontSize: "clamp(28px, 3.2vw, 40px)", margin: "0 0 calc(var(--cell) * 1)", color: "var(--bench-ink)" }}
             >
               {patient.name}
             </h1>
-            <p
-              className="mono"
-              style={{ margin: 0, color: "var(--bench-ink-2)", fontSize: 14 }}
-            >
-              {patient.age} · {maskPhone(patient.phoneE164)} · {patient.timezone} · {languageLabel(patient.language)}
+            <p style={{ margin: 0, color: "var(--bench-ink-2)", fontSize: 15 }}>
+              <span className="mono">{patient.age}</span> ·{" "}
+              <span className="mono">{maskPhone(patient.phoneE164)}</span> · {patient.timezone} ·{" "}
+              {languageLabel(patient.language)}
             </p>
           </div>
-
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: "calc(var(--cell) * 1)",
-              alignItems: "center",
-            }}
-          >
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "calc(var(--cell) * 1)", alignItems: "center" }}>
             {patient.archivedAt ? <Badge tone="plain" quiet>Archived</Badge> : null}
             <Badge tone={CONSENT_TONE[patient.aiCallConsent]} quiet>
               {CONSENT_LABEL[patient.aiCallConsent]}
             </Badge>
-            {detail.health ? (
-              <Badge
-                tone={HEALTH_TONE[detail.health]}
-                quiet={detail.health === "completed"}
-              >
-                {HEALTH_LABEL[detail.health]}
-              </Badge>
-            ) : (
-              <Badge tone="plain" quiet>
-                No plan yet
-              </Badge>
-            )}
+            {/* Quiet: the desk reads the state, it does not act on it. */}
+            <Badge tone="plain" quiet>
+              {detail.health ? HEALTH_LABEL[detail.health] : "No plan yet"}
+            </Badge>
           </div>
         </div>
 
-        {/*
-          The actions, beside the name they act on.
-          They were scattered across four panels and the page foot — the one
-          primary buried inside a sheet at the top, Edit 1,800px below it. What
-          is irreversible stays at the foot; what is navigation lives here.
-        */}
         {editable ? (
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: "calc(var(--cell) * 1.5)",
-              marginTop: "calc(var(--cell) * 2.5)",
-            }}
-          >
-            {primary ? (
-              <Button variant="primary" href={primary.href}>
-                {primary.label}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "calc(var(--cell) * 1.5)", marginTop: "calc(var(--cell) * 2.5)" }}>
+            {!live && detail.planStatus !== "awaiting_approval" ? (
+              <Button variant="primary" href={`/register?patient=${patient.id}`}>
+                {detail.planId ? "Book another visit" : "Book a visit"}
               </Button>
             ) : null}
-            {/*
-              The doctor's own phone. `tel:` was on Today and nowhere here,
-              though the number is printed two lines up — so the one screen that
-              holds everything about a patient could not ring them.
-            */}
-            {/* "Phone … yourself", not "Call …": in a product whose agent
-                makes calls, "Call Asha" read as "have the agent dial now".
-                This is the front desk's screen, so the number is theirs to use. */}
             <Button variant="ghost" href={`tel:${patient.phoneE164}`}>
               Phone {patient.name.split(" ")[0]} yourself
             </Button>
-            {detail.planId ? (
-              <Button variant="ghost" href={`/plans/${detail.planId}`}>
-                The whole plan
-              </Button>
-            ) : null}
             <Button variant="ghost" href={`/patients/${patient.id}/edit`}>
               Edit
             </Button>
@@ -239,15 +107,7 @@ export default async function PatientPage({
         ) : null}
       </header>
 
-      {/*
-        The acknowledgement approval never had.
-        
-        It used to return quietly: the panel unmounted, the headline mutated,
-        and the page shrank under a doctor sitting at the bottom of it. This
-        says what happened, names the first call in the patient's own zone, and
-        lands them where the dated rows actually are.
-      */}
-      {approved && detail.startsAt ? (
+      {created ? (
         <p
           role="status"
           style={{
@@ -257,268 +117,75 @@ export default async function PatientPage({
             boxShadow: "inset 0 0 0 1px var(--clear)",
             color: "var(--print)",
             fontSize: 15,
-            lineHeight: 1.55,
           }}
         >
-          <strong>The follow-up has started.</strong> The first call goes out{" "}
-          <span className="mono">{formatStamp(detail.startsAt, patient.timezone)}</span>, and
-          every call it will place is listed below. Nothing rings before then.
-          {next ? (
-            <>
-              {" "}
-              <Link
-                href={`/consult/${next.id}`}
-                style={{ color: "var(--print)", fontWeight: 700, textUnderlineOffset: 3 }}
-              >
-                Next patient: {next.patientName}
-              </Link>
-            </>
-          ) : (
-            " Nobody else is waiting for a note."
-          )}
+          <strong>{patient.name} added.</strong> They will not be called until a follow-up plan
+          has been written and the doctor has approved it.
         </p>
       ) : null}
 
-      {created ? (
-        <p
+      {/* The follow-up, as the desk needs it: what, when, and who has it. */}
+      <Panel title="Follow-up" style={{ marginBottom: "calc(var(--cell) * 2)" }}>
+        <dl
           style={{
-            margin: "0 0 calc(var(--cell) * 2)",
-            padding: "calc(var(--cell) * 2)",
-            background: "var(--clear-wash)",
-            boxShadow: "inset 0 0 0 1px var(--clear)",
-            color: "var(--print)",
-            fontSize: 15,
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "calc(var(--cell) * 2) calc(var(--cell) * 5)",
+            margin: 0,
+            padding: "calc(var(--cell) * 3)",
           }}
         >
-          <strong>{patient.name} added.</strong> They will not be called until a
-          follow-up plan has been written and you have approved it.
-        </p>
-      ) : null}
-
-      {/*
-        Where things stand — and, folded into the same sheet, what the plan is
-        set to and what to do about anything waiting.
-
-        This was three sheets: a one-line "Follow-up ended" panel wrapping a
-        button, this one, and a "The plan" panel wrapping one more button and a
-        badge. `COMPLETED` was printed three times on one screen — the header
-        badge, a panel title and the plan's own badge — and the actions were
-        more chrome than content.
-      */}
-      <PatientSummary
-        summary={summary}
-        timezone={patient.timezone}
-        quietFor={detail.quietFor}
-        lastHeard={detail.lastHeard}
-        week={detail.week}
-        reason={detail.reason}
-        planLine={
-          detail.planId ? (
-            <>
-              Daily · {detail.localTime} {patient.timezone} · up to {detail.maxAttempts}/day
-              {detail.startsAt && detail.endsAt
-                ? ` · ${formatDay(detail.startsAt, patient.timezone)} → ${formatDay(detail.endsAt, patient.timezone)}`
-                : " · not approved yet"}
-            </>
-          ) : undefined
-        }
-        escalationActions={
-          waiting && detail.planId ? (
-            /*
-              Handed to the doctor, not decided here. This is the Patients
-              section — the front desk's — and with no logins a receptionist
-              could otherwise close a clinical escalation from it. The doctor
-              handles it on Follow-ups, where the decision lives.
-            */
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: "calc(var(--cell) * 1.5)",
-                alignItems: "center",
-                padding: "calc(var(--cell) * 2) calc(var(--cell) * 2.5)",
-                background: "var(--label-2)",
-                borderTop: "1px solid var(--rule)",
-              }}
-            >
-              <span style={{ fontSize: 14, fontWeight: 600, color: "var(--print)" }}>
-                Waiting on {readConfig().clinicianName}
-              </span>
-              <Button variant="onLabel" href="/dashboard">
-                Open in Follow-ups
-              </Button>
+          {([
+            ["Following up on", detail.reason ?? "No plan yet", false],
+            [
+              "Next call",
+              detail.planStatus === "paused"
+                ? "none — paused"
+                : nextCall
+                  ? formatStamp(nextCall.scheduledFor, patient.timezone)
+                  : live
+                    ? "none scheduled"
+                    : "—",
+              true,
+            ],
+            [
+              "Window",
+              detail.startsAt && detail.endsAt
+                ? `${formatDay(detail.startsAt, patient.timezone)} → ${formatDay(detail.endsAt, patient.timezone)}`
+                : detail.planStatus === "awaiting_approval"
+                  ? "waiting for the doctor's approval"
+                  : "—",
+              true,
+            ],
+          ] as [string, string, boolean][]).map(([label, value, mono]) => (
+            <div key={label}>
+              <dt className="caps" style={{ color: "var(--print-3)", marginBottom: 2 }}>
+                {label}
+              </dt>
+              <dd className={mono ? "mono" : undefined} style={{ margin: 0, fontSize: 15, color: "var(--print)" }}>
+                {value}
+              </dd>
             </div>
-          ) : undefined
-        }
-        footer={
-          detail.planId && planLive && editable ? (
-            <>
-              <TreatmentControls
-                planId={detail.planId}
-                patientId={patient.id}
-                patientName={patient.name}
-              />
-              {/*
-                Reviewing a patient mid-course and wanting one more thing
-                watched is not a new episode. A second plan would dial the same
-                person twice a day — and cannot exist anyway, since one live
-                plan per patient is a unique index. This adds to the note the
-                questions were compiled from, so the addition is grounded the
-                same way everything else is.
-              */}
-              <AmendNote planId={detail.planId} live />
-            </>
-          ) : (
-            /* How it resolved, on the episode it belongs to. It moves down to
-               "Earlier follow-ups" only once a newer plan exists. */
-            (() => {
-              const course = summary.courses.find((c) => c.planId === detail.planId);
-              return course?.closingSummary ? (
-                <p
-                  style={{
-                    margin: 0,
-                    paddingLeft: "calc(var(--cell) * 1.5)",
-                    borderLeft: "2px solid var(--rule-2)",
-                    color: "var(--print)",
-                    fontSize: 14,
-                    lineHeight: 1.6,
-                    maxWidth: "72ch",
-                  }}
-                >
-                  {course.closingSummary}
-                </p>
-              ) : undefined;
-            })()
-          )
-        }
-      />
-
-      {/*
-        The treatment record.
-        Superseded and finished plans used to disappear from the console
-        completely — their calls were retained and their result schema frozen at
-        approval so they would stay readable, and nothing read them. "What were
-        we treating in August" is a question a doctor asks, and until now this
-        product could not answer it.
-      */}
-      {detail.priorPlans.length > 0 ? (
-        <Panel
-          title="Earlier follow-ups"
-          aside={
-            <span className="caps mono" style={{ color: "var(--print-3)" }}>
-              {detail.priorPlans.length}
-            </span>
-          }
-          style={{ marginBottom: "calc(var(--cell) * 2)" }}
-        >
-          <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-            {detail.priorPlans.map((p) => {
-              const course = summary.courses.find((c) => c.planId === p.id);
-              return (
-              <li
-                key={p.id}
-                style={{
-                  padding: "calc(var(--cell) * 1.75) calc(var(--cell) * 2.5)",
-                  borderBottom: "1px solid var(--rule-2)",
-                }}
-              >
-               <div
-                style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  alignItems: "baseline",
-                  gap: "calc(var(--cell) * 2)",
-                }}
-               >
-                <Link
-                  href={`/plans/${p.id}`}
-                  style={{
-                    color: "var(--print)",
-                    fontWeight: 700,
-                    textDecoration: "underline",
-                    textUnderlineOffset: 3,
-                    textDecorationColor: "var(--rule)",
-                  }}
-                >
-                  {p.reason}
-                </Link>
-                {/* Why it ended, not just that it did. `superseded` and
-                    `clinician_closed` are different clinical facts. */}
-                <Badge tone="plain" quiet>
-                  {p.closeReason === "superseded"
-                    ? "Replaced by a later plan"
-                    : p.closeReason === "clinician_closed"
-                      ? "Finished by you"
-                      : p.closeReason === "duration_elapsed"
-                        ? "Window closed"
-                        : p.status}
-                </Badge>
-                {/* What the course actually achieved. The rows were retained
-                    and the result schema frozen at approval precisely so a
-                    superseded plan stayed readable, and nothing read it. */}
-                {course && course.calls > 0 ? (
-                  <span className="mono" style={{ fontSize: 13, color: "var(--print-2)" }}>
-                    {course.reached}/{course.calls} answered
-                  </span>
-                ) : null}
-                <span className="mono" style={{ fontSize: 13, color: "var(--print-3)" }}>
-                  {p.startsAt ? formatDay(p.startsAt, patient.timezone) : "never started"}
-                  {p.closedAt ? ` → ${formatDay(p.closedAt, patient.timezone)}` : ""}
-                </span>
-               </div>
-
-                {/*
-                  How it resolved, in the clinician's own words.
-                  The reason this record exists: everything else on the row is
-                  machinery — how many calls, which dates, why it stopped — and
-                  none of it says whether the patient got better. It is printed
-                  rather than hidden behind the link, because a doctor seeing
-                  this patient again needs it before they decide anything.
-                */}
-                {course?.closingSummary ? (
-                  <p
-                    style={{
-                      margin: "calc(var(--cell) * 1) 0 0",
-                      paddingLeft: "calc(var(--cell) * 1.5)",
-                      borderLeft: "2px solid var(--rule-2)",
-                      color: "var(--print)",
-                      fontSize: 14,
-                      lineHeight: 1.6,
-                      maxWidth: "72ch",
-                    }}
-                  >
-                    {course.closingSummary}
-                  </p>
-                ) : null}
-              </li>
-              );
-            })}
-          </ul>
-        </Panel>
-      ) : null}
-
-
-      {/*
-        What they said, before the calls that produced it.
-
-        The week band two panels up says whether we reached her; this says
-        whether the thing we were watching moved. Until now the product could
-        answer the first question and not the second — which is the one a course
-        of follow-up exists to ask.
-      */}
-      {parameters.length > 0 ? (
-        <Panel
-          title="Day by day"
-          aside={
-            <span className="caps mono" style={{ color: "var(--print-3)" }}>
-              {parameters.length} {parameters.length === 1 ? "question" : "questions"}
-            </span>
-          }
-          style={{ marginBottom: "calc(var(--cell) * 2)" }}
-        >
-          <ParameterGrid rows={parameters} />
-        </Panel>
-      ) : null}
+          ))}
+        </dl>
+        {/* One line, no clinical content: the doctor decides this, not the desk. */}
+        {waiting ? (
+          <p
+            style={{
+              margin: 0,
+              padding: "calc(var(--cell) * 1.75) calc(var(--cell) * 3)",
+              borderTop: "1px solid var(--rule)",
+              background: "var(--label-2)",
+              fontSize: 14,
+              color: "var(--print)",
+            }}
+          >
+            With {readConfig().clinicianName} since{" "}
+            <span className="mono">{formatDay(waiting.raisedAt, patient.timezone)}</span>
+            {detail.planStatus === "paused" ? " — calls are paused until the doctor decides." : "."}
+          </p>
+        ) : null}
+      </Panel>
 
       <Panel
         title="Calls"
@@ -527,79 +194,26 @@ export default async function PatientPage({
             {calls.length} {calls.length === 1 ? "call" : "calls"}
           </span>
         }
-        style={{ marginBottom: "calc(var(--cell) * 2)" }}
+        style={{ marginBottom: "calc(var(--cell) * 3)" }}
       >
-        <CallLog calls={calls} maxAttempts={detail.maxAttempts} timezone={patient.timezone} />
+        {/* Outcomes only: what the patient said is the doctor's to read. */}
+        <CallLog calls={calls} maxAttempts={detail.maxAttempts} timezone={patient.timezone} showSaid={false} />
       </Panel>
 
-      {summary.notes.length > 0 ? (
-        <Panel
-          title={summary.notes.length === 1 ? "The note" : "Notes"}
-          aside={
-            summary.notes.length > 1 ? (
-              <span className="caps mono" style={{ color: "var(--print-3)" }}>
-                {summary.notes.length}
-              </span>
-            ) : undefined
-          }
-          style={{ marginBottom: "calc(var(--cell) * 3)" }}
-        >
-          {/*
-            All of them, newest first. One note can produce several plan
-            versions and a patient can have several courses of treatment, and
-            only the current plan's note was ever reachable — so the reason a
-            follow-up was started three weeks ago simply vanished. `idx_notes_patient`
-            was built for exactly this read and nothing performed it.
-          */}
-          {summary.notes.slice(0, 1).map((n) => (
-            <Note key={n.id} note={n} timezone={patient.timezone} />
-          ))}
-
-          {/*
-            The rest folded away. An amendment appends rather than replaces, so
-            two near-identical notes print in full one under the other — ~250px
-            each of the same paragraph, on a page a doctor opens to read
-            outcomes.
-          */}
-          {summary.notes.length > 1 ? (
-            <details className="disclosure">
-              <summary>
-                {summary.notes.length - 1} earlier{" "}
-                {summary.notes.length === 2 ? "note" : "notes"}
-              </summary>
-              {summary.notes.slice(1).map((n) => (
-                <Note key={n.id} note={n} timezone={patient.timezone} />
-              ))}
-            </details>
-          ) : null}
-        </Panel>
-      ) : null}
-
-      {!patient.archivedAt ? (
+      {editable ? (
         <PatientControls
           id={patient.id}
           name={patient.name}
-          hasPendingCalls={calls.some((c) =>
-            ["scheduled", "claimed", "dialing"].includes(c.status),
-          )}
+          hasPendingCalls={calls.some((c) => ["scheduled", "claimed", "dialing"].includes(c.status))}
           planId={detail.planId}
           paused={detail.planStatus === "paused"}
           pausedReason={detail.pausedReason}
           escalationOpen={Boolean(waiting)}
         />
       ) : (
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "calc(var(--cell) * 2)",
-            alignItems: "center",
-          }}
-        >
-          <span style={{ color: "var(--bench-ink-3)", fontSize: 14, maxWidth: "56ch" }}>
-            Archived. History kept, nothing dialled.
-          </span>
-        </div>
+        <span style={{ color: "var(--bench-ink-3)", fontSize: 14 }}>
+          Archived. History kept, nothing dialled.
+        </span>
       )}
     </div>
   );

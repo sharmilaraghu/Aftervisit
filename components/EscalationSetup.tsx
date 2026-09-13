@@ -3,20 +3,21 @@
 /**
  * What escalates, in the doctor's terms.
  *
- * This panel replaced a rule editor that put a dropdown, a threshold and a
- * remove button on every rule — around forty controls on one flat list, and no
- * way to add a rule anyway. A doctor does not think in a tagged union; they
- * think "ring me if she starts vomiting again". So the panel asks for that
- * sentence, shows the words it will listen for, and states the three rules
- * nobody may switch off.
+ * Cut to what a doctor acts on. It opened with a folded essay on how triage and
+ * the fixed rules work, a "Write it down" gate in front of the one field that
+ * matters, and two dozen standard words with their provenance captions. A
+ * doctor wants two things here: to say, in their own words, what should bring
+ * the patient back to them — the sentence triage reads every call against —
+ * and to know what always escalates whatever they write. Both are open; the
+ * word list is folded, because it is the same for every patient with the
+ * condition and rarely edited.
+ *
+ * Words read out of the doctor's own note stay visible when there are any: the
+ * product's promise is that anything the compiler added is shown as an
+ * addition, so it can be deleted.
  *
  * The rules themselves are untouched — `lib/rules/{types,catalog,engine}.ts`
- * still hold the closed DSL and the pure evaluator, and every rule the compiler
- * proposed still fires. They are simply no longer hand-authored here.
- *
- * Nothing on this panel is a save-everything button: the note has its own Save,
- * a word is added or deleted on the spot, and the action is told only about the
- * half that changed. That is why a chip click cannot discard a half-typed note.
+ * still hold the floor, and every rule the compiler proposed still fires.
  */
 
 import { useState, useTransition } from "react";
@@ -27,40 +28,12 @@ import { RULE_CATALOG } from "@/lib/rules/catalog";
 import { LOCKED_RULE_KINDS, type RedFlagTerm } from "@/lib/rules/types";
 
 /**
- * Where a word came from, said plainly.
- *
- * The product's promise is that compiler additions are *visible* as additions,
- * so the clinician can delete what the model read into their note. Grouping
- * carries that mark without spending a control on it.
- */
-const GROUPS: { source: RedFlagTerm["source"]; heading: string; caption: string }[] = [
-  {
-    source: "note",
-    heading: "Taken from your note",
-    caption:
-      "Read out of your note. Delete any that do not belong.",
-  },
-  {
-    source: "clinician",
-    heading: "Added by you",
-    caption: "Words you added yourself.",
-  },
-  {
-    source: "default",
-    heading: "The standard list for this condition",
-    caption: "Standard for this condition.",
-  },
-];
-
-/**
- * The three, named by the catalog rather than by this file.
- *
- * Relabelling a rule must move the sentence a doctor reads with it; a copy of
- * the wording here would go quietly stale the first time one is renamed.
+ * The always-on rules, named by the catalog rather than by this file, so a
+ * relabelled rule moves the sentence a doctor reads with it.
  */
 const LOCKED = (() => {
-  const labels = LOCKED_RULE_KINDS.map((kind) => `“${RULE_CATALOG[kind].label}”`);
-  return `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`;
+  const labels = LOCKED_RULE_KINDS.map((kind) => RULE_CATALOG[kind].label.toLowerCase());
+  return `${labels.slice(0, -1).join(", ")} or ${labels[labels.length - 1]}`;
 })();
 
 export function EscalationSetup({
@@ -78,17 +51,14 @@ export function EscalationSetup({
 }) {
   const [terms, setTerms] = useState(initialTerms);
   const [note, setNote] = useState(escalationNote ?? "");
-  const [writing, setWriting] = useState(escalationNote !== null && escalationNote !== "");
-  const [saved, setSaved] = useState(false);
+  const [saved, setSaved] = useState<string>(escalationNote ?? "");
+  /* "Saved" confirms an act; on arrival nothing has been saved yet. */
+  const [justSaved, setJustSaved] = useState(false);
   const [word, setWord] = useState("");
   const [pending, startTransition] = useTransition();
 
-  /*
-   * A word can reach the plan twice — the universal list and a condition list
-   * both carry "fainted" — and matching is case-insensitive, so the second copy
-   * is not a second thing to delete. Deduped here rather than in the seed,
-   * because the same is true of anything a compiler adds.
-   */
+  /* A word can reach the plan twice, and matching is case-insensitive, so the
+     second copy is not a second thing to delete. */
   const seen = new Set<string>();
   const shown = terms.filter((t) => {
     const key = t.term.toLowerCase();
@@ -96,6 +66,8 @@ export function EscalationSetup({
     seen.add(key);
     return true;
   });
+  const fromNote = shown.filter((t) => t.source === "note" || t.source === "clinician");
+  const standard = shown.filter((t) => t.source === "default");
 
   const saveTerms = (next: RedFlagTerm[]) =>
     startTransition(async () => {
@@ -110,237 +82,150 @@ export function EscalationSetup({
     saveTerms([...terms, { term: clean, source: "clinician" }]);
   };
 
+  const chips = (group: RedFlagTerm[]) => (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: "calc(var(--cell) * 0.75)" }}>
+      {group.map((t) => (
+        <button
+          key={t.term}
+          type="button"
+          disabled={pending}
+          onClick={() => saveTerms(terms.filter((x) => x.term !== t.term))}
+          aria-label={`Remove ${t.term}`}
+          /* The button pads around the badge so the target reaches 32px. */
+          style={{
+            border: "none",
+            background: "none",
+            padding: "calc(var(--cell) * 0.75) 0",
+            minHeight: 32,
+            display: "inline-flex",
+            alignItems: "center",
+            cursor: "pointer",
+            font: "inherit",
+          }}
+        >
+          <Badge tone="plain" quiet>
+            {t.term} ✕
+          </Badge>
+        </button>
+      ))}
+    </div>
+  );
+
+  const dirty = note.trim() !== saved.trim();
+
   return (
     <div style={{ padding: "calc(var(--cell) * 3)" }}>
-      {/*
-        The explanation, folded. It was two always-open paragraphs — one here
-        and one at the foot about the fixed rules — on a page a doctor scrolls
-        through to reach one decision. Said the way the product works now: this
-        once read "never on the model's opinion of what it heard", which stopped
-        being true when triage replaced the rule kinds.
-      */}
-      <details className="disclosure" style={{ marginBottom: "calc(var(--cell) * 3)" }}>
-        <summary>How escalation works</summary>
-        <p
-          className="measure"
-          style={{ margin: "calc(var(--cell) * 1) 0 0", color: "var(--print-2)", fontSize: 14, lineHeight: 1.6 }}
-        >
-          After each call a model reads what the patient said against your
-          conditions and these words, and escalates what matches. Fixed rules stand
-          underneath it, so an outage cannot silence a patient who asked for a person.
-        </p>
-        <p
-          className="measure"
-          style={{ margin: "calc(var(--cell) * 1) 0 0", color: "var(--print-2)", fontSize: 14, lineHeight: 1.6 }}
-        >
-          {/*
-            "Each of them pauses the plan" was wrong. `unmappable_response` carries
-            urgent: false precisely so it does not — pausing on attempt 1 of 3
-            disabled the retry ladder for the commonest reason a call is useless.
-            Two of the three pause; all three reach a person.
-          */}
-          {`Three rules are always on and cannot be removed: ${LOCKED}. Each puts the patient in front of a person. An answer nobody could map keeps the follow-up dialling; the other two pause it.`}
-        </p>
-      </details>
-      {live ? (
-        <p
-          className="measure"
-          style={{ margin: "0 0 calc(var(--cell) * 3)", color: "var(--print-2)", fontSize: 14 }}
-        >
-          Changes apply to calls from here on; they do not revisit calls already made.
-        </p>
-      ) : null}
-
-      {/* 1 — the doctor's own words. */}
-      {writing ? (
-        <Field
-          /* The same words the doctor typed at enrolment, so the same label.
-             They were entered under "Escalate to me if" and reappeared here
-             under a different name, and nothing on either screen said the two
-             were one field. */
-          label="Escalating conditions"
-          htmlFor="escalationNote"
-          hint="Your words, kept verbatim. They are handed to triage as your own reference standard."
-        >
-          <Textarea
-            id="escalationNote"
-            rows={3}
-            value={note}
-            placeholder="Ring me if she is vomiting again or cannot keep fluids down."
-            aria-describedby={describedBy("escalationNote", { hint: true })}
-            onChange={(e) => {
-              setNote(e.target.value);
-              setSaved(false);
-            }}
-          />
-        </Field>
-      ) : (
-        <div style={{ marginBottom: "calc(var(--cell) * 3)" }}>
-          <p className="caps" style={{ color: "var(--print-3)", margin: "0 0 calc(var(--cell) * 1)" }}>
-            What you want to hear about
-          </p>
-          <p
-            className="measure"
-            style={{ margin: "0 0 calc(var(--cell) * 1.5)", color: "var(--print-2)", fontSize: 14 }}
-          >
-            Nothing yet. Write what would make you want to know before their next
-            appointment.
-          </p>
-          <Button variant="onLabel" onClick={() => setWriting(true)}>
-            Write it down
-          </Button>
-        </div>
-      )}
-
-      {writing ? (
+      {/* The doctor's own words — the one thing on this panel triage reads as
+          their standard. Open, not behind a "Write it down" button. */}
+      <Field
+        label="Escalate to me if…"
+        htmlFor="escalationNote"
+        hint={
+          live
+            ? "Kept word for word. Every call from here on is read against it."
+            : "Kept word for word. Every call is read against it."
+        }
+      >
+        <Textarea
+          id="escalationNote"
+          rows={2}
+          value={note}
+          placeholder="Ring me if she is vomiting again or cannot keep fluids down."
+          aria-describedby={describedBy("escalationNote", { hint: true })}
+          onChange={(e) => setNote(e.target.value)}
+        />
+      </Field>
+      {dirty || justSaved ? (
         <div
           style={{
             display: "flex",
             gap: "calc(var(--cell) * 1.5)",
             alignItems: "center",
-            marginBottom: "calc(var(--cell) * 3)",
+            margin: "calc(var(--cell) * -1.5) 0 calc(var(--cell) * 3)",
           }}
         >
-          <Button
-            variant="onLabel"
-            disabled={pending}
-            onClick={() =>
-              startTransition(async () => {
-                await updateEscalationAction(planId, { escalationNote: note });
-                setSaved(true);
-              })
-            }
-          >
-            {pending ? "Saving…" : "Save what you wrote"}
-          </Button>
-          {saved ? (
-            <span role="status" className="caps" style={{ color: "var(--clear)" }}>
+          {dirty ? (
+            <Button
+              variant="onLabel"
+              disabled={pending}
+              onClick={() =>
+                startTransition(async () => {
+                  await updateEscalationAction(planId, { escalationNote: note });
+                  setSaved(note);
+                  setJustSaved(true);
+                })
+              }
+            >
+              {pending ? "Saving…" : "Save"}
+            </Button>
+          ) : (
+            <span role="status" style={{ color: "var(--clear)", fontSize: 13, fontWeight: 600 }}>
               Saved
             </span>
-          ) : null}
+          )}
         </div>
       ) : null}
 
-      {/* 2 — the words the agent listens for. */}
-      <p className="caps" style={{ color: "var(--print-3)", margin: "0 0 calc(var(--cell) * 1)" }}>
-        Red-flag words
-      </p>
+      {/* What escalates whatever the doctor writes, in one sentence. */}
       <p
         className="measure"
-        style={{ margin: "0 0 calc(var(--cell) * 2)", color: "var(--print-2)", fontSize: 14 }}
-      >
-        Escalate when the patient says them. Matching is deliberately broad:
-        &ldquo;no vomiting&rdquo; counts too, so a person reads the sentence.
-      </p>
-
-      {shown.length === 0 ? (
-        <p style={{ margin: "0 0 calc(var(--cell) * 2)", color: "var(--print-3)", fontSize: 14 }}>
-          None set.
-        </p>
-      ) : (
-        GROUPS.map(({ source, heading, caption }) => {
-          const group = shown.filter((t) => t.source === source);
-          if (group.length === 0) return null;
-          const chips = (
-              <div
-                style={{ display: "flex", flexWrap: "wrap", gap: "calc(var(--cell) * 0.75)" }}
-              >
-                {group.map((t) => (
-                  <button
-                    key={t.term}
-                    type="button"
-                    disabled={pending}
-                    onClick={() =>
-                      saveTerms(terms.filter((x) => x.term !== t.term))
-                    }
-                    aria-label={`Remove ${t.term}`}
-                    /*
-                      The badge itself is a printed band and sets its own height,
-                      which lands under the 24px a finger can reliably hit. The
-                      button pads around it rather than the badge growing, so the
-                      chip still looks like every other band on the page.
-                    */
-                    style={{
-                      border: "none",
-                      background: "none",
-                      padding: "calc(var(--cell) * 0.75) 0",
-                      minHeight: 32,
-                      display: "inline-flex",
-                      alignItems: "center",
-                      cursor: "pointer",
-                      font: "inherit",
-                    }}
-                  >
-                    {/* Plain, not amber. Amber is the one action on a page;
-                        two dozen amber chips read as two dozen warnings. */}
-                    <Badge tone="plain" quiet>
-                      {t.term} ✕
-                    </Badge>
-                  </button>
-                ))}
-              </div>
-          );
-          /*
-            The standard list is folded. It is the same two dozen words on every
-            plan for the condition and, printed in full, was the loudest thing on
-            the page — while the words a doctor needs to check are the ones read
-            out of their own note, which stay open above it.
-          */
-          if (source === "default") {
-            return (
-              <details
-                key={source}
-                className="disclosure"
-                style={{ marginBottom: "calc(var(--cell) * 2)" }}
-              >
-                <summary>
-                  {group.length} standard {group.length === 1 ? "word" : "words"} for this condition
-                </summary>
-                <div style={{ marginTop: "calc(var(--cell) * 1)" }}>{chips}</div>
-              </details>
-            );
-          }
-          return (
-            <div key={source} style={{ marginBottom: "calc(var(--cell) * 2)" }}>
-              <p
-                className="caps"
-                style={{ color: "var(--print-3)", margin: "0 0 calc(var(--cell) * 0.5)" }}
-              >
-                {heading}
-              </p>
-              <p
-                className="measure"
-                style={{ margin: "0 0 calc(var(--cell) * 1)", color: "var(--print-3)", fontSize: 13 }}
-              >
-                {caption}
-              </p>
-              {chips}
-            </div>
-          );
-        })
-      )}
-
-      <div
         style={{
-          display: "flex",
-          gap: "calc(var(--cell) * 1.5)",
-          flexWrap: "wrap",
-          marginTop: "calc(var(--cell) * 2)",
+          margin: "0 0 calc(var(--cell) * 2.5)",
+          paddingLeft: "calc(var(--cell) * 1.5)",
+          borderLeft: "2px solid var(--info)",
+          color: "var(--print-2)",
+          fontSize: 14,
+          lineHeight: 1.55,
         }}
       >
-        <TextInput
-          aria-label="Add a red-flag word"
-          placeholder="fainting"
-          value={word}
-          disabled={pending}
-          onChange={(e) => setWord(e.target.value)}
-          style={{ maxWidth: 264 }}
-        />
-        <Button variant="onLabel" disabled={pending} onClick={addWord}>
-          Add word
-        </Button>
-      </div>
+        <strong style={{ color: "var(--print)" }}>Always escalated:</strong> {LOCKED}.
+      </p>
 
+      {/* Anything read out of the note is shown as an addition, to delete. */}
+      {fromNote.length > 0 ? (
+        <div style={{ marginBottom: "calc(var(--cell) * 2)" }}>
+          <p style={{ margin: "0 0 calc(var(--cell) * 0.5)", color: "var(--print-2)", fontSize: 14, fontWeight: 600 }}>
+            Words from your note
+          </p>
+          {chips(fromNote)}
+        </div>
+      ) : null}
+
+      <details className="disclosure">
+        <summary>
+          Red-flag words the agent listens for{" "}
+          <span className="mono">({shown.length})</span>
+        </summary>
+        <div style={{ marginTop: "calc(var(--cell) * 1.5)" }}>
+          {standard.length > 0 ? chips(standard) : null}
+          <div
+            style={{
+              display: "flex",
+              gap: "calc(var(--cell) * 1.5)",
+              flexWrap: "wrap",
+              marginTop: "calc(var(--cell) * 2)",
+            }}
+          >
+            <TextInput
+              aria-label="Add a red-flag word"
+              placeholder="fainting"
+              value={word}
+              disabled={pending}
+              onChange={(e) => setWord(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  addWord();
+                }
+              }}
+              style={{ maxWidth: 264 }}
+            />
+            <Button variant="onLabel" disabled={pending} onClick={addWord}>
+              Add word
+            </Button>
+          </div>
+        </div>
+      </details>
     </div>
   );
 }

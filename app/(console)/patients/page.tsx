@@ -29,7 +29,9 @@ export default async function PatientsPage() {
      "5 need something from you" told a receptionist about escalations only a
      doctor can act on. What the desk can see through is who is booked and still
      waiting to be seen. */
-  const waitingForDoctor = roster.filter((p) => p.health === "needs_plan").length;
+  const waitingForDoctor = roster.filter(
+    (p) => p.health === "needs_plan" || p.health === "awaiting_approval",
+  ).length;
 
   return (
     <div
@@ -65,8 +67,8 @@ export default async function PatientsPage() {
             {roster.length === 0
               ? "Register a patient and book their appointment. They go straight onto the doctor's Consultations list."
               : waitingForDoctor > 0
-                ? `${waitingForDoctor} waiting to see the doctor.`
-                : "Nobody is waiting to see the doctor."}
+                ? `${waitingForDoctor} waiting on the doctor.`
+                : "Nobody is waiting on the doctor."}
           </p>
         </div>
         <span style={{ marginLeft: "auto" }}>

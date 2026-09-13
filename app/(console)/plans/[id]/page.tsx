@@ -11,7 +11,7 @@
  * note when it did not.
  */
 
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { Badge, Breadcrumb, Panel } from "@/components/ui";
 import { calendarDaysBetween } from "@/lib/time/clock";
@@ -118,10 +118,19 @@ const CONSENT_SENTENCE: Record<string, string> = {
   unknown: "Not recorded — nothing will be dialled until it is",
 };
 
+/* A plain boolean, not a type guard: the status branches below still read
+   the plan's status after the redirect, and a narrowed type would forbid them. */
+function isDraft(status: string): boolean {
+  return status === "awaiting_approval";
+}
+
 export default async function PlanPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const plan = await getPlanForReview(id);
   if (!plan) notFound();
+  /* This page is for reviewing a draft. Once approved, the follow-up is read
+     on the doctor's patient view, where the plan is one section of it. */
+  if (!isDraft(plan.status)) redirect(`/followups/${plan.patientId}#plan`);
 
   /*
    * Observations are not questions and must not be listed as if the agent will
@@ -298,10 +307,14 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
           and a filled status strip beside it would compete with the only action
           the page exists for.
         */
+        /* Nothing on a draft: the heading's "Plan to review" already says it,
+           and a third name for the state ("Awaiting approval") was one too many. */
         aside={
-          <Badge tone={awaiting ? "amber" : "clear"} quiet>
-            {awaiting ? "Awaiting approval" : plan.status}
-          </Badge>
+          awaiting ? undefined : (
+            <Badge tone="clear" quiet>
+              {plan.status}
+            </Badge>
+          )
         }
         style={{ marginBottom: "calc(var(--cell) * 2)" }}
       >
@@ -363,7 +376,11 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
                 true,
                 "standard",
               ],
-            ] as [string, string, string, boolean, MarkKind][]).map(([label, value, field, mono, kind]) => (
+            ] as [string, string, string, boolean, MarkKind][])
+              /* On a draft the schedule is shown once, as the form below with
+                 each mark under its own field. */
+              .filter(([, , , , kind]) => !awaiting || kind === "reason")
+              .map(([label, value, field, mono, kind]) => (
               <div key={label}>
                 <dt
                   className="caps"
@@ -397,7 +414,15 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
             reads as seven completed calls, and a clinician would expect the
             plan to keep going until it got them.
           */}
-          <p style={{ margin: 0, color: "var(--print-2)", fontSize: 14, lineHeight: 1.55 }}>
+          <p
+            className="measure"
+            style={{
+              margin: awaiting ? "0 0 calc(var(--cell) * 3)" : 0,
+              color: "var(--print-2)",
+              fontSize: 14,
+              lineHeight: 1.55,
+            }}
+          >
             <strong>Calendar days from approval</strong>, not answered calls. A day
             nobody picks up still uses one up.
           </p>
@@ -408,7 +433,32 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
               localTime={plan.localTime}
               cadence={plan.cadence}
               maxAttempts={plan.maxAttempts}
-              startOpen={missingSchedule.length > 0}
+              marks={{
+                durationDays: (
+                  <ProvenanceMark
+                    source={plan.provenance.durationDays}
+                    kind="schedule"
+                    quote={plan.scheduleQuotes.durationDays}
+                  />
+                ),
+                localTime: (
+                  <ProvenanceMark
+                    source={plan.provenance.localTime}
+                    kind="schedule"
+                    quote={plan.scheduleQuotes.localTime}
+                  />
+                ),
+                cadence: (
+                  <ProvenanceMark
+                    source={plan.provenance.cadence}
+                    kind="schedule"
+                    quote={plan.scheduleQuotes.cadence}
+                  />
+                ),
+                maxAttempts: (
+                  <ProvenanceMark source={plan.provenance.maxAttempts} kind="standard" />
+                ),
+              }}
             /> : null}
         </div>
       </Panel>
@@ -603,12 +653,12 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
           style={{ marginBottom: "calc(var(--cell) * 2)" }}
         >
           <div style={{ padding: "calc(var(--cell) * 3)" }}>
-            <p style={{ margin: "0 0 calc(var(--cell) * 2)", color: "var(--print-2)", fontSize: 14 }}>
+            <p className="measure" style={{ margin: "0 0 calc(var(--cell) * 2)", color: "var(--print-2)", fontSize: 14 }}>
               Shown rather than deleted, because a model attempting to give
               advice is something you should see. Rewriting one puts it back
               through the guard.
             </p>
-            <p style={{ margin: "0 0 calc(var(--cell) * 2)", color: "var(--print-2)", fontSize: 14 }}>
+            <p className="measure" style={{ margin: "0 0 calc(var(--cell) * 2)", color: "var(--print-2)", fontSize: 14 }}>
               {/*
                 Not a nicety: `assembleTask` refuses to build a script while any
                 question on the plan is unapproved, so this plan dials nothing
@@ -664,17 +714,9 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
       ) : null}
 
       <Panel
-        title="The escalation rules"
-        aside={
-          <Badge tone="plain" quiet>
-            {/* Distinct: two lists can carry the same word, and the panel shows it once. */}
-            <span className="mono">
-              {new Set(plan.redFlagTerms.map((t) => t.term.toLowerCase())).size}
-            </span>{" "}
-            words ·{" "}
-            <span className="mono">{plan.rules.length}</span> rules
-          </Badge>
-        }
+        /* No "24 words · 4 rules" count: it measured the machinery, not
+           anything a doctor decides. */
+        title="When to escalate"
         style={{ marginBottom: "calc(var(--cell) * 2)" }}
       >
         {plan.status === "completed" || plan.status === "cancelled" ? (

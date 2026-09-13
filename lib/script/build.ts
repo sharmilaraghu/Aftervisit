@@ -94,9 +94,18 @@ function frame(input: TaskInput, questionBlock: string, quotes: string): string 
     input.attempt > 1
       ? `\nThis is attempt ${input.attempt} of ${input.maxAttempts}. Earlier attempts today were not answered. Do not mention the earlier attempts unless they ask.\n`
       : "";
-  const languageNote = input.speakLanguage
-    ? `\nSPEAK THEIR LANGUAGE\n\nConduct the whole call in ${input.speakLanguage}. The questions below are written in English: ask them in ${input.speakLanguage}, keeping their meaning exactly, and record answers using the answer sets given.\n`
+  /*
+   * Said before the opening, not after it. It used to follow the quoted
+   * English greeting, so a Hindi call began in English and switched a sentence
+   * later — the one line that tells the patient who is calling, in a language
+   * they may not follow. Every quoted line in this task is English only so the
+   * guard can check it; the agent says each of them in the patient's language.
+   */
+  const lang = input.speakLanguage;
+  const languageNote = lang
+    ? `\nSPEAK THEIR LANGUAGE\n\nConduct the whole call in ${lang}, from your very first word — including the greeting below. Never open in English. Every line quoted in this task is written in English: say each one in ${lang}, keeping its meaning exactly, and say the same for the questions. Record answers using the answer sets given.\n`
     : "";
+  const sayIn = lang ? ` in ${lang}` : "";
 
   return `You are an AI assistant making an automated call from ${input.practiceName} on behalf of ${input.clinicianName} — a scheduled follow-up.
 
@@ -108,14 +117,14 @@ WHO YOU ARE CALLING
 
 Ask for ${firstName}. If the person who answers is not ${firstName}, do not share anything at all about their health, their medicines, or why you are calling. Say only that you will try again later, then end the call.
 
+${languageNote}
 HOW TO OPEN
 
-Say this, and nothing more, then go straight to the first question:
+Say this${sayIn}, and nothing more, then go straight to the first question:
 
 "Hello — this is ${input.practiceName}'s AI assistant calling on behalf of ${input.clinicianName}. It's your follow-up call, and it'll just take a minute."
 
 ${firstName} has already agreed to these calls, so do not ask permission again. If they say it is a bad time, ask when would suit and end the call.
-${languageNote}
 
 STOP THE CALL IF SOMETHING IS URGENT
 
@@ -123,11 +132,17 @@ This overrides everything below.
 
 If at any point they describe something that sounds urgent — fainting, chest pain, losing control of their bladder or bowels, numbness or weakness, bleeding, confusion, or anything they say is an emergency — **stop asking questions immediately.** Do not ask the remaining questions. Do not say you cannot answer.
 
-Say: "Thank you for telling me — that does need looking at today. I'm going to stop here and let the care team know right now, and someone will call you back."
+Say${sayIn}: "Thank you for telling me — that does need looking at today. I'm going to stop here and let the care team know right now, and someone will call you back."
 
-Then say: "If this is an emergency, hang up and call your local emergency number now."
+Then say${sayIn}: "If this is an emergency, hang up and call your local emergency number now."
 
-Then end the call. Record everything they told you.
+Then end the call. Record emergency_language_heard as yes, and everything they told you.
+
+If at any point they ask to speak to anyone from the care team or the practice — a doctor, a nurse, a person rather than you — that is urgent too: **stop asking questions immediately** and do not ask the remaining questions. Wanting to hand the phone to a relative or friend is not this.
+
+Say${sayIn}: "Of course — I'll let the care team know right now, and someone will call you back."
+
+Then end the call. Record requests_clinician as yes, and everything they told you.
 
 THE QUESTIONS
 
@@ -141,13 +156,13 @@ WHEN YOU ARE NOT SURE
 
 Never guess an answer, and never pick the closest option because nothing matched. Record it as unclear instead. An unclear answer is passed to a person to follow up, which is the correct outcome — a guess is not.
 
-If they ask you a medical question — what a symptom means, whether to change a dose — say: "I can't give you medical advice, but I'll pass it on and someone will get back to you." Then move to the next question. This is only for questions they ask you. It is never the response to a patient describing something urgent, which stops the call.
+If they ask you a medical question — what a symptom means, whether to change a dose — say${sayIn}: "I can't give you medical advice, but I'll pass it on and someone will get back to you." Then move to the next question. This is only for questions they ask you. It is never the response to a patient describing something urgent, which stops the call.
 
-If they ask to speak to a person, record that they asked and close the call politely.
+If they ask to speak to a person, that stops the call — see above.
 ${quotes}
 HOW TO CLOSE
 
-Say: "That's everything, thank you for your time. Someone from the care team will call you back if anything here needs attention."
+Say${sayIn}: "That's everything, thank you for your time. Someone from the care team will call you back if anything here needs attention."
 
 Then end the call.
 

@@ -63,7 +63,7 @@ export async function getParameterGrid(planId: string): Promise<ParameterRow[]> 
      */
     db.execute(sql`
       select distinct on (s.question_id, c.occurrence)
-             s.question_id, c.occurrence, s.status,
+             s.question_id, c.occurrence, s.status, c.scheduled_for,
              s.value_bool, s.value_number, s.value_text, s.utterance, s.call_id
       from extracted_slots s
       join scheduled_calls c on c.id = s.call_id
@@ -100,6 +100,7 @@ export async function getParameterGrid(planId: string): Promise<ParameterRow[]> 
       valueText: r.value_text ? String(r.value_text) : null,
       utterance: r.utterance ? String(r.utterance) : null,
       callId: r.call_id ? String(r.call_id) : null,
+      date: r.scheduled_for ? new Date(String(r.scheduled_for)) : null,
     });
   }
 

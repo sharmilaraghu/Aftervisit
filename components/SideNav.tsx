@@ -52,7 +52,7 @@ const GROUPS = [
     role: "Doctor",
     items: [
       { label: "Consultations", href: "/consult", also: [] },
-      { label: "Follow-ups", href: "/dashboard", also: ["/plans", "/calls"] },
+      { label: "Follow-ups", href: "/dashboard", also: ["/plans", "/calls", "/followups"] },
     ],
   },
 ] as const;
