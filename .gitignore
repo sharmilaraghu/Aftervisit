@@ -4,11 +4,12 @@
 .env.*
 !.env.example
 
-# `docs/TESTING.md` holds the real numbers the live scenarios dial. The rest of
-# docs/ is publishable, but one file in a directory is not a thing .gitignore
-# expresses well, so the directory stays out and DEPLOYMENT.md / DATABASE.md /
-# schema.sql live at the root instead.
-docs/
+# `docs/TESTING.md` holds the real numbers the live scenarios dial, so docs/
+# stays out — except the README's screenshots, which must ship or every image on
+# GitHub (and in the awesome-list catalog) is broken. `docs/*` rather than
+# `docs/`, because git cannot re-include a file inside an excluded directory.
+docs/*
+!docs/screenshots/
 
 node_modules/
 .next/
