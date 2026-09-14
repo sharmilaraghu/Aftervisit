@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   applyDefaults,
   DEFAULTS,
+  DEFAULT_GOAL,
   fieldsToMarkAsClinician,
   isDefaulted,
+  quoteSaysDelay,
   type CompiledDraft,
 } from "@/lib/plan/defaults";
 import { assertGrounded, mentionedIn } from "@/lib/plan/grounding";
@@ -17,7 +19,7 @@ function draft(overrides: Partial<CompiledDraft> = {}): CompiledDraft {
     durationDays: null,
     cadence: null,
     localTime: null,
-    questions: null,
+    goal: null,
     redFlagTerms: null,
     medications: null,
     ...overrides,
@@ -82,6 +84,89 @@ describe("applyDefaults — provenance is derived, not declared", () => {
     expect(applyDefaults(draft({ durationDays: 400 }), options).durationDays).toBe(
       DEFAULTS.durationDays,
     );
+  });
+
+  it("takes the goal from the note, or fills its own and marks it", () => {
+    const stated = applyDefaults(draft({ goal: "  Find out how the wound is healing.  " }), options);
+    expect(stated.goal).toBe("Find out how the wound is healing.");
+    expect(stated.provenance.goal).toBe("note");
+
+    const silent = applyDefaults(draft({ goal: "   " }), options);
+    expect(silent.goal).toBe(DEFAULT_GOAL);
+    expect(silent.provenance.goal).toBe("default");
+  });
+
+  /* "Follow up for 3 days" is three days; a note that says nothing is seven. */
+  it("takes the length from the note, else seven days", () => {
+    const noteText = "Follow up for 3 days.";
+    const stated = applyDefaults(draft({ durationDays: 3, durationQuote: "for 3 days" }), {
+      ...options,
+      noteText,
+    });
+    expect(stated.durationDays).toBe(3);
+    expect(stated.provenance.durationDays).toBe("note");
+
+    const silent = applyDefaults(draft(), { ...options, noteText: "Check on her." });
+    expect(silent.durationDays).toBe(7);
+    expect(silent.provenance.durationDays).toBe("default");
+  });
+
+  it("reads 'check in after 3 days' as one call on day three", () => {
+    const noteText = "Started antibiotics. Check in after 3 days about the fever.";
+    const plan = applyDefaults(
+      draft({ startAfterDays: 3, startAfterQuote: "Check in after 3 days" }),
+      { ...options, noteText },
+    );
+    expect(plan.startAfterDays).toBe(3);
+    expect(plan.provenance.startAfterDays).toBe("note");
+    expect(plan.scheduleQuotes.startAfterDays).toBe("Check in after 3 days");
+    expect(plan.durationDays).toBe(1);
+    expect(plan.provenance.durationDays).toBe("default");
+  });
+
+  it("keeps a stated length alongside a wait", () => {
+    const noteText = "Recheck in 3 days, then daily for 5 days.";
+    const plan = applyDefaults(
+      draft({ startAfterDays: 3, startAfterQuote: "Recheck in 3 days", durationDays: 5, durationQuote: "for 5 days" }),
+      { ...options, noteText },
+    );
+    expect(plan.startAfterDays).toBe(3);
+    expect(plan.durationDays).toBe(5);
+    expect(plan.provenance.durationDays).toBe("note");
+  });
+
+  it("reads 'for 3 days' as a length, never as a wait", () => {
+    const noteText = "Follow up for 3 days.";
+    const plan = applyDefaults(
+      draft({ durationDays: 3, durationQuote: "for 3 days", startAfterDays: 3, startAfterQuote: "for 3 days" }),
+      { ...options, noteText },
+    );
+    expect(plan.durationDays).toBe(3);
+    expect(plan.startAfterDays).toBe(0);
+    expect(plan.provenance.startAfterDays).toBe("default");
+  });
+
+  it("starts at once and runs seven days when the note says neither", () => {
+    const plan = applyDefaults(draft(), { ...options, noteText: "Started metformin." });
+    expect(plan.startAfterDays).toBe(0);
+    expect(plan.durationDays).toBe(7);
+    expect(plan.provenance.startAfterDays).toBe("default");
+  });
+
+  it("refuses a wait whose quote does not say that number, or is not in the note", () => {
+    const noteText = "Check in after 3 days.";
+    const wrongNumber = applyDefaults(
+      draft({ startAfterDays: 5, startAfterQuote: "Check in after 3 days" }),
+      { ...options, noteText },
+    );
+    expect(wrongNumber.startAfterDays).toBe(0);
+    expect(wrongNumber.durationDays).toBe(7);
+
+    const notInNote = applyDefaults(
+      draft({ startAfterDays: 3, startAfterQuote: "call after 3 days" }),
+      { ...options, noteText },
+    );
+    expect(notInNote.startAfterDays).toBe(0);
   });
 
   it("never offers the retry ladder to the model at all", () => {
@@ -225,6 +310,55 @@ describe("applyDefaults — red flags and locked rules", () => {
   it("is deterministic", () => {
     const d = draft({ durationDays: 5, redFlagTerms: ["dizzy"] });
     expect(applyDefaults(d, options)).toEqual(applyDefaults(d, options));
+  });
+});
+
+describe("quoteSaysDelay — the delay word must govern the number", () => {
+  it("accepts a real wait before the first call", () => {
+    expect(quoteSaysDelay(3, "Recheck in 3 days")).toBe(true);
+    expect(quoteSaysDelay(3, "check in after three days")).toBe(true);
+    expect(quoteSaysDelay(7, "see how she is in a week")).toBe(true);
+    expect(quoteSaysDelay(2, "call her 2 days from now")).toBe(true);
+  });
+
+  /* A real note: a day since surgery, not a wait before calling. */
+  it("refuses a number the delay word does not govern", () => {
+    expect(quoteSaysDelay(3, "Day 3 after laparoscopic cholecystectomy")).toBe(false);
+    expect(quoteSaysDelay(3, "Follow up for 3 days")).toBe(false);
+    expect(quoteSaysDelay(5, "Recheck in 3 days")).toBe(false);
+    /* The safety review's probes: a length with a stray "in" or "after" nearby. */
+    expect(quoteSaysDelay(3, "follow up daily for 3 days after surgery")).toBe(false);
+    expect(quoteSaysDelay(3, "for 3 days in the evening")).toBe(false);
+    expect(quoteSaysDelay(3, "call in the next 3 days")).toBe(false);
+  });
+
+  it("refuses a wait quoted with the same words as the length", () => {
+    const note = "Call in 3 days.";
+    const plan = applyDefaults(
+      draft({ startAfterDays: 3, startAfterQuote: "in 3 days", durationDays: 3, durationQuote: "in 3 days" }),
+      { fallbackReason: "Follow-up", baseRedFlags: [], baseRules: [], noteText: note },
+    );
+    expect(plan.startAfterDays).toBe(0);
+  });
+
+  it("does not let a misread wait shift the calls", () => {
+    const plan = applyDefaults(
+      draft({
+        startAfterDays: 3,
+        startAfterQuote: "Day 3 after laparoscopic cholecystectomy",
+        durationDays: 3,
+        durationQuote: "Follow up for 3 days",
+      }),
+      {
+        fallbackReason: "Follow-up",
+        baseRedFlags: [],
+        baseRules: [],
+        noteText: "Day 3 after laparoscopic cholecystectomy. Follow up for 3 days.",
+      },
+    );
+    expect(plan.startAfterDays).toBe(0);
+    expect(plan.provenance.startAfterDays).toBe("default");
+    expect(plan.durationDays).toBe(3);
   });
 });
 

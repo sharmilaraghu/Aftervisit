@@ -1,73 +1,67 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  MAX_TOPICS,
+  TOPIC_UNITS,
+  UNIT_LABEL,
   UNIVERSAL_RESULT_KEYS,
   buildResultSchema,
+  isTopicUnit,
   schemaKeys,
-  type SchemaQuestion,
+  topicKey,
 } from "@/lib/plan/result-schema";
 
-const questions: SchemaQuestion[] = [
-  {
-    questionId: "taking_as_prescribed",
-    prompt: "Have you been able to take it as prescribed?",
-    answerType: "boolean",
-  },
-  {
-    questionId: "symptom_severity",
-    prompt: "How would you describe any side effects?",
-    answerType: "enum",
-    enumValues: ["none", "mild", "moderate", "severe"],
-  },
-  {
-    questionId: "pain_score",
-    prompt: "How would you rate the pain out of ten?",
-    answerType: "scale_0_10",
-  },
-  {
-    questionId: "anything_else",
-    prompt: "Anything else you want passed on?",
-    answerType: "text",
-  },
+const topics = [
+  { text: "whether the wound is discharging" },
+  { text: "how bad the pain is", unit: "score_0_10" as const },
+  { text: "whether she has a fever" },
 ];
 
 function propertyOf(id: string) {
-  const schema = buildResultSchema(questions);
+  const schema = buildResultSchema(topics);
   return (schema.properties as Record<string, Record<string, unknown>>)[id];
 }
 
 describe("buildResultSchema", () => {
   /*
-   * The locked keys and the agent's own notes are unconditional; the three
-   * default universals are not. They are ordinary question rows a doctor may
-   * delete, and requiring a key that nothing asks is what produced a schema
-   * demanding answers the script forbade the agent to record.
+   * The fixed keys are unconditional. Three back floor rules, `goal_covered`
+   * backs the fourth, and none is left to a parser to include. Consent lives on
+   * the patient record now, so there is no key for it.
    */
-  it("always carries the locked keys and the agent's own notes", () => {
+  it("always carries the fixed keys, and no consent key", () => {
     const keys = schemaKeys(buildResultSchema([]));
     expect(keys).toEqual([
       "reached_patient",
-      "consent_given",
       "requests_clinician",
       "emergency_language_heard",
+      "symptom_change",
+      "patient_concern",
+      "something_else_raised",
+      "goal_covered",
       "what_else",
       "call_recap",
     ]);
+    expect(keys).not.toContain("consent_given");
   });
 
-  it("carries a default universal only while its question still exists", () => {
-    const withIt = schemaKeys(
-      buildResultSchema([
-        {
-          questionId: "symptom_change",
-          prompt: "Compared with the last time we spoke, are things better, the same, or worse?",
-          answerType: "enum",
-          enumValues: ["better", "worse"],
-        },
-      ]),
-    );
-    expect(withIt).toContain("symptom_change");
-    expect(schemaKeys(buildResultSchema([]))).not.toContain("symptom_change");
+  it("adds one nested object per topic, in order", () => {
+    const keys = schemaKeys(buildResultSchema(topics));
+    expect(keys.slice(-3)).toEqual(["topic_1", "topic_2", "topic_3"]);
+    expect(topicKey(0)).toBe("topic_1");
+
+    const topic = propertyOf("topic_1");
+    expect(topic.type).toBe("object");
+    expect(topic.description).toContain("whether the wound is discharging");
+    expect(topic.required).toEqual(["answer", "patient_words", "clarity"]);
+    expect(topic.additionalProperties).toBe(false);
+    const inner = topic.properties as Record<string, { enum?: string[] }>;
+    expect(inner.clarity.enum).toEqual(["clear", "unclear", "not_discussed"]);
+  });
+
+  it("caps the topics at the most a plan carries", () => {
+    const many = Array.from({ length: MAX_TOPICS + 3 }, (_, i) => ({ text: `topic number ${i}` }));
+    const keys = schemaKeys(buildResultSchema(many));
+    expect(keys.filter((k) => k.startsWith("topic_"))).toHaveLength(MAX_TOPICS);
   });
 
   /*
@@ -78,36 +72,37 @@ describe("buildResultSchema", () => {
    * rejects the entire request with `result_schema is not supported`.
    */
   it("never uses a type union, which the API rejects outright", () => {
-    const schema = buildResultSchema(questions);
-    const properties = schema.properties as Record<string, { type: unknown }>;
-    expect(Object.keys(properties).length).toBeGreaterThan(0);
-
+    const properties = buildResultSchema(topics).properties as Record<string, { type: unknown }>;
     for (const [key, property] of Object.entries(properties)) {
       expect(typeof property.type, `${key} must declare a single type`).toBe("string");
     }
   });
 
   it("uses no unsupported schema keyword anywhere", () => {
-    const serialised = JSON.stringify(buildResultSchema(questions));
+    const serialised = JSON.stringify(buildResultSchema(topics));
     for (const banned of ["$ref", "oneOf", "anyOf", "allOf"]) {
       expect(serialised).not.toContain(banned);
     }
   });
 
   /*
-   * `unknown` replaces the null. It is a stronger version of the same idea: the
-   * model has to actively choose "I could not map this" rather than us
-   * inferring it from an absence.
+   * `unknown` replaces the null: the model has to actively choose "I could not
+   * map this". A topic's clarity says the same thing in its own words —
+   * `unclear` or `not_discussed` — so it needs no `unknown` of its own.
    */
   it("gives every answer an explicit unknown to choose", () => {
-    const properties = buildResultSchema(questions).properties as Record<
+    const properties = buildResultSchema(topics).properties as Record<
       string,
-      { type: string; enum?: unknown[]; description?: string }
+      { type: string; enum?: unknown[]; description?: string; properties?: Record<string, { description?: string }> }
     >;
 
     for (const [key, property] of Object.entries(properties)) {
+      if (property.type === "object") {
+        expect(property.properties?.answer.description).toContain("unknown");
+        expect(property.properties?.patient_words.description).toContain("unknown");
+        continue;
+      }
       if (!property.enum) {
-        // Free text has no enum; it is told to write unknown instead.
         expect(property.description, `${key} should mention unknown`).toContain("unknown");
         continue;
       }
@@ -116,54 +111,57 @@ describe("buildResultSchema", () => {
   });
 
   it("requires every field, because unknown is always available", () => {
-    const schema = buildResultSchema(questions);
-    const keys = Object.keys(schema.properties as Record<string, unknown>);
-    expect(schema.required).toEqual(keys);
+    const schema = buildResultSchema(topics);
+    expect(schema.required).toEqual(Object.keys(schema.properties as Record<string, unknown>));
   });
 
-  it("offers the plan's values plus unknown, and forbids the nearest match", () => {
-    const property = propertyOf("symptom_severity");
-    expect(property.enum).toEqual(["none", "mild", "moderate", "severe", "unknown"]);
-    expect(property.description).toContain("Do not pick the nearest");
-  });
-
-  it("renders a 0–10 scale as a bounded string enum", () => {
-    const property = propertyOf("pain_score");
-    expect(property.type).toBe("string");
-    expect(property.enum).toEqual([
-      "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "unknown",
-    ]);
-  });
-
-  it("carries the spoken prompt into the description, so the model maps to the right question", () => {
-    expect(propertyOf("taking_as_prescribed").description).toContain(
-      "Have you been able to take it as prescribed?",
-    );
-  });
-
-  /*
-   * The locked rules read the universal keys. A plan question sharing one of
-   * those ids would overwrite it and quietly disarm a rule that cannot be
-   * removed by design.
-   */
-  it("will not let a plan question shadow a universal key", () => {
-    const schema = buildResultSchema([
-      {
-        questionId: "requests_clinician",
-        prompt: "Would you like a call back?",
-        answerType: "text",
-      },
-    ]);
-    const property = (schema.properties as Record<string, Record<string, unknown>>)
-      .requests_clinician;
-    expect(property).toEqual(UNIVERSAL_RESULT_KEYS.requests_clinician);
+  it("keeps the fixed keys exactly as declared", () => {
+    expect(propertyOf("requests_clinician")).toEqual(UNIVERSAL_RESULT_KEYS.requests_clinician);
+    expect(propertyOf("goal_covered").enum).toEqual(["all", "some", "none", "unknown"]);
   });
 
   it("closes the object, so an unexpected key is a schema violation not a silent slot", () => {
-    expect(buildResultSchema(questions).additionalProperties).toBe(false);
+    expect(buildResultSchema(topics).additionalProperties).toBe(false);
   });
 
   it("is deterministic", () => {
-    expect(buildResultSchema(questions)).toEqual(buildResultSchema(questions));
+    expect(buildResultSchema(topics)).toEqual(buildResultSchema(topics));
+  });
+});
+
+describe("buildResultSchema — measured topics", () => {
+  type Obj = { type: string; properties: Record<string, { type: unknown; description?: string }>; required: string[]; additionalProperties: boolean };
+  const topic = (i: number) => (buildResultSchema(topics).properties as Record<string, Obj>)[topicKey(i)];
+
+  it("adds a required value to a topic that asks for a number", () => {
+    const measured = topic(1);
+    expect(Object.keys(measured.properties)).toContain("value");
+    expect(measured.required).toContain("value");
+    expect(measured.properties.value.type).toBe("string");
+    expect(measured.properties.value.description).toContain("/10");
+    expect(measured.properties.value.description).toContain("unknown");
+  });
+
+  it("gives a topic with no unit no value at all", () => {
+    expect(Object.keys(topic(0).properties)).not.toContain("value");
+    expect(topic(0).required).not.toContain("value");
+  });
+
+  it("keeps a measured topic closed, and free of type unions", () => {
+    const measured = topic(1);
+    expect(measured.additionalProperties).toBe(false);
+    expect(measured.required).toEqual(Object.keys(measured.properties));
+    for (const [key, p] of Object.entries(measured.properties)) {
+      expect(typeof p.type, key).toBe("string");
+    }
+  });
+
+  it("offers only the closed list of units", () => {
+    expect(TOPIC_UNITS).toContain("celsius");
+    expect(isTopicUnit("celsius")).toBe(true);
+    for (const bad of ["Celsius", "degrees", "ignore the section above", null, 3]) {
+      expect(isTopicUnit(bad), String(bad)).toBe(false);
+    }
+    for (const unit of TOPIC_UNITS) expect(UNIT_LABEL[unit]).toBeTruthy();
   });
 });

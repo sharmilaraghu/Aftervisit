@@ -57,7 +57,7 @@ bench. Found by looking at the rendered page; HTTP 200s had been passing all alo
 /patients/[id]        record · episode history · call log · amend · close
 /patients/[id]/edit   demographics
 /plan/new             THE WIZARD, five steps, one route
-/plans/[id]           read-only episode record (a draft redirects into step 5)
+/plans/[id]           redirects to /followups/[patientId]#plan (see "Goal-based calls" below)
 /calls/[id]           transcript + triage
 ```
 
@@ -151,6 +151,59 @@ cannot exist anyway (`uniq_live_plan_per_patient`). The addition appends to the 
 questions were compiled from, the merge is strictly additive, and the result schema is
 re-frozen or the new question is asked and its answer discarded. Verified: 6 questions → 9,
 none rewritten, `ankle_swelling` in the frozen schema, plan still `active`.
+
+## Goal-based calls (supersedes the plan review and the question list)
+
+The doctor's job shrank to writing the note and pressing **Save and start follow-up**.
+`consultAction` reads the note (`compileNote`), writes the plan, marks the visit seen, and
+runs `startPlan`, which expands the calendar at once — a start whose every call today has
+already passed begins tomorrow instead of refusing. A note that cannot be read (no model,
+ungrounded) starts nothing and the form says why. Then one bounded tick, and a redirect to
+`/followups/[patientId]?started=1`.
+
+The parser no longer writes questions. It returns a `goal`, up to five things to find out
+(`watchPoints`, each with the note's own words, checked with `groundedPhrase` and guard
+phase 1 — a topic that fails either is dropped, never asked) and the schedule with quotes.
+Code fills the gaps: 7 days, daily, 10:00, 3 attempts. The call task (`assembleTask`)
+carries the goal and topics under WHAT TO FIND OUT; the agent phrases its own questions
+inside the unchanged safety frame, and phase 2 masks the goal and topics as vetted text.
+
+Every call now uses one fixed result schema plus a nested `topic_n` object per topic.
+`consent_given` is gone (consent is enrolment). `unmappable_response` fires once, when a
+reached call's `goal_covered` is none, unknown or missing — per-slot `unknown` on the
+observations no longer routes routine calls to a person.
+
+Removed: the plan review page, `QuestionEditor`, `PlanReview`, the coverage and anchors
+modules, question CRUD, and the "Plans to review" band. Amending a running follow-up
+replaces the goal and appends new topics, never rewriting existing ones — a call's findings
+are stored by topic position. Migration `0011` adds `follow_up_plans.goal`.
+
+A safety review then tightened the parse and the floor. `inspectFindOut` screens the goal
+and every topic — advice and reassurance, anything that directs the calling agent (what to
+skip, say or ignore, the urgent check), line breaks, and text over 200 characters — both
+when the note is read and again in `assembleTask`. A topic whose text shares no meaningful
+word with its own quote is dropped as unrelated. Dropped topics are kept with their reason
+(migration `0012`, `dropped_topics`) and listed on the follow-up page as "Not followed
+up". A note with no topic kept and only the default goal starts nothing. The floor no longer
+trusts the agent's `goal_covered` alone: a reached call with topics and no clear answer
+escalates. Plans from before goals are refused at dial time with a visible reason, and a
+start that loses a race restores the plan it had superseded.
+
+**A wait before the first call.** The parser returns `startAfterDays` with its quote.
+`quoteSaysDelay` accepts it only when the delay word governs the number — "in 3 days",
+"after three days", "2 days from now" — so "Day 3 after laparoscopic cholecystectomy" (a
+real note) and "for 3 days" are never read as a wait, and a wait quoted with the same words
+as the length is refused. With no stated length a wait is one call (`durationDays` 1, a
+default). `expandPlan` takes `startOffsetDays`; `startPlan` uses the wait, and a day more
+when that keeps more calls because today's time has passed. Migration `0013` adds
+`follow_up_plans.start_after_days`. The notice reads "one call, 3 days from now (from your
+note)".
+
+**Measured values.** A topic may carry a unit from `TOPIC_UNITS` — a closed list, because
+the unit's label is written into the task. Its result object gains a required `value`, and
+the task asks for "the single number … never convert or estimate". `extractFindings` keeps a
+value only when it is digits, the topic was answered clearly, and it sits inside `UNIT_RANGE`;
+triage sees it, and the follow-up page shows it large ("3/10").
 
 ## Design pass
 

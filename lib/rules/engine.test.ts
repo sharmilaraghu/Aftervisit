@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { evaluate, type EvaluationInput, type EvaluatedSlot } from "@/lib/rules/engine";
+import { evaluate, unresolvedCall, type EvaluationInput, type EvaluatedSlot } from "@/lib/rules/engine";
 import { defaultRules, lockedRules, withLockedRules } from "@/lib/rules/catalog";
 import type { PlanRule } from "@/lib/rules/types";
 
@@ -194,6 +194,84 @@ describe("evaluate — unmappable answers", () => {
       }),
     );
     expect(result.hits.map((h) => h.ruleId)).not.toContain("unmappable_response");
+  });
+});
+
+/*
+ * A goal-driven call reads "could not be mapped" once, at the level of the goal.
+ * Its observations are often honestly unknown, and firing on each would put
+ * every routine call in front of a person.
+ */
+describe("evaluate — whether the call found out what it was for", () => {
+  const goal = (over: Partial<EvaluatedSlot>) => slot({ questionId: "goal_covered", ...over });
+  const unmappable = (slots: EvaluatedSlot[], reached = true) =>
+    evaluate(input({ slots, reached })).hits.filter((h) => h.ruleId === "unmappable_response");
+
+  it.each(["all", "some"])("raises nothing when the goal was covered: %s", (value) => {
+    expect(
+      unmappable([goal({ valueText: value }), slot({ questionId: "symptom_change", status: "unmappable" })]),
+    ).toEqual([]);
+  });
+
+  it.each([
+    ["none", goal({ valueText: "none" })],
+    ["unknown", goal({ status: "unmappable" })],
+    ["missing", goal({ status: "missing" })],
+  ])("raises one non-urgent hit on a reached call when the goal is %s", (_label, g) => {
+    const hits = unmappable([g, slot({ questionId: "patient_concern", status: "unmappable" })]);
+    expect(hits).toHaveLength(1);
+    expect(hits[0].urgent).toBe(false);
+    expect(hits[0].questionId).toBe("goal_covered");
+    expect(evaluate(input({ slots: [g] })).shouldPause).toBe(false);
+  });
+
+  it("raises nothing when nobody was reached", () => {
+    expect(unmappable([goal({ status: "missing" })], false)).toEqual([]);
+  });
+});
+
+describe("evaluate — the agent's own goal_covered is not trusted alone", () => {
+  const covered = slot({ questionId: "goal_covered", status: "answered", valueText: "all" });
+
+  it("fires when the agent says it covered the goal but no topic came back clear", () => {
+    const hits = evaluate(
+      input({ slots: [covered], findings: [{ clarity: "not_discussed" }, { clarity: "unclear" }] }),
+    ).hits.filter((h) => h.ruleId === "unmappable_response");
+    expect(hits).toHaveLength(1);
+    expect(hits[0].urgent).toBe(false);
+  });
+
+  it("stays quiet when at least one topic was answered clearly", () => {
+    const hits = evaluate(
+      input({ slots: [covered], findings: [{ clarity: "clear" }, { clarity: "not_discussed" }] }),
+    ).hits;
+    expect(hits.some((h) => h.ruleId === "unmappable_response")).toBe(false);
+    expect(unresolvedCall([covered], [{ clarity: "clear" }])).toBe(false);
+    expect(unresolvedCall([covered], [{ clarity: "unclear" }])).toBe(true);
+  });
+
+  it("never fires for a call nobody answered, whatever the findings say", () => {
+    const hits = evaluate(input({ reached: false, slots: [covered], findings: [{ clarity: null }] })).hits;
+    expect(hits.some((h) => h.ruleId === "unmappable_response")).toBe(false);
+  });
+});
+
+describe("unresolvedCall", () => {
+  it("reads the goal when there is one, ignoring unknown observations", () => {
+    expect(
+      unresolvedCall([
+        slot({ questionId: "goal_covered", valueText: "all" }),
+        slot({ questionId: "symptom_change", status: "unmappable" }),
+      ]),
+    ).toBe(false);
+    expect(unresolvedCall([slot({ questionId: "goal_covered", valueText: "none" })])).toBe(true);
+    expect(unresolvedCall([slot({ questionId: "goal_covered", status: "missing" })])).toBe(true);
+  });
+
+  /* A plan from before goals keeps the per-answer reading. */
+  it("falls back to any unmappable or missing answer on a plan with no goal", () => {
+    expect(unresolvedCall([slot(), slot({ questionId: "pain_score", status: "missing" })])).toBe(true);
+    expect(unresolvedCall([slot(), slot({ questionId: "pain_score" })])).toBe(false);
   });
 });
 

@@ -78,6 +78,27 @@
       "when": 1789136282083,
       "tag": "0010_tiny_morlun",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1789362017214,
+      "tag": "0011_purple_black_knight",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1789363173119,
+      "tag": "0012_old_fixer",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1789364385767,
+      "tag": "0013_public_zodiak",
+      "breakpoints": true
     }
   ]
 }

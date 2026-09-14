@@ -28,14 +28,15 @@ BP 138/86 today. Repeat U&Es and HbA1c in three months. Went through the sick-da
 const DATES = ["17 Aug", "18 Aug", "19 Aug", "20 Aug", "21 Aug", "22 Aug", "23 Aug"];
 
 /*
- * The answer set matters as much as the question. It is the visible evidence
- * that answers come back as typed slots rather than a summary, so it never gets
- * compressed away.
+ * What the note asks, not a script. Each thing to find out carries the note's
+ * own words for it — the visible evidence that nothing the calls ask about was
+ * invented — and the agent phrases the questions itself.
  */
-const QUESTIONS = [
-  { q: "Are you taking the metformin as prescribed?", a: "yes · no · partly" },
-  { q: "Any stomach upset since we last spoke?", a: "none · mild · moderate · severe" },
-  { q: "Any dizziness?", a: "yes · no" },
+const GOAL = "Find out whether she is taking the metformin and how her stomach is coping.";
+const FIND_OUT = [
+  { topic: "Whether she is taking it", quote: "whether she's actually taking it" },
+  { topic: "Stomach upset", quote: "GI upset" },
+  { topic: "Dizziness", quote: "any dizziness" },
 ];
 
 const LOCKED = [
@@ -142,7 +143,7 @@ export function CompileSheet({
           }}
         >
           <span className="caps" style={{ color: "var(--print)" }}>
-            {open ? "Follow-up plan · awaiting approval" : "Consultation note"}
+            {open ? "Follow-up · started" : "Consultation note"}
           </span>
           <span className="caps mono" style={{ color: "var(--print-3)" }}>
             {open ? "PLAN-0041" : "16 Aug"}
@@ -255,6 +256,18 @@ export function CompileSheet({
               ))}
             </ol>
 
+            <p
+              style={{
+                margin: "0 0 calc(var(--cell) * 1)",
+                fontSize: 13,
+                lineHeight: 1.5,
+                color: "var(--print)",
+                animation: "feed 340ms cubic-bezier(0.16, 1, 0.3, 1) both",
+                animationDelay: "380ms",
+              }}
+            >
+              {GOAL}
+            </p>
             <ol
               style={{
                 listStyle: "none",
@@ -262,9 +275,9 @@ export function CompileSheet({
                 padding: 0,
               }}
             >
-              {QUESTIONS.map((item, i) => (
+              {FIND_OUT.map((item, i) => (
                 <li
-                  key={item.q}
+                  key={item.topic}
                   style={{
                     display: "flex",
                     gap: "calc(var(--cell) * 1.5)",
@@ -276,15 +289,15 @@ export function CompileSheet({
                   }}
                 >
                   <span className="mono" style={{ fontSize: 11, color: "var(--print-3)" }}>
-                    Q{i + 1}
+                    {String(i + 1).padStart(2, "0")}
                   </span>
                   <span style={{ flex: 1, minWidth: 0 }}>
-                    {item.q}
+                    {item.topic}
                     <span
                       className="mono"
                       style={{ display: "block", fontSize: 11, color: "var(--print-3)" }}
                     >
-                      {item.a}
+                      from note · &ldquo;{item.quote}&rdquo;
                     </span>
                   </span>
                 </li>

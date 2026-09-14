@@ -1,0 +1,1 @@
+ALTER TABLE "follow_up_plans" ADD COLUMN "start_after_days" integer DEFAULT 0 NOT NULL;

@@ -29,9 +29,9 @@ export const RULE_CATALOG: Record<RuleKind, RuleMeta> = {
     locked: true,
   },
   unmappable_response: {
-    label: "Answer could not be mapped",
+    label: "The call didn't find out what you asked",
     rationale:
-      "The answer did not map to any of the offered values. Care Loop does not guess what a patient meant.",
+      "The patient was reached, but the call could not find out what it set out to. Care Loop does not guess what a patient meant.",
     locked: true,
   },
   emergency_language: {

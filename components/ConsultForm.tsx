@@ -124,9 +124,8 @@ export function ConsultForm({
                 fontSize: 14,
               }}
             >
-              <strong>No model is configured.</strong> This note will produce a blank plan
-              for you to fill in by hand. Care Loop does not invent a follow-up plan without
-              one.
+              <strong>No model is configured.</strong> Care Loop cannot read this note, so it
+              cannot start a follow-up from it. It does not invent a follow-up without one.
             </p>
           ) : null}
 
@@ -150,7 +149,7 @@ export function ConsultForm({
           <Field
             label="What you found, and what to follow up"
             htmlFor="note"
-            hint="Shorthand is fine. Say how long and how often if you have a view. Kept in this browser until you draft the plan."
+            hint="Shorthand is fine. Say what you want to know, and how long to follow up if you have a view. Kept in this browser until you save."
           >
             <Textarea
               ref={noteRef}
@@ -160,7 +159,7 @@ export function ConsultForm({
               autoFocus
               defaultValue={state.values.note}
               onChange={saveDraft}
-              /* Ctrl/⌘ + Enter drafts the plan without leaving the keyboard. */
+              /* Ctrl/⌘ + Enter saves without leaving the keyboard. */
               onKeyDown={(e) => {
                 if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !pending) {
                   e.preventDefault();
@@ -199,7 +198,7 @@ export function ConsultForm({
       <div className="consult-actions">
         <span className="btn-primary-wrap">
           <Button type="submit" variant="primary" disabled={pending}>
-            {pending ? "Reading your note…" : "Draft the follow-up plan"}
+            {pending ? "Reading your note…" : "Save and start follow-up"}
           </Button>
         </span>
         {pending ? (
@@ -207,7 +206,7 @@ export function ConsultForm({
           <span role="status" style={{ color: "var(--bench-ink-2)", fontSize: 14 }}>
             {slow
               ? "Still reading — a long note takes up to 20 seconds."
-              : "Drafting the questions from your note. Nothing is dialled."}
+              : "Reading what to find out and when to call."}
           </span>
         ) : (
           <>
@@ -222,13 +221,13 @@ export function ConsultForm({
         )}
       </div>
 
-      {/* The reassurance belongs before the press, not after it. Consent is
-          one quiet clause here, not a banner: it is the front desk's field,
-          and the approve screen says it again where it decides anything. */}
+      {/* What pressing does, said before the press. Consent is one quiet clause
+          here, not a banner: it is the front desk's field, and the follow-up
+          page says it again once the calls are on the calendar. */}
       {!pending ? (
         <p className="consult-assure measure">
-          You&rsquo;ll review every question before anything is scheduled, and nothing you
-          didn&rsquo;t write is asked. Calls will be in {language}.
+          Calls start when you save — daily for 7 days at 10:00 unless your note says
+          otherwise — and ask only about what your note names. Calls will be in {language}.
           {consent === "declined"
             ? " This patient declined automated calls, so none will be placed."
             : consent !== "granted"

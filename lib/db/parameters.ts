@@ -17,7 +17,6 @@ import type { AnswerType, SlotStatus } from "@/lib/db/enums";
 import type { ParameterReading, ParameterRow } from "@/lib/patients/parameters";
 import { NETWORK_REFUSED_CODES } from "@/lib/calle/failure";
 import {
-  OBSERVED_QUESTION_IDS,
   UNSPOKEN_RESULT_KEYS,
   escalatingFor,
 } from "@/lib/plan/universal-questions";
@@ -25,14 +24,18 @@ import {
 /**
  * Machinery, not clinical parameters.
  *
- * `reached_patient` and `consent_given` are how a call works, not what a patient
- * reported, and a grid that opens with two rows of `Y Y Y` buries the row that
- * matters. The observed ids are never spoken at all.
+ * `reached_patient`, the safety observations and `goal_covered` are how a call
+ * works, not what a patient reported, and a grid that opens with rows of
+ * `Y Y Y` buries the row that matters. Every universal id is observed rather
+ * than asked now, so the observed set is no longer the test: how they said they
+ * were, and how concerned, are exactly the rows the doctor reads.
  */
 const NOT_A_PARAMETER = new Set<string>([
   "reached_patient",
   "consent_given",
-  ...OBSERVED_QUESTION_IDS,
+  "requests_clinician",
+  "emergency_language_heard",
+  "goal_covered",
   ...UNSPOKEN_RESULT_KEYS,
 ]);
 

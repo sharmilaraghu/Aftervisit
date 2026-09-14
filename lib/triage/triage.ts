@@ -25,6 +25,8 @@ import { complete, hasProvider, NoProviderError } from "@/lib/plan/provider";
 import { TRIAGE_SCHEMA, readTriageAnswer, type TriageAnswer } from "@/lib/triage/schema";
 import type { CompileProvider, TriageStatus } from "@/lib/db/enums";
 import type { StoredConfidence, StoredTurn } from "@/lib/db/schema";
+import type { Finding } from "@/lib/plan/extract";
+import { UNIT_LABEL } from "@/lib/plan/result-schema";
 
 /**
  * Long enough for a real answer, short enough that a hung provider cannot hold
@@ -54,6 +56,10 @@ export interface TriageInput {
   /** Age only — never the name. */
   patientAge: number | null;
   reason: string;
+  /** What the call set out to find out. */
+  goal?: string | null;
+  /** What the patient said about each thing the note asked about. */
+  findings?: Finding[];
   transcript: StoredTurn[] | null;
   slots: { questionId: string; status: string; value: string | null }[];
   /** CALL-E's own read of the call. Stored on every call and, until now, unused. */
@@ -125,6 +131,22 @@ export function triagePrompt(input: TriageInput): string {
   }
   parts.push(`WHAT THIS FOLLOW-UP IS ABOUT\n\n${input.reason}\n\n${input.noteBody.trim()}`);
   if (input.patientAge !== null) parts.push(`PATIENT AGE\n\n${input.patientAge}`);
+
+  if (input.goal?.trim()) {
+    parts.push(`WHAT THIS CALL SET OUT TO FIND OUT\n\n${input.goal.trim()}`);
+  }
+  if (input.findings?.length) {
+    const lines = input.findings
+      .map(
+        (f) =>
+          `- ${f.topic}: ${f.clarity ?? "not recorded"}` +
+          (f.value !== null ? ` · ${f.value}${f.unit ? ` ${UNIT_LABEL[f.unit]}` : ""}` : "") +
+          (f.answer ? ` — ${f.answer}` : "") +
+          (f.patientWords ? ` ("${f.patientWords}")` : ""),
+      )
+      .join("\n");
+    parts.push(`WHAT THE PATIENT SAID, BY TOPIC\n\n${lines}`);
+  }
 
   if (input.slots.length > 0) {
     const lines = input.slots

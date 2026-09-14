@@ -67,34 +67,57 @@ medication named only here would be refused the moment a call was due.
 One episode of follow-up. A "course of treatment", and the closest thing to an episode
 entity — there is no separate table, because an episode *is* a note plus a plan.
 
-`status`: `awaiting_approval → active → paused → completed | cancelled`.
+`status`: `awaiting_approval → active → paused → completed | cancelled`. Since goal-based
+calls, `awaiting_approval` lasts only between writing the plan and `startPlan` in the same
+request; nothing waits in it for a person.
 `provenance` is one JSON map of field name → `note | default | clinician | locked`, which
-is what makes the review screen's "Defaulted" mark trustworthy: defaults are applied by
-code, never by the model, and only a field the clinician actually chose is marked theirs.
+is what makes the follow-up page's "from your note" / "default" marks trustworthy: defaults
+are applied by code, never by the model.
 
-`result_schema` is the exact CALL-E schema frozen at approval. Without it a superseded
-plan's older calls become uninterpretable — you cannot map yesterday's `structuredResult`
-with today's question set. Adding a question mid-course re-freezes it, or the new answer
-is asked and discarded.
+`goal` (migration `0011`) is one sentence saying what the calls set out to find out; it is
+the calling agent's goal. Nullable: plans written before it fall back to a fixed default
+goal. `watch_points` holds what to find out — `{text, quote, unit}`, at most five, each
+quote a phrase the note really contains. `unit` is null unless the note asks for a number,
+and then one of a closed list (`TOPIC_UNITS`: celsius, fahrenheit, score_0_10, bpm, kg,
+mmol_L, mg_dL, times_per_day — no blood pressure yet, which is two numbers). A call's
+findings are stored by position (`topic_1`, `topic_2` …), so amending a note only ever
+**appends** topics; it never reorders or rewrites them.
+
+`dropped_topics` (migration `0012`) keeps what the note asked about that the calls will not
+follow up — not in the note, not matching its words, refused by the guard, or past the cap —
+with the reason, so the follow-up page can say "Not followed up" instead of dropping it
+silently.
+
+`start_after_days` (migration `0013`, default 0) is the wait before the first call, from a
+note such as "recheck in 3 days". The window opens that many days after the start; with no
+length of its own it is one call, and `duration_days` is 1, marked a default.
+
+`result_schema` is the exact CALL-E schema frozen when the plan starts: the fixed keys plus
+one nested `topic_n` object per topic, which carries a required `value` string when the
+topic has a unit. Without it a superseded plan's older calls become
+uninterpretable. Adding a topic mid-course re-freezes it, or the new answer is asked and
+discarded.
 
 `closing_summary` is how the episode resolved, in the clinician's words. The calls say
 what was asked and answered and `close_reason` says it ended; neither says whether the
 patient got better.
 
 `uniq_live_plan_per_patient` is partial on `active | paused`: **one live plan per
-patient**, so a double-clicked Approve or two tabs cannot produce two schedulers dialling
+patient**, so a double-submitted start or two tabs cannot produce two schedulers dialling
 the same person on the same day.
 
 ### `plan_questions`
-What the agent asks, in order, with the guard's verdict on each.
+What every call records, with the guard's verdict on each.
 
-`ordinal` is a double, not an integer, so reordering inserts a fractional value instead of
-renumbering the table. `guard_status` is per question: a refused one is kept and shown
-rather than deleted, because a model attempting to give clinical advice is something the
-doctor should see. Any refused question and the plan dials nothing at all —
-`assembleTask` will not build a script while one is outstanding.
+For plans started since goal-based calls this holds **only the fixed observations** code
+inserts — `reached_patient`, `requests_clinician`, `emergency_language_heard`,
+`symptom_change`, `patient_concern`, `something_else_raised`, `goal_covered` — all
+`source = 'locked'` and recorded from the call rather than asked. The agent asks about the
+note's topics in its own words; those live in `follow_up_plans.watch_points`, not here.
+Rows still exist because extraction walks them: a key in the schema with no row is recorded
+by the agent and then dropped. Older plans keep their per-question rows.
 
-`source = 'locked'` marks a question backing a rule that cannot be removed.
+`guard_status` is per row, and `assembleTask` will not build a task while any is refused.
 
 ### `scheduled_calls`
 One row per (plan, occurrence, attempt) — the calendar the API does not provide.
@@ -116,8 +139,9 @@ CALL-E's `structuredResult` mapped to typed answers, one row per (call, question
 
 `status` distinguishes `answered` from `unmappable`, `missing` and `refused`. "The model
 could not map this answer" is a real, visible state — never a silent null, and never a
-guess at the nearest option. `question_id` deliberately has no foreign key: a question
-can be edited or removed later and the answers already given must remain readable.
+guess at the nearest option. `question_id` deliberately has no foreign key, so answers to
+older plans' questions stay readable. Per-topic findings are not slots: they stay on
+`scheduled_calls.structured_result` and are read from there.
 
 ### `call_triage`
 The model's reading of a finished call. One row per call.

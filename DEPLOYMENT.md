@@ -1,9 +1,10 @@
 # Running the scheduler
 
-Care Loop schedules a call the moment a plan is approved, and dials it when a **tick**
+Care Loop schedules a call the moment a follow-up starts, and dials it when a **tick**
 runs. Those are two different jobs, and only the second one needs anything from you.
 
-`approvePlan()` expands the plan into dated `scheduled_calls` rows immediately. Nothing
+`startPlan()` expands the plan into dated `scheduled_calls` rows immediately, when the doctor
+presses *Save and start follow-up*. Nothing
 about that needs configuring. But a row sitting in the table is not a call: a tick has to
 claim it and dial it, and a tick only happens because something asks for one.
 
@@ -12,7 +13,7 @@ claim it and dial it, and a tick only happens because something asks for one.
 | Trigger | How | Unattended? |
 |---|---|---|
 | The console | `TickPoller` on `/dashboard`, every 15s | No — needs a tab open |
-| Approval | `approvePlanAction` runs one bounded tick | No — only at that moment |
+| Starting a follow-up | `consultAction` runs one bounded tick | No — only at that moment |
 | **A cron** | `POST /api/tick` or `GET /api/cron/tick` | **Yes. This is the one that matters** |
 
 Without a cron, calls are placed only while somebody has the console open. That is fine
@@ -41,7 +42,7 @@ That starts a loop POSTing `/api/tick` every 10 seconds. The banner should read
 Skipping the poll loop"*, the variable is not set. Next reads `.env` at boot, so restart
 after changing it.
 
-Then approve a plan whose first call is a minute or two out, **close every browser tab**,
+Then start a follow-up whose first call is a minute or two out, **close every browser tab**,
 and watch the dev log. `POST /api/tick 200` every 10 seconds, and the call placed without
 the console open.
 
@@ -117,7 +118,7 @@ to do, and no external cron is needed.
 | `CARELOOP_WEBHOOK_TOKEN` | The webhook receiver, and the URL above | Receiver returns 503 |
 | `CARELOOP_CALL_ALLOWLIST` | Which numbers may be dialled — a comma list, or `*` for any consenting patient | **Every dial is refused** `not_allowlisted`. This is the default on purpose: there is no auth, so a public console must not dial until an operator opens it |
 | `CALLE_API_KEY` | Dialling at all | Every dial refused `missing_api_key` |
-| `OPENAI_API_KEY` | The note compiler and call triage | Compiling refused; every finished call escalated unjudged |
+| `OPENAI_API_KEY` | Reading the note and call triage | No follow-up can start (the note form says why); every finished call escalated unjudged |
 
 `CARELOOP_PUBLIC_URL` and `CARELOOP_WEBHOOK_TOKEN` are a pair — both, or no webhook is sent
 at all. With them, a finished call lands in seconds; without them the reconciler picks it up
@@ -132,7 +133,7 @@ curl -sS -X POST https://<host>/api/tick -H "x-careloop-tick: $CARELOOP_TICK_TOK
 Expect a JSON body of counters. `401` means the token does not match; `503` means it is not
 set on the server.
 
-Then approve a plan with a call due now and confirm it dials with no console open.
+Then start a follow-up with a call due now and confirm it dials with no console open.
 
 ## "It is past the call time and nothing happened"
 

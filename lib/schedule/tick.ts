@@ -25,8 +25,10 @@ import { getDb } from "@/lib/db/client";
 import { callePortFromEnv, REFUSAL_TEXT, type CallePort } from "@/lib/calle/port";
 import { assembleTask } from "@/lib/script/build";
 import { spokenLanguageName } from "@/lib/patients/languages";
-import { extractSlots, foldOutcome, someoneSpoke } from "@/lib/plan/extract";
-import { evaluate } from "@/lib/rules/engine";
+import { extractFindings, extractSlots, foldOutcome, someoneSpoke } from "@/lib/plan/extract";
+import { DEFAULT_GOAL, type WatchPoint } from "@/lib/plan/defaults";
+import type { TopicSpec } from "@/lib/plan/result-schema";
+import { evaluate, unresolvedCall } from "@/lib/rules/engine";
 import { triageCall } from "@/lib/triage/triage";
 import { saveTriage } from "@/lib/db/triage";
 import { inspectTranscript } from "@/lib/script/guard";
@@ -95,6 +97,12 @@ interface CallContext extends DueCall {
   redFlagTerms: RedFlagTerm[];
   resultSchema: Record<string, unknown>;
   noteBody: string;
+  /** What the calls set out to find out — the calling agent's goal. */
+  goal: string;
+  /** What to find out, in order. A call's findings are stored by this position. */
+  topics: TopicSpec[];
+  /** Set up before calls carried a goal: its frozen schema and questions do not fit a goal task. */
+  legacy: boolean;
   questions: {
     questionId: string;
     prompt: string;
@@ -131,6 +139,7 @@ export async function loadContext(call: DueCall): Promise<CallContext | null> {
   const rows = await db.execute(sql`
     select pt.name, pt.age, pt.phone_e164, pt.timezone, pt.language, pt.ai_call_consent,
            p.max_attempts, p.reason, p.rules, p.red_flag_terms, p.result_schema,
+           p.goal, p.watch_points,
            n.body as note_body, n.escalation_note
     from follow_up_plans p
     join patients pt on pt.id = p.patient_id
@@ -160,6 +169,9 @@ export async function loadContext(call: DueCall): Promise<CallContext | null> {
     redFlagTerms: (row.red_flag_terms ?? []) as RedFlagTerm[],
     resultSchema: (row.result_schema ?? {}) as Record<string, unknown>,
     noteBody: String(row.note_body),
+    goal: row.goal ? String(row.goal) : DEFAULT_GOAL,
+    topics: ((row.watch_points ?? []) as WatchPoint[]).map((w) => ({ text: w.text, unit: w.unit ?? null })),
+    legacy: !row.goal,
     questions: (qs.rows as Record<string, unknown>[]).map((q) => ({
       questionId: String(q.question_id),
       prompt: String(q.prompt),
@@ -270,7 +282,9 @@ export async function completeCall(
   // a person clearly answered must not fold to `no_answer` just because the
   // agent never got round to confirming who they were.
   const reached = someoneSpoke({ slots, transcript });
-  const anyUnmappable = slots.some((s) => s.status === "unmappable" || s.status === "missing");
+  /* The same reading the floor uses, so the folded outcome and the escalation agree. */
+  const findings = extractFindings(structured, ctx.topics);
+  const anyUnmappable = unresolvedCall(slots, findings);
 
   const { attemptsMade, allNoAnswer, networkRefusedAll } = await occurrenceAttempts(
     ctx.planId,
@@ -289,6 +303,7 @@ export async function completeCall(
   // The pure engine. Everything it needs was gathered above; it reads nothing.
   const evaluation = evaluate({
     slots,
+    findings,
     rules: ctx.rules,
     // Without this, an unanswered call's `missing` slots would fire the
     // unmappable rule on every question of a call nobody picked up.
@@ -377,18 +392,6 @@ export async function completeCall(
     if (inserted.rows.length) slotIds.set(slot.questionId, id);
   }
 
-  // A first call that reached the patient and got consent records it, so the
-  // second call does not ask again. Never upgrades a recorded refusal.
-  const consentGiven = slots.find((s) => s.questionId === "consent_given")?.valueBool;
-  if (consentGiven === true) {
-    await db.execute(sql`
-      update patients
-      set ai_call_consent = 'granted', ai_call_consent_at = now(),
-          ai_call_consent_source = 'call', updated_at = now()
-      where id = ${ctx.patientId} and ai_call_consent <> 'declined'
-    `);
-  }
-
   /*
    * The model's read of the call. This is the reading a clinician gets.
    *
@@ -406,6 +409,8 @@ export async function completeCall(
     noteBody: ctx.noteBody,
     patientAge: ctx.patientAge,
     reason: ctx.reason,
+    goal: ctx.goal,
+    findings,
     transcript,
     slots: slots.map((s) => ({
       questionId: s.questionId,
@@ -545,12 +550,30 @@ async function dialOne(
     return;
   }
 
+  /*
+   * A plan set up before goal-based calls has a frozen schema with no topics
+   * and questions the goal task would list as "never read out". Dialling it
+   * would ask nothing the doctor wrote and then read every answer as unmappable.
+   * Refused, visibly, rather than half-run.
+   */
+  if (ctx.legacy) {
+    await recordRefusal(
+      ctx.id,
+      "guard_violation",
+      "This follow-up was set up before calls were given a goal from the note. Start a new follow-up from a consultation note.",
+    );
+    counters.refused += 1;
+    return;
+  }
+
   const script = assembleTask({
     patientName: ctx.patientName,
     /* Spoken to the patient. Configurable, with the fixtures as defaults. */
     practiceName: readConfig().practiceName,
     clinicianName: readConfig().clinicianName,
     questions: ctx.questions,
+    goal: ctx.goal,
+    topics: ctx.topics,
     speakLanguage: spokenLanguageName(ctx.language),
     attempt: ctx.attempt,
     maxAttempts: ctx.maxAttempts,

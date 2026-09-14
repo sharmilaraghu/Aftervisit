@@ -1,54 +1,40 @@
 /**
- * The questions every plan asks, whatever the note said.
+ * What every call records, whatever the note said.
  *
- * Four of these back rules that can never be removed, plus the consent gate.
- * They are inserted by code at plan creation rather than left to the compiler,
- * for the same reason the locked rules are re-asserted at approval: a guarantee
- * that depends on a model remembering to include something is not a guarantee.
+ * The doctor's note no longer becomes a list of questions. It becomes a goal and
+ * a few things to find out, and the calling agent asks about them in its own
+ * words. What stays fixed is this: the facts every call must record so the
+ * floor rules, the triage reading and the Follow-ups board have something typed
+ * to read. None of them is read out — the agent records them from the
+ * conversation as a whole.
  *
- * They also have to exist as real `plan_questions` rows, not just as keys in the
- * result schema. Extraction walks the plan's questions — so a key that is in the
- * schema but not in that list is asked on the call, answered by the patient, and
- * then silently dropped. `reached_patient` going missing that way makes every
- * call fold to `no_answer` no matter who picked up.
+ * They are still inserted as real `plan_questions` rows, by code, at plan
+ * creation. Extraction walks the rows, so a key that is in the result schema but
+ * not in that list is recorded by the agent and then silently dropped — and
+ * losing `reached_patient` that way makes every call fold to `no_answer`.
  *
- * Every prompt here passes guard phase 1. They are phrased as questions and
- * tell the patient nothing.
+ * Every prompt here passes guard phase 1 and tells the patient nothing; each is
+ * a description of what to record, phrased as a question to the agent.
  */
 
 import type { AnswerType, Provenance } from "@/lib/db/enums";
 
 export interface UniversalQuestion {
   questionId: string;
+  /** What the agent records, as a question to itself. Never read out. */
   prompt: string;
   answerType: AnswerType;
   enumValues?: string[] | null;
   source: Provenance;
   /**
    * False when the agent records this from the call rather than asking it.
-   *
-   * The distinction matters because a *question* and an *observation* are
-   * different instruments. "Would you like someone from the care team to call
-   * you back?" asked at the end of a survey is a leading question with a
-   * social answer, and it made the locked rule depend on a patient saying yes
-   * to a prompt rather than on a patient actually asking for help. As an
-   * observation it fires whenever they ask, at any point in the call —
-   * strictly more of the thing the rule exists to catch.
-   *
-   * An observed item still gets a `plan_questions` row, and that is the point:
-   * `extractSlots` walks the question rows, so a key with no row produces no
-   * slot and a pure rule reading that slot could never fire again. Dropping
-   * the row would have disabled `patient_requests_clinician` silently.
+   * Every universal item is recorded, not asked: the agent asks about the
+   * note's topics in its own words, and these are what it notices while doing so.
    */
   spoken?: boolean;
   /**
-   * Which answers mean "a clinician should look at this".
-   *
-   * A property of the question, not of a plan. It used to live in the rule DSL
-   * as `enum_in` / `boolean_equals` rules that `defaultRules()` stamped onto
-   * every plan and no doctor ever edited — which made it look configurable when
-   * it never was. It only ever tones a cell in the answer grid; nothing
-   * escalates from it. The model decides what a call meant.
+   * Which answers tone a patient's history as "worth a look". Presentation
+   * only — nothing escalates from it. The model decides what a call meant.
    */
   escalating?: { values?: string[]; bool?: boolean; atLeast?: number };
 }
@@ -56,24 +42,13 @@ export interface UniversalQuestion {
 export const UNIVERSAL_QUESTIONS: UniversalQuestion[] = [
   {
     questionId: "reached_patient",
-    prompt: "Am I speaking with the patient?",
+    prompt: "Did the person who answered confirm they are the patient?",
     answerType: "boolean",
     source: "locked",
-  },
-  {
-    questionId: "consent_given",
-    prompt: "Is now a good time to go through a few follow-up questions?",
-    answerType: "boolean",
-    source: "locked",
+    spoken: false,
   },
   {
     questionId: "requests_clinician",
-    /*
-     * Never spoken. The prompt survives because the review UI, the parameter
-     * grid and the queue all name a question by its prompt, and because the
-     * guard still inspects this string — an observation the agent records is
-     * still text in the task and still has to pass phase 1.
-     */
     prompt: "Did they ask to speak to a person?",
     answerType: "boolean",
     source: "locked",
@@ -81,73 +56,76 @@ export const UNIVERSAL_QUESTIONS: UniversalQuestion[] = [
   },
   {
     questionId: "emergency_language_heard",
-    prompt: "Is there anything urgent you need help with right now?",
+    prompt: "Did they describe anything urgent or an emergency?",
     answerType: "boolean",
     source: "locked",
+    spoken: false,
   },
-  /*
-   * The three below are the richest signal a call produces — what the patient
-   * said about themselves. Their `escalating` values tone the answer grid so a
-   * clinician can scan a fortnight and see where it turned; the judgement about
-   * what any of it *meant* belongs to the model reading the transcript.
-   */
   {
     questionId: "symptom_change",
     /* Anchored to the visit, not to the previous call: a call has to make
        sense even when yesterday's never connected. */
-    prompt: "Since you left the clinic, would you say things are better, about the same, or worse?",
+    prompt: "Compared with when they left the clinic, did they say they are better, the same, or worse?",
     answerType: "enum",
     enumValues: ["better", "same", "worse"],
-    source: "default",
+    source: "locked",
+    spoken: false,
     escalating: { values: ["worse"] },
   },
   {
     questionId: "patient_concern",
-    prompt: "How concerned are you about how you are doing — not concerned, mildly, or very?",
+    prompt: "How concerned did they sound about how they are doing — not concerned, mildly, or very?",
     answerType: "enum",
     enumValues: ["not_concerned", "mildly", "very"],
-    source: "default",
+    source: "locked",
+    spoken: false,
     escalating: { values: ["very"] },
   },
   {
     questionId: "something_else_raised",
-    prompt: "Is there anything else you want me to pass on to the care team?",
+    prompt: "Did they raise anything this call was not asking about?",
     answerType: "boolean",
-    source: "default",
+    source: "locked",
+    spoken: false,
     escalating: { bool: true },
+  },
+  {
+    /*
+     * The goal-level answer the floor reads. With no fixed question list there
+     * is no "answer that could not be mapped" per question — so whether the
+     * call found out what it was for is recorded once, and an unresolved goal
+     * on a reached patient is what routes the call to a person.
+     */
+    questionId: "goal_covered",
+    prompt: "How much of what this call set out to find out did you find out — all, some, or none?",
+    answerType: "enum",
+    enumValues: ["all", "some", "none"],
+    source: "locked",
+    spoken: false,
+    escalating: { values: ["none"] },
   },
 ];
 
 /**
- * Result keys the agent fills in from the call as a whole. Nothing asks them.
+ * Result keys the agent fills in from the call as a whole, with no row.
  *
- * They are exported rather than written twice because `build.ts` has to name
- * them and `result-schema.ts` has to require them, and the two drifting apart
- * is what produced the defect this constant exists to prevent: the script told
- * the agent "never record an answer to a question you did not actually ask"
- * while the schema demanded two keys nothing had asked. A contract test in
- * `dispatch-contract.test.ts` now holds the two files together.
+ * Exported rather than written twice because `build.ts` has to name them and
+ * `result-schema.ts` has to require them.
  */
 export const UNSPOKEN_RESULT_KEYS = ["call_recap", "what_else"] as const;
 
-/**
- * Universal ids the agent records from the call instead of asking.
- *
- * Exported so `build.ts` can keep them out of the spoken block and name them
- * in the notes section instead, and so the dispatch contract test can tell an
- * observation apart from a key nothing asks and nothing records.
- */
+/** Universal ids the agent records instead of asking. All of them, now. */
 export const OBSERVED_QUESTION_IDS = new Set<string>(
   UNIVERSAL_QUESTIONS.filter((q) => q.spoken === false).map((q) => q.questionId),
 );
 
-/** Ids the compiler may not claim — a plan question shadowing one would disarm a locked rule. */
+/** Ids nothing else may claim — a shadowing key would disarm a floor rule. */
 export const RESERVED_QUESTION_IDS = new Set<string>([
   ...UNIVERSAL_QUESTIONS.map((q) => q.questionId),
   ...UNSPOKEN_RESULT_KEYS,
 ]);
 
-/** How a question's answers should be toned in the grid. Empty when it has no opinion. */
+/** How a key's answers should be toned in a patient's history. Empty when it has no opinion. */
 export function escalatingFor(questionId: string): {
   escalatingValues: string[];
   escalatingBool: boolean | null;
