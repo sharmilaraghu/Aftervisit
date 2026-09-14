@@ -41,3 +41,7 @@ next-env.d.ts
 # run were both absent from every clone. Both are tracked now.
 misc/
 
+demo/
+
+docs/
+

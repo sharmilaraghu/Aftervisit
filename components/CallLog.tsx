@@ -63,7 +63,7 @@ export function CallLog({
           fontSize: 14,
         }}
       >
-        No calls yet. Occurrences appear here the moment a plan is approved,
+        No calls yet. Occurrences appear here the moment a follow-up starts,
         dated, one row per day — before anything is dialled.
       </p>
     );

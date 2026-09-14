@@ -246,7 +246,7 @@ export default async function ConsultPage({
           <p className="measure" style={{ margin: 0, padding: "calc(var(--cell) * 3)", fontSize: 14 }}>
             Nobody is booked for today. The front desk registers a patient from Patients and
             books the visit; it appears here on that day until you write its note. The follow-up
-            is compiled from that note, and nothing is dialled until you approve it.
+            is read from that note, and its calls start when you save it.
           </p>
         </Panel>
       ) : null}
