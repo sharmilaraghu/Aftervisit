@@ -332,7 +332,7 @@ export function Masthead() {
         >
           {/* The link already says the name, so the mark is not read twice. */}
           <Logo size={36} title={null} />
-          Care&nbsp;Loop
+          Aftervisit
         </Link>
 
         {/* The page's only door, and its one amber-filled button. The wrapper

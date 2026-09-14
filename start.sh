@@ -141,7 +141,7 @@ echo
 printf '%s' "$BOLD"
 echo "  ┌────────────────────────────────────────────────────────────┐"
 printf '%s' "$OFF$BOLD"
-echo "  │  CARE LOOP                                                 │"
+echo "  │  AFTERVISIT                                                │"
 echo "  └────────────────────────────────────────────────────────────┘"
 printf '%s' "$OFF"
 echo

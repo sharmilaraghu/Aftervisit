@@ -135,7 +135,7 @@ export function SideNav({
       <div className="rail-head">
         <Link href="/consult" className="rail-brand">
           <Logo size={26} title={null} />
-          <span className="rail-label">Care&nbsp;Loop</span>
+          <span className="rail-label">Aftervisit</span>
         </Link>
 
         <button
