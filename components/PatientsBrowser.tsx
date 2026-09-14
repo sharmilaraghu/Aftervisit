@@ -13,20 +13,20 @@ import { useState } from "react";
 
 import { Button, Segmented, TextInput } from "@/components/ui";
 import { RosterTable } from "@/components/RosterTable";
-import type { RosterRow } from "@/lib/db/queries";
+import type { RosterView } from "@/lib/db/queries";
 
 type Filter = "all" | "needs" | "doctor" | "running" | "done";
 
 /* The same split, and the same words, as the doctor's Follow-ups: someone who
    needs attention is not the same as someone waiting to be seen. */
-const IN_FILTER: Record<Exclude<Filter, "all">, readonly RosterRow["health"][]> = {
+const IN_FILTER: Record<Exclude<Filter, "all">, readonly RosterView["health"][]> = {
   needs: ["escalated", "never_reached", "drifting"],
   doctor: ["needs_plan", "awaiting_approval"],
   running: ["on_track", "paused"],
   done: ["completed"],
 };
 
-export function PatientsBrowser({ rows }: { rows: RosterRow[] }) {
+export function PatientsBrowser({ rows }: { rows: RosterView[] }) {
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
 

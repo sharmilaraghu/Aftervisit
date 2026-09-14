@@ -20,6 +20,7 @@ import { sql } from "drizzle-orm";
 
 import { getDb } from "@/lib/db/client";
 import type { DayState, PlanHealth } from "@/lib/db/enums";
+import { maskPhone } from "@/lib/phone/normalize";
 
 /** Outcomes that mean a human actually spoke to us. `unmappable` counts: they answered. */
 const REACHED = sql`c.outcome in ('answered','flagged','unmappable')`;
@@ -44,6 +45,21 @@ export interface RosterRow {
   openTotal: number;
   week: DayState[];
   health: PlanHealth;
+}
+
+/**
+ * A roster row as the browser may see it: the number masked, the full one gone.
+ *
+ * The roster is a client component, so everything handed to it is serialized
+ * into the page. It used to receive `phoneE164` and mask it for display — which
+ * put every patient's full number in the page source of a login-free console.
+ * The mask is applied on the server now, and the full number never leaves it.
+ */
+export type RosterView = Omit<RosterRow, "phoneE164"> & { maskedPhone: string };
+
+export function toRosterView(row: RosterRow): RosterView {
+  const { phoneE164, ...rest } = row;
+  return { ...rest, maskedPhone: maskPhone(phoneE164) };
 }
 
 /** Silence for this many days is drift. Injected into the pure health function, never read from a clock there. */

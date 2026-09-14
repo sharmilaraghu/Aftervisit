@@ -13,7 +13,7 @@
 
 import { Button, Panel } from "@/components/ui";
 import { PatientsBrowser } from "@/components/PatientsBrowser";
-import { getRoster } from "@/lib/db/queries";
+import { getRoster, toRosterView } from "@/lib/db/queries";
 import { HEALTH_ORDER } from "@/lib/patients/labels";
 
 export const dynamic = "force-dynamic";
@@ -80,7 +80,8 @@ export default async function PatientsPage() {
       </header>
 
       {roster.length > 0 ? (
-        <PatientsBrowser rows={roster} />
+        /* Masked on the server: the full number must not reach the page source. */
+        <PatientsBrowser rows={roster.map(toRosterView)} />
       ) : (
         <Panel title="The list is empty">
           <p className="measure" style={{ margin: 0, padding: "calc(var(--cell) * 3)", fontSize: 14 }}>

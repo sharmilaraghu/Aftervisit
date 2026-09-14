@@ -17,9 +17,8 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui";
-import type { RosterRow } from "@/lib/db/queries";
+import type { RosterView } from "@/lib/db/queries";
 import { HEALTH_LABEL, HEALTH_ORDER, HEALTH_TONE } from "@/lib/patients/labels";
-import { maskPhone } from "@/lib/phone/normalize";
 
 export type SortKey = "name" | "age" | "reason" | "state";
 
@@ -70,7 +69,7 @@ export const SORT_WAY: Record<SortKey, [string, string]> = Object.fromEntries(
   COLUMNS.filter((c) => c.sort).map((c) => [c.sort, c.ways]),
 ) as Record<SortKey, [string, string]>;
 
-const RANK: Record<SortKey, (a: RosterRow, b: RosterRow) => number> = {
+const RANK: Record<SortKey, (a: RosterView, b: RosterView) => number> = {
   name: (a, b) => a.name.localeCompare(b.name),
   age: (a, b) => a.age - b.age,
   reason: (a, b) => a.reason.localeCompare(b.reason),
@@ -80,15 +79,15 @@ const RANK: Record<SortKey, (a: RosterRow, b: RosterRow) => number> = {
 };
 
 /** The tiebreak, and the reason the order is stable across re-renders. */
-const settle = (a: RosterRow, b: RosterRow) =>
+const settle = (a: RosterView, b: RosterView) =>
   a.name.localeCompare(b.name) || a.patientId.localeCompare(b.patientId);
 
-export function sortRoster(rows: RosterRow[], sort: Sort): RosterRow[] {
+export function sortRoster(rows: RosterView[], sort: Sort): RosterView[] {
   const sign = sort.dir === "asc" ? 1 : -1;
   return [...rows].sort((a, b) => sign * RANK[sort.key](a, b) || settle(a, b));
 }
 
-export function RosterTable({ rows }: { rows: RosterRow[] }) {
+export function RosterTable({ rows }: { rows: RosterView[] }) {
   /*
    * Null until a header is clicked. The server hands these rows over already
    * ordered by severity, and that is the order a doctor wants first — sorting
@@ -233,7 +232,7 @@ export function RosterTable({ rows }: { rows: RosterRow[] }) {
                           room for one; on a phone there is not, and this line
                           is where it goes on carrying it. */}
                       <span className="age-inline">{p.age} · </span>
-                      {maskPhone(p.phoneE164)}
+                      {p.maskedPhone}
                     </span>                  </td>
                   <td className="col-age mono" style={{ padding: CELL, color: "var(--print-2)" }}>
                     {p.age}

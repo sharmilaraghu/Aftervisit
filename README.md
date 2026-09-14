@@ -11,7 +11,7 @@ for a week.**
 
 | | |
 |---|---|
-| **Live app** | https://careloop-calle.vercel.app — calls are locked on the public deploy |
+| **Live app** | https://careloop-calle.vercel.app — calls are locked, and it holds only fictional `555-01xx` patients |
 | **Demo video** | _link added on upload_ (under 3 minutes) |
 | **Built for** | *CALL-E: Your Code Is Calling* hackathon |
 
