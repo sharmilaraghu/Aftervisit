@@ -110,6 +110,216 @@ export async function claimDueCalls(tickId: string, limit = 5): Promise<DueCall[
   }));
 }
 
+/**
+ * Claim one named call, for "Try a call".
+ *
+ * The same predicate as `claimDueCalls`, narrowed to one row, so a call the
+ * doctor asked for now is claimed under exactly the rules a scheduled one is:
+ * due, its plan active, its patient not archived. No lower bound on lateness —
+ * the doctor is pressing the button, so it is not a backlog ringing at 2am.
+ * Zero rows means a tick took it first, and that tick dials it.
+ */
+export async function claimCall(tickId: string, callId: string): Promise<DueCall | null> {
+  const result = await getDb().execute(sql`
+    update scheduled_calls sc
+    set status = 'claimed', claimed_at = now(), claimed_by = ${tickId}, updated_at = now()
+    from follow_up_plans p, patients pt
+    where sc.id = ${callId}
+      and sc.status = 'scheduled'
+      and sc.scheduled_for <= now()
+      and p.id = sc.plan_id and p.status = 'active'
+      and pt.id = sc.patient_id and pt.archived_at is null
+    returning sc.id, sc.plan_id, sc.patient_id, sc.occurrence, sc.attempt,
+              sc.idempotency_key, sc.scheduled_for
+  `);
+
+  const r = (result.rows as Record<string, unknown>[])[0];
+  if (!r) return null;
+  return {
+    id: String(r.id),
+    planId: String(r.plan_id),
+    patientId: String(r.patient_id),
+    occurrence: Number(r.occurrence),
+    attempt: Number(r.attempt),
+    idempotencyKey: String(r.idempotency_key),
+    scheduledFor: new Date(String(r.scheduled_for)),
+  };
+}
+
+/**
+ * Add a try: one extra call, due now, on top of the calendar.
+ *
+ * It takes the occurrence after the plan's last one, so `uniq_call_slot` and
+ * the idempotency key mean for a try exactly what they mean for every other
+ * row — CALL-E dedupes a double dispatch of it the same way. `kind = 'try'` is
+ * what keeps it out of the day counts and off the retry ladder.
+ *
+ * Never two at once. A call already being placed to this patient refuses the
+ * try; a try still waiting (the line was busy) is brought to now and returned
+ * rather than stacked. Zero rows from the insert means the plan is not active,
+ * or a second press raced this one — either way nothing is dialled twice.
+ */
+export async function addTryCall(
+  planId: string,
+  patientId: string,
+): Promise<{ callId: string } | { refused: "in_progress" | "planned_soon" | "not_active" }> {
+  const db = getDb();
+
+  const state = await db.execute(sql`
+    select
+      exists (
+        select 1 from scheduled_calls
+        where plan_id = ${planId} and status in ('claimed', 'dialing')
+      )                                                                   as in_progress,
+      -- A planned call about to ring would ring the patient twice in minutes:
+      -- the try at 09:58 and the 10:00 call right behind it.
+      exists (
+        select 1 from scheduled_calls
+        where plan_id = ${planId} and kind = 'planned' and status = 'scheduled'
+          and scheduled_for <= now() + interval '30 minutes'
+          and scheduled_for >= now() - make_interval(mins => ${MAX_CALL_DELAY_MINUTES}::int)
+      )                                                                   as planned_soon,
+      (select coalesce(max(occurrence), 0) from scheduled_calls
+        where plan_id = ${planId})                                        as last_occurrence
+  `);
+  const row = (state.rows as Record<string, unknown>[])[0] ?? {};
+  if (row.in_progress === true) return { refused: "in_progress" };
+  if (row.planned_soon === true) return { refused: "planned_soon" };
+
+  const waiting = await db.execute(sql`
+    update scheduled_calls
+    set scheduled_for = now(), updated_at = now()
+    where plan_id = ${planId} and patient_id = ${patientId}
+      and kind = 'try' and status = 'scheduled'
+    returning id
+  `);
+  const pending = (waiting.rows as Record<string, unknown>[])[0];
+  if (pending) return { callId: String(pending.id) };
+
+  const id = newId("sc");
+  const occurrence = Number(row.last_occurrence ?? 0) + 1;
+  const inserted = await db.execute(sql`
+    insert into scheduled_calls
+      (id, plan_id, patient_id, occurrence, attempt, idempotency_key, scheduled_for, kind)
+    select ${id}, p.id, p.patient_id, ${occurrence}, 1,
+           ${idempotencyKey(planId, occurrence, 1)}, now(), 'try'
+    from follow_up_plans p
+    join patients pt on pt.id = p.patient_id
+    where p.id = ${planId} and p.patient_id = ${patientId}
+      and p.status = 'active' and pt.archived_at is null
+    on conflict do nothing
+    returning id
+  `);
+  if (inserted.rows.length > 0) return { callId: id };
+
+  /* A second press that raced this one took the slot. That try is the answer — not "not active". */
+  const raced = await db.execute(sql`
+    select id from scheduled_calls
+    where plan_id = ${planId} and patient_id = ${patientId} and kind = 'try'
+      and status in ('scheduled', 'claimed', 'dialing')
+    order by created_at desc limit 1
+  `);
+  const winner = (raced.rows as Record<string, unknown>[])[0];
+  return winner ? { callId: String(winner.id) } : { refused: "not_active" };
+}
+
+/**
+ * Move one upcoming call.
+ *
+ * Only a call still waiting, on a plan still running, and only to a moment
+ * that has not passed: the claim query dials anything due, so a time in the
+ * past would not reschedule the call, it would ring it at once. Scoped to the
+ * patient as well as the call, so a stale form cannot move somebody else's.
+ *
+ * A call moved past the window's end stretches `ends_at` to meet it, second and
+ * separately. That is for the dates the page prints, not for safety —
+ * `closeElapsedPlans` already keeps a plan open while any call is scheduled.
+ */
+export async function rescheduleCall(callId: string, patientId: string, at: Date): Promise<boolean> {
+  const db = getDb();
+  const moved = await db.execute(sql`
+    update scheduled_calls c
+    set scheduled_for = ${at}, updated_at = now()
+    from follow_up_plans p
+    where c.id = ${callId} and c.patient_id = ${patientId}
+      and c.status = 'scheduled'
+      and p.id = c.plan_id and p.status = 'active'
+      -- Minutes ahead, not merely ahead: a call moved to one minute from now
+      -- is a live call placed without the confirm "Try a call" asks for.
+      and ${at}::timestamptz > now() + interval '5 minutes'
+    returning c.plan_id
+  `);
+  const row = (moved.rows as Record<string, unknown>[])[0];
+  if (!row) return false;
+
+  await db.execute(sql`
+    update follow_up_plans set ends_at = ${at}, updated_at = now()
+    where id = ${String(row.plan_id)} and ends_at < ${at}
+  `);
+  return true;
+}
+
+/**
+ * Skip one upcoming call, because a clinician said so.
+ *
+ * Its own reason, so the record says a person decided this rather than the
+ * scheduler — and `startPlan`'s restore, which only brings back `plan_closed`,
+ * can never quietly put it back on the calendar.
+ */
+export async function skipCall(callId: string, patientId: string): Promise<boolean> {
+  const result = await getDb().execute(sql`
+    update scheduled_calls c
+    set status = 'skipped', skip_reason = 'clinician_skipped', updated_at = now()
+    from follow_up_plans p
+    where c.id = ${callId} and c.patient_id = ${patientId}
+      and c.status = 'scheduled'
+      and p.id = c.plan_id and p.status = 'active'
+    returning c.id
+  `);
+  return result.rows.length > 0;
+}
+
+export interface CallState {
+  id: string;
+  planId: string;
+  patientId: string;
+  occurrence: number;
+  attempt: number;
+  status: string;
+  outcome: string | null;
+  calleCallId: string | null;
+  refusalDetail: string | null;
+  /** CALL-E's one-line recap in the patient's own words, once the call is finished. */
+  recap: string | null;
+}
+
+/**
+ * Where one call has got to — read back, so "Try a call" answers with what
+ * happened rather than what was hoped, and the page watching it can finish it.
+ */
+export async function getCallState(callId: string): Promise<CallState | null> {
+  const result = await getDb().execute(sql`
+    select id, plan_id, patient_id, occurrence, attempt, status, outcome,
+           calle_call_id, refusal_detail,
+           nullif(structured_result ->> 'call_recap', 'unknown') as recap
+    from scheduled_calls where id = ${callId}
+  `);
+  const r = (result.rows as Record<string, unknown>[])[0];
+  if (!r) return null;
+  return {
+    id: String(r.id),
+    planId: String(r.plan_id),
+    patientId: String(r.patient_id),
+    occurrence: Number(r.occurrence),
+    attempt: Number(r.attempt),
+    status: String(r.status),
+    outcome: r.outcome ? String(r.outcome) : null,
+    calleCallId: r.calle_call_id ? String(r.calle_call_id) : null,
+    refusalDetail: r.refusal_detail ? String(r.refusal_detail) : null,
+    recap: r.recap ? String(r.recap) : null,
+  };
+}
+
 /** Record the script we are about to send, before we send it. */
 export async function recordTask(callId: string, task: string): Promise<void> {
   await getDb().execute(sql`

@@ -60,6 +60,8 @@ export async function getPlanProgress(): Promise<Map<string, NextCall>> {
     from scheduled_calls c
     join follow_up_plans p on p.id = c.plan_id
     where p.status in ('active', 'paused')
+      -- Progress through the plan's days; a try is an extra call on top of them.
+      and c.kind = 'planned'
     group by c.plan_id
   `);
 

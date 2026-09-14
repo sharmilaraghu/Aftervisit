@@ -46,6 +46,8 @@ export interface CallDetail {
   refusalReason: string | null;
   refusalDetail: string | null;
   skipReason: string | null;
+  /** `planned` for a day of the plan, `try` for an extra call a doctor placed. */
+  kind: string;
   resultStatus: string;
   /* CALL-E's own post-call analysis. Displayed as evidence, never used for a
      decision — the rules read slots, not prose. */
@@ -111,6 +113,7 @@ export async function getCall(callId: string): Promise<CallDetail | null> {
     refusalReason: r.refusal_reason ? String(r.refusal_reason) : null,
     refusalDetail: r.refusal_detail ? String(r.refusal_detail) : null,
     skipReason: r.skip_reason ? String(r.skip_reason) : null,
+    kind: String(r.kind ?? "planned"),
     resultStatus: String(r.result_status),
     summary: r.summary ? String(r.summary) : null,
     taskCompleted: r.task_completed === null || r.task_completed === undefined
@@ -182,9 +185,11 @@ export async function getDashboardStats(): Promise<DashboardStats> {
       (select count(*) from scheduled_calls
         where status = 'scheduled' and scheduled_for <= now() + interval '1 day')      as due_today,
       (select count(distinct (plan_id, occurrence)) from scheduled_calls
-        where outcome in ('answered','flagged','unmappable'))                          as contacted,
+        where outcome in ('answered','flagged','unmappable')
+          and kind = 'planned')                                                        as contacted,
       (select count(*) from scheduled_calls
-        where attempt = 1 and scheduled_for <= now() and status <> 'skipped')          as due,
+        where attempt = 1 and scheduled_for <= now() and status <> 'skipped'
+          and kind = 'planned')                                                        as due,
       (select count(*) from escalations where status in ('open','acknowledged'))       as open_esc,
       (select count(*) from escalations
         where status in ('open','acknowledged') and urgent)                            as urgent_esc,

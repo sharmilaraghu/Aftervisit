@@ -34,6 +34,10 @@ export interface CallRow {
   whatElse: string | null;
   scheduledFor: Date;
   finishedAt: Date | null;
+  /** `try` for an extra call a doctor placed. Absent is a planned day. */
+  kind?: string;
+  /** `clinician_skipped` when a person dropped the call, rather than the scheduler. */
+  skipReason?: string | null;
 }
 
 const CELL = "calc(var(--cell) * 1.5) calc(var(--cell) * 2)";
@@ -69,8 +73,9 @@ export function CallLog({
     );
   }
 
-  const silent = calls.filter((c) => c.outcome === "no_answer");
-  const spoken = calls.filter((c) => c.outcome !== "no_answer");
+  /* A try stays on screen: the fold is the retry ladder's silence, and a try is not on the ladder. */
+  const silent = calls.filter((c) => c.outcome === "no_answer" && c.kind !== "try");
+  const spoken = calls.filter((c) => !(c.outcome === "no_answer" && c.kind !== "try"));
   const rows = full || silent.length === 0 ? calls : spoken;
 
   /* "No answer" is a claim about the patient. When every folded attempt was
@@ -137,7 +142,7 @@ export function CallLog({
                         textDecorationColor: "var(--rule)",
                       }}
                     >
-                      {c.occurrence}
+                      {c.kind === "try" ? "Try" : c.occurrence}
                     </Link>
                   </td>
                   {/* Only a retry is worth a mark. "1 of 3" on every row was the
@@ -151,7 +156,9 @@ export function CallLog({
                   </td>
                   <td className="call-outcome" style={{ padding: CELL }}>
                     <Badge tone={tone.tone} quiet={tone.quiet}>
-                      {outcomeLabel(c.status, c.outcome, c.failureCode)}
+                      {c.skipReason === "clinician_skipped"
+                        ? "Skipped"
+                        : outcomeLabel(c.status, c.outcome, c.failureCode)}
                     </Badge>
                   </td>
                   {/*

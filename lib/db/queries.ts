@@ -121,8 +121,9 @@ export async function getRoster(): Promise<RosterRow[]> {
       p.status                            as plan_status,
       count(*) filter (
         where c.attempt = 1 and c.scheduled_for <= now() and c.status <> 'skipped'
+          and c.kind = 'planned'
       )                                   as due,
-      count(distinct c.occurrence) filter (where ${REACHED}) as contacted,
+      count(distinct c.occurrence) filter (where ${REACHED} and c.kind = 'planned') as contacted,
       max(c.finished_at) filter (where ${REACHED})           as last_heard,
       (
         select count(*) from escalations e
@@ -217,6 +218,8 @@ export async function getWeekBands(planIds: string[]): Promise<Map<string, DaySt
       planIds.map((id) => sql`${id}`),
       sql`, `,
     )})
+      -- A try is an extra call, not one of the days the band draws.
+      and c.kind = 'planned'
     group by c.plan_id, c.occurrence
   `);
 

@@ -91,7 +91,9 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
             color: "var(--bench-ink)",
           }}
         >
-          Day {call.occurrence}, attempt {call.attempt} of {call.maxAttempts}.
+          {call.kind === "try"
+            ? "Try a call, placed by a doctor."
+            : `Day ${call.occurrence}, attempt ${call.attempt} of ${call.maxAttempts}.`}
         </h1>
         <p className="mono" style={{ margin: 0, color: "var(--bench-ink-2)", fontSize: 14 }}>
           {maskPhone(call.phoneE164)} · {formatStamp(call.scheduledFor, call.timezone)}
