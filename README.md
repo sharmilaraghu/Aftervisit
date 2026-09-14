@@ -67,10 +67,10 @@ not in this repository.
 
 | | |
 |---|---|
-| ![Consultations](docs/screenshots/consultations.png) | ![Writing the note](docs/screenshots/write-note.png) |
-| **Consultations** — the doctor’s day | **The note** — free text, plus what should escalate |
-| ![The follow-up — what the calls find out, from the note's own words](docs/screenshots/follow-up.png) | ![The patient record](docs/screenshots/patient-record.png) |
-| **The compiled plan** — every value says where it came from | **The patient record** — what changed, in their words |
+| ![Consultations](docs/screenshots/consultations.png) | ![What the calls find out, quoted from the note](docs/screenshots/write-note.png) |
+| **Consultations** — the doctor’s day | **What the calls find out** — each topic quoted from the note, with the patient’s answer |
+| ![The patient record](docs/screenshots/patient-record.png) | |
+| **The patient record** — the decision, the calling schedule, in their words | |
 
 ---
 
