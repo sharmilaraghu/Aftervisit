@@ -30,6 +30,11 @@
  * resolved, no visits waiting and no call still ahead — so a live deployment
  * gets a record to show without the scheduler having anyone to ring. It clears
  * only seeded patients that are not archived, so archived history stays.
+ *
+ * `--waiting` seeds only patients booked for today with no note yet, ready on
+ * the Consultations list. It clears only earlier waiting patients — seeded,
+ * not archived, with no follow-up — so the closed history is left alone, and
+ * `--closed` in turn clears only seeded patients that have a follow-up.
  */
 
 import { config } from "dotenv";
@@ -52,6 +57,7 @@ import {
   DEMO_UTTERANCES,
   SEED_PATIENTS,
   SEED_UNPLANNED,
+  SEED_WAITING,
   type SeedDay,
 } from "../data/demo-patients";
 import { UNIVERSAL_QUESTIONS } from "../lib/plan/universal-questions";
@@ -71,6 +77,9 @@ const db = drizzle(neon(url), { schema });
 
 /** Finished history only: nothing scheduled, nothing open, nothing waiting. */
 const CLOSED = process.argv.includes("--closed");
+
+/** Only today's waiting patients: no plans, no calls, nothing to dial until a note is written. */
+const WAITING = process.argv.includes("--waiting");
 
 // ---------------------------------------------------------------------------
 // What every call records
@@ -345,7 +354,7 @@ function build(): Built {
    * absent plan row, so this loop writes one row each and that is the state.
    */
   /* Closed history has no one still waiting for a plan. */
-  for (const p of CLOSED ? [] : SEED_UNPLANNED) {
+  for (const p of WAITING ? SEED_WAITING : CLOSED ? [] : SEED_UNPLANNED) {
     const patientId = newId("pat");
     out.patients.push({
       id: patientId,
@@ -372,7 +381,7 @@ function build(): Built {
     });
   }
 
-  for (const p of SEED_PATIENTS) {
+  for (const p of WAITING ? [] : SEED_PATIENTS) {
     // A real, armed number can replace the fiction one at seed time. It is read
     // from the environment and never written back to the repository.
     let phone = p.phone;
@@ -920,9 +929,14 @@ async function clearSeeded(): Promise<number> {
   const rows = (
     await db.execute(
       /* Closed seeding leaves archived patients alone: their history was kept on purpose. */
-      CLOSED
-        ? sqlRaw`select id from patients where phone_e164 like '+1%55501__' and archived_at is null`
-        : sqlRaw`select id from patients where phone_e164 like '+1%55501__'`,
+      /* Each partial mode clears only its own kind: waiting patients have no follow-up, closed ones do. */
+      WAITING
+        ? sqlRaw`select id from patients where phone_e164 like '+1%55501__' and archived_at is null
+                 and not exists (select 1 from follow_up_plans p where p.patient_id = patients.id)`
+        : CLOSED
+          ? sqlRaw`select id from patients where phone_e164 like '+1%55501__' and archived_at is null
+                   and exists (select 1 from follow_up_plans p where p.patient_id = patients.id)`
+          : sqlRaw`select id from patients where phone_e164 like '+1%55501__'`,
     )
   ).rows as { id: string }[];
 
@@ -970,9 +984,10 @@ async function main() {
   await db.insert(schema.patients).values(built.patients as never);
   // Closed history books no visits, and drizzle refuses an empty insert.
   if (built.visits.length) await db.insert(schema.visits).values(built.visits as never);
-  await db.insert(schema.consultationNotes).values(built.notes as never);
-  await db.insert(schema.followUpPlans).values(built.plans as never);
-  await db.insert(schema.planQuestions).values(built.questions as never);
+  // Waiting patients have no note, plan or questions yet; drizzle refuses an empty insert.
+  if (built.notes.length) await db.insert(schema.consultationNotes).values(built.notes as never);
+  if (built.plans.length) await db.insert(schema.followUpPlans).values(built.plans as never);
+  if (built.questions.length) await db.insert(schema.planQuestions).values(built.questions as never);
   // Chunked: the HTTP driver has a statement size ceiling and the transcript
   // column is not small.
   for (let i = 0; i < built.calls.length; i += 40) {
@@ -985,7 +1000,7 @@ async function main() {
   for (let i = 0; i < built.slots.length; i += 100) {
     await db.insert(schema.extractedSlots).values(built.slots.slice(i, i + 100) as never);
   }
-  await db.insert(schema.escalations).values(built.escalations as never);
+  if (built.escalations.length) await db.insert(schema.escalations).values(built.escalations as never);
 
   console.log("");
   console.log(`  patients            ${built.patients.length}`);

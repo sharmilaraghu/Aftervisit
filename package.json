@@ -13,6 +13,7 @@
     "db:seed": "tsx scripts/seed.ts",
     "db:clear": "tsx scripts/seed.ts --clear",
     "db:seed:closed": "tsx scripts/seed.ts --closed",
+    "db:seed:waiting": "tsx scripts/seed.ts --waiting",
     "media": "tsx scripts/elevenlabs.ts",
     "test": "vitest run",
     "test:watch": "vitest",

@@ -336,6 +336,59 @@ export const SEED_UNPLANNED: SeedUnplannedPatient[] = [
   },
 ];
 
+/**
+ * Patients waiting to be seen today, for `seed --waiting`.
+ *
+ * Booked at the desk, consent recorded, no note yet — they sit on the doctor's
+ * Consultations list so a demo can write the note and press Save and start
+ * follow-up. Numbers stay fiction-reserved: a follow-up started for one of them
+ * dials a line that cannot connect.
+ */
+export const SEED_WAITING: SeedUnplannedPatient[] = [
+  {
+    slug: "anil-d",
+    name: "Anil D",
+    age: 63,
+    timezone: "Asia/Kolkata",
+    language: "en-IN",
+    phone: "+14155550172",
+    consent: "granted",
+    visit: {
+      kind: "consultation",
+      reportedSymptoms:
+        "Blood pressure read 164/100 at the pharmacy last week. Occasional headaches in the morning. Already on amlodipine.",
+    },
+  },
+  {
+    slug: "kavya-m",
+    name: "Kavya M",
+    age: 34,
+    timezone: "Asia/Kolkata",
+    language: "ta-IN",
+    phone: "+14155550185",
+    consent: "granted",
+    visit: {
+      kind: "post_op",
+      reportedSymptoms:
+        "Day 2 after a laparoscopic appendectomy. Asking how to look after the wound and when the stitches come out.",
+    },
+  },
+  {
+    slug: "joseph-p",
+    name: "Joseph P",
+    age: 69,
+    timezone: "Asia/Kolkata",
+    language: "ml-IN",
+    phone: "+14155550146",
+    consent: "granted",
+    visit: {
+      kind: "consultation",
+      reportedSymptoms:
+        "Getting short of breath on the stairs for about two weeks. Ankles swollen by the evening.",
+    },
+  },
+];
+
 /** What a reached call actually said, per condition. Real sentences, not lorem. */
 export const DEMO_UTTERANCES: Record<string, string[]> = {
   chest_infection: [
