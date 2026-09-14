@@ -117,6 +117,7 @@ to do, and no external cron is needed.
 | `AFTER_VISIT_PUBLIC_URL` | Handing CALL-E a `webhookUrl` | No callback; results wait for the next tick |
 | `AFTER_VISIT_WEBHOOK_TOKEN` | The webhook receiver, and the URL above | Receiver returns 503 |
 | `AFTER_VISIT_CALL_ALLOWLIST` | Which numbers may be dialled — a comma list, or `*` for any consenting patient | **Every dial is refused** `not_allowlisted`. This is the default on purpose: there is no auth, so a public console must not dial until an operator opens it |
+| `AFTER_VISIT_CONSOLE_PASSCODE` | The console's password (`proxy.ts`), on every console page and server action — **required whenever the allowlist is open on a public URL** | The console is open to anyone; fine locally with calls locked |
 | `CALLE_API_KEY` | Dialling at all | Every dial refused `missing_api_key` |
 | `OPENAI_API_KEY` | Reading the note and call triage | No follow-up can start (the note form says why); every finished call escalated unjudged |
 

@@ -83,8 +83,10 @@ doctor's free-text note → "Save and start follow-up"
    `AFTER_VISIT_CALL_ALLOWLIST` is the **deployment lock**, answering a different question:
    may this instance reach the outside world at all. **It is closed by default** — unset
    or empty refuses every dial, a list allows only those numbers, and `*` opens it to any
-   consenting patient. There is no auth, so a public console must not be able to dial
-   until an operator deliberately opens it.
+   consenting patient. There is no per-user auth, so a public console must not be able to
+   dial until an operator deliberately opens it — and a deployment that opens it (`*`) must
+   also set `AFTER_VISIT_CONSOLE_PASSCODE`, which `proxy.ts` enforces on every console page
+   and server action, or any visitor could schedule a call to a number they typed.
    *The judges' instant call* (`/try`) is the one deliberate exception, chosen for the
    hackathon: a judge types a first name, a number, a language and optionally a note, and
    that number rings now with **nothing saved** — no patient, no call row — so a page closed
