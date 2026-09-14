@@ -16,9 +16,13 @@
  * several countries, so Care Loop will not pick one. That refusal is the first
  * thing a visitor sees the product actually do, so it is given room — mono,
  * because a number is read digit by digit.
+ *
+ * It is also hidden as it is typed, with a Show control beside it. This form is
+ * filled in on camera for the demo video, and a number on screen cannot be
+ * taken back — the same reason the judges' Try a call hides its number.
  */
 
-import { useActionState, useEffect, useRef } from "react";
+import { useActionState, useEffect, useRef, useState, type CSSProperties } from "react";
 
 import {
   Button,
@@ -33,6 +37,9 @@ import type { PatientFormState } from "@/lib/patients/form";
 import { PRACTICE_TIMEZONE } from "@/lib/patients/timezones";
 import { CONSENT_OPTIONS } from "@/lib/patients/labels";
 import { LANGUAGE_OPTIONS } from "@/lib/patients/languages";
+
+/* Dots in place of digits. The value submits unchanged; only the screen is spared. */
+const MASKED = { WebkitTextSecurity: "disc" } as unknown as CSSProperties;
 
 const VISIT_KIND_OPTIONS = [
   { value: "consultation", label: "Consultation" },
@@ -57,6 +64,8 @@ export function PatientForm({
   visit?: { defaultDate: string };
 }) {
   const [state, formAction, pending] = useActionState(action, initial);
+  /* Hidden until someone asks to see it — including a number already on file. */
+  const [showPhone, setShowPhone] = useState(false);
   const v = state.values;
   const form = useRef<HTMLFormElement>(null);
 
@@ -176,26 +185,40 @@ export function PatientForm({
                 </Field>
               </div>
 
-              <div style={{ flex: "0 1 calc(var(--cell) * 28)", minWidth: 0 }}>
+              {/* Wide enough for the number and the Show control, and no wider:
+                  at 288px the phone fell onto its own line under name and age. */}
+              <div style={{ flex: "0 1 calc(var(--cell) * 32)", minWidth: 0 }}>
                 <Field label="Phone" htmlFor="phone" error={state.errors.phone}>
-                  <TextInput
-                    id="phone"
-                    name="phone"
-                    mono
-                    /* 555-01xx only: this placeholder renders on screen, and the
-                       screen ends up in a published video. */
-                    /* The format, not a number: an Indian practice showed a US
-                       example, and any plausible +91 digits belong to someone. */
-                    placeholder="+91 XXXXX XXXXX"
-                    defaultValue={v.phone}
-                    required
-                    autoComplete="off"
-                    invalid={Boolean(state.errors.phone)}
-                    aria-describedby={describedBy("phone", {
-                      hint: true,
-                      error: Boolean(state.errors.phone),
-                    })}
-                  />
+                  <div style={{ display: "flex", gap: "calc(var(--cell) * 1)" }}>
+                    <TextInput
+                      id="phone"
+                      name="phone"
+                      mono
+                      inputMode="tel"
+                      spellCheck={false}
+                      /* 555-01xx only: this placeholder renders on screen, and the
+                         screen ends up in a published video. */
+                      /* The format, not a number: an Indian practice showed a US
+                         example, and any plausible +91 digits belong to someone. */
+                      placeholder="+91 XXXXX XXXXX"
+                      defaultValue={v.phone}
+                      required
+                      autoComplete="off"
+                      style={{ flex: 1, minWidth: 0, ...(showPhone ? {} : MASKED) }}
+                      invalid={Boolean(state.errors.phone)}
+                      aria-describedby={describedBy("phone", {
+                        hint: true,
+                        error: Boolean(state.errors.phone),
+                      })}
+                    />
+                    <Button
+                      variant="onLabel"
+                      onClick={() => setShowPhone((shown) => !shown)}
+                      ariaLabel={showPhone ? "Hide the phone number" : "Show the phone number"}
+                    >
+                      {showPhone ? "Hide" : "Show"}
+                    </Button>
+                  </div>
                 </Field>
               </div>
             </div>
