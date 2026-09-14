@@ -164,7 +164,7 @@ export const SEED_PATIENTS: SeedPatient[] = [
     timezone: "Asia/Kolkata",
     language: "hi-IN",
     phone: "+14155550100",
-    phoneOverrideEnv: "CARELOOP_SEED_PHONE_PRIMARY",
+    phoneOverrideEnv: "AFTER_VISIT_SEED_PHONE_PRIMARY",
     consent: "granted",
     condition: "new_metformin",
     reason: "New metformin · tolerance and adherence",
@@ -200,7 +200,7 @@ export const SEED_PATIENTS: SeedPatient[] = [
     phone: "+14155550117",
     // The retry ladder is demonstrated against a line that genuinely never
     // answers. No fake no_answer rows are ever seeded.
-    phoneOverrideEnv: "CARELOOP_UNANSWERED_PHONE",
+    phoneOverrideEnv: "AFTER_VISIT_UNANSWERED_PHONE",
     consent: "granted",
     condition: "heart_failure",
     reason: "Heart failure · daily weight and breathlessness",

@@ -222,8 +222,8 @@ now the opposite of the truth.
 ## Known gaps
 
 - **Phase 8, the live call, has not run.** The allowlist is closed by default; a live
-  run lists one owned number in `CARELOOP_CALL_ALLOWLIST`. `docs/TESTING.md` has the scripts.
-- **`CARELOOP_WEBHOOK_TOKEN` is unset**, so `/api/calle/webhook` returns 503 and refuses
+  run lists one owned number in `AFTER_VISIT_CALL_ALLOWLIST`. `docs/TESTING.md` has the scripts.
+- **`AFTER_VISIT_WEBHOOK_TOKEN` is unset**, so `/api/calle/webhook` returns 503 and refuses
   everything. Correct fail-closed behaviour, but the webhook path is unproven end to end;
   completion currently relies on the in-process waiter and the reconciler.
 - **`OPENAI_API_KEY` is empty**, so the Gemini fallback has nothing to fall back to.

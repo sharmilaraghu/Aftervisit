@@ -28,7 +28,7 @@ export function readWebhookRequest(
     return {
       ok: false,
       status: 503,
-      error: "CARELOOP_WEBHOOK_TOKEN is not set. The webhook endpoint is closed.",
+      error: "AFTER_VISIT_WEBHOOK_TOKEN is not set. The webhook endpoint is closed.",
     };
   }
 

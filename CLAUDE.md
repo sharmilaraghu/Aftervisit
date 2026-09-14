@@ -27,7 +27,7 @@ truth for the design system — its tokens are the standard.
 
 | Agent | When |
 |---|---|
-| `careloop-reviewer` | Any edit under `lib/calle/`, `lib/script/`, `lib/rules/`, `lib/schedule/`, `lib/plan/`, `lib/phone/` — catches silent drift in the guard, the port, the dial allowlist, consent text, idempotency, or the purity of the rule engine |
+| `aftervisit-reviewer` | Any edit under `lib/calle/`, `lib/script/`, `lib/rules/`, `lib/schedule/`, `lib/plan/`, `lib/phone/` — catches silent drift in the guard, the port, the dial allowlist, consent text, idempotency, or the purity of the rule engine |
 | `code-reviewer` | After writing or changing other code — correctness, Next 16 conventions, dead code, matching existing style |
 | `docs-lookup` | Next 16 / Drizzle / CALL-E / OpenAI questions — local docs first, then Context7 |
 

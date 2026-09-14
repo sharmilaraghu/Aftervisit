@@ -112,7 +112,7 @@ export const REFUSAL_TEXT: Record<RefusalReason, string> = {
   no_consent:
     "This patient has not agreed to automated follow-up calls. AfterVisit dials without anyone pressing a button, so consent recorded at enrolment is what authorises the call.",
   not_allowlisted:
-    "This number is not on this instance's dial allowlist. Set CARELOOP_CALL_ALLOWLIST to the numbers it may call, or to * to allow any consenting patient. Unset, nothing is dialled.",
+    "This number is not on this instance's dial allowlist. Set AFTER_VISIT_CALL_ALLOWLIST to the numbers it may call, or to * to allow any consenting patient. Unset, nothing is dialled.",
   missing_api_key: "No CALL-E API key is configured, so nothing can be dialled.",
   api_error: "CALL-E rejected the request.",
 };

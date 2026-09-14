@@ -62,7 +62,7 @@ const GROUPS = [
   },
 ] as const;
 
-const STORAGE_KEY = "careloop.rail.collapsed";
+const STORAGE_KEY = "aftervisit.rail.collapsed";
 
 /*
  * The rail's width is browser state, not React state, so it is read as an

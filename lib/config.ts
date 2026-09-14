@@ -5,7 +5,7 @@
  * clinician approving their plan — not an environment variable. A doctor enters
  * a number, records that the patient agreed to automated follow-up, approves the
  * plan, and AfterVisit calls that number. Requiring an operator to also paste the
- * number into `CARELOOP_CALL_ALLOWLIST` describes a demo, not a product: no real
+ * number into `AFTER_VISIT_CALL_ALLOWLIST` describes a demo, not a product: no real
  * practice can redeploy to enrol a patient.
  *
  * The allowlist is the **deployment lock**, and it answers a different question
@@ -31,7 +31,7 @@ export interface AfterVisitConfig {
   /** The only numbers the scheduler may dial, unless `*` opened the lock. Empty = none. */
   callAllowlist: string[];
   /**
-   * True only when an operator set `CARELOOP_CALL_ALLOWLIST=*`. Never true by
+   * True only when an operator set `AFTER_VISIT_CALL_ALLOWLIST=*`. Never true by
    * default: an unset list locks the instance.
    *
    * Consent is still enforced — `lib/calle/port.ts` refuses to dial a patient
@@ -106,7 +106,7 @@ function parseAllowlist(raw: string | undefined): string[] {
 }
 
 export function readConfig(env: NodeJS.ProcessEnv = process.env): AfterVisitConfig {
-  const entries = parseAllowlist(env.CARELOOP_CALL_ALLOWLIST);
+  const entries = parseAllowlist(env.AFTER_VISIT_CALL_ALLOWLIST);
   const numbers = entries.filter((n) => n !== OPEN);
 
   return {
@@ -115,13 +115,13 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): AfterVisitConf
     /* Open only when someone wrote `*`. Unset or empty is locked: with no
        numbers listed, nothing matches, and every dial is refused. */
     allowlistOpen: entries.includes(OPEN),
-    callLocale: env.CARELOOP_CALL_LOCALE || "en-US",
-    tickToken: env.CARELOOP_TICK_TOKEN || null,
+    callLocale: env.AFTER_VISIT_CALL_LOCALE || "en-US",
+    tickToken: env.AFTER_VISIT_TICK_TOKEN || null,
     cronSecret: env.CRON_SECRET || null,
-    webhookToken: env.CARELOOP_WEBHOOK_TOKEN || null,
-    publicUrl: (env.CARELOOP_PUBLIC_URL || "").replace(/\/+$/, "") || null,
-    practiceName: env.CARELOOP_PRACTICE_NAME || "Banyan Family Clinic",
-    clinicianName: env.CARELOOP_CLINICIAN_NAME || "Dr Rao",
-    tryPasscode: env.CARELOOP_TRY_PASSCODE || null,
+    webhookToken: env.AFTER_VISIT_WEBHOOK_TOKEN || null,
+    publicUrl: (env.AFTER_VISIT_PUBLIC_URL || "").replace(/\/+$/, "") || null,
+    practiceName: env.AFTER_VISIT_PRACTICE_NAME || "Banyan Family Clinic",
+    clinicianName: env.AFTER_VISIT_CLINICIAN_NAME || "Dr Rao",
+    tryPasscode: env.AFTER_VISIT_TRY_PASSCODE || null,
   };
 }

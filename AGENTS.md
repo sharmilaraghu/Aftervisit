@@ -35,8 +35,8 @@ SDK, and every one of them shapes code you will touch.
    a single conditional `UPDATE … RETURNING`; every derived write is idempotent behind a
    unique index.
 4. **There is no scheduling API.** `CreateCallInput` is `{task, recipient(s), resultSchema,
-   recipientResultSchema, metadata, webhookUrl}` — no `scheduledAt`, no retry policy. Care
-   Loop owning the calendar is forced by the API, not a design flourish.
+   recipientResultSchema, metadata, webhookUrl}` — no `scheduledAt`, no retry policy.
+   AfterVisit owning the calendar is forced by the API, not a design flourish.
 
 Webhooks are also unsigned and delivered at-least-once, so a receiver must re-fetch through
 the authenticated API before trusting anything a webhook claims.
@@ -80,7 +80,7 @@ doctor's free-text note → "Save and start follow-up"
    silently skipped, never quietly simulated. `consentGranted` is a **required** field on
    `DialRequest` precisely so a new call site fails to compile rather than defaulting to
    dialling someone who never agreed.
-   `CARELOOP_CALL_ALLOWLIST` is the **deployment lock**, answering a different question:
+   `AFTER_VISIT_CALL_ALLOWLIST` is the **deployment lock**, answering a different question:
    may this instance reach the outside world at all. **It is closed by default** — unset
    or empty refuses every dial, a list allows only those numbers, and `*` opens it to any
    consenting patient. There is no auth, so a public console must not be able to dial
@@ -89,7 +89,7 @@ doctor's free-text note → "Save and start follow-up"
    hackathon: a judge types a first name, a number, a language and optionally a note, and
    that number rings now with **nothing saved** — no patient, no call row — so a page closed
    mid-call cannot show that result again (law 1's price, accepted on purpose). It stays
-   shut unless `CARELOOP_TRY_PASSCODE` is set, needs the allowlist at `*`, and passes a
+   shut unless `AFTER_VISIT_TRY_PASSCODE` is set, needs the allowlist at `*`, and passes a
    consent tick box as `consentGranted`. The note compiler, the assembled script with its
    AI disclosure and stop-the-call clause, and every check inside `dial()` still run.
 3. **Never weaken the guard, the AI disclosure, the emergency stop, or the emergency

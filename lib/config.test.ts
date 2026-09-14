@@ -19,22 +19,22 @@ describe("readConfig — the dial allowlist", () => {
   });
 
   it("is locked when empty or blank", () => {
-    expect(readConfig({ CARELOOP_CALL_ALLOWLIST: "" }).allowlistOpen).toBe(false);
-    expect(readConfig({ CARELOOP_CALL_ALLOWLIST: " , " }).allowlistOpen).toBe(false);
+    expect(readConfig({ AFTER_VISIT_CALL_ALLOWLIST: "" }).allowlistOpen).toBe(false);
+    expect(readConfig({ AFTER_VISIT_CALL_ALLOWLIST: " , " }).allowlistOpen).toBe(false);
   });
 
   it("allows only the listed numbers", () => {
-    const config = readConfig({ CARELOOP_CALL_ALLOWLIST: "+14155550100, +14155550117" });
+    const config = readConfig({ AFTER_VISIT_CALL_ALLOWLIST: "+14155550100, +14155550117" });
     expect(config.allowlistOpen).toBe(false);
     expect(config.callAllowlist).toEqual(["+14155550100", "+14155550117"]);
   });
 
   it("opens only on an explicit *", () => {
-    expect(readConfig({ CARELOOP_CALL_ALLOWLIST: "*" }).allowlistOpen).toBe(true);
-    expect(readConfig({ CARELOOP_CALL_ALLOWLIST: "*" }).callAllowlist).toEqual([]);
+    expect(readConfig({ AFTER_VISIT_CALL_ALLOWLIST: "*" }).allowlistOpen).toBe(true);
+    expect(readConfig({ AFTER_VISIT_CALL_ALLOWLIST: "*" }).callAllowlist).toEqual([]);
   });
 
   it("does not arm calls without a CALL-E key, whatever the list says", () => {
-    expect(readConfig({ CARELOOP_CALL_ALLOWLIST: "*" }).liveCallsEnabled).toBe(false);
+    expect(readConfig({ AFTER_VISIT_CALL_ALLOWLIST: "*" }).liveCallsEnabled).toBe(false);
   });
 });

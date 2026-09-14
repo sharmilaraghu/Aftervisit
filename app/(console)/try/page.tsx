@@ -60,7 +60,7 @@ export default function TryPage() {
       ) : !config.tryPasscode ? (
         <Panel title="Locked">
           <p className="measure" style={{ margin: 0, padding: "calc(var(--cell) * 3)", fontSize: 14, color: "var(--print-2)" }}>
-            No passcode is set on this instance (<span className="mono">CARELOOP_TRY_PASSCODE</span>), so
+            No passcode is set on this instance (<span className="mono">AFTER_VISIT_TRY_PASSCODE</span>), so
             this page stays shut.
           </p>
         </Panel>

@@ -22,13 +22,13 @@ export async function POST(request: Request) {
   // same stance the dial allowlist takes.
   if (!tickToken) {
     return Response.json(
-      { error: "CARELOOP_TICK_TOKEN is not set. The tick endpoint is closed." },
+      { error: "AFTER_VISIT_TICK_TOKEN is not set. The tick endpoint is closed." },
       { status: 503 },
     );
   }
 
-  if (request.headers.get("x-careloop-tick") !== tickToken) {
-    return Response.json({ error: "Bad or missing x-careloop-tick header." }, { status: 401 });
+  if (request.headers.get("x-after-visit-tick") !== tickToken) {
+    return Response.json({ error: "Bad or missing x-after-visit-tick header." }, { status: 401 });
   }
 
   const result = await tick("cron");
@@ -37,7 +37,7 @@ export async function POST(request: Request) {
 
 export async function GET() {
   return Response.json(
-    { error: "POST with an x-careloop-tick header. GET does not run the scheduler." },
+    { error: "POST with an x-after-visit-tick header. GET does not run the scheduler." },
     { status: 405 },
   );
 }

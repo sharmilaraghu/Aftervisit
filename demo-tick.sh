@@ -30,16 +30,16 @@ done
 
 # Read the token without sourcing .env — that file holds API keys and real
 # phone numbers, and sourcing it would execute whatever is in it.
-TOKEN=$(grep -E '^CARELOOP_TICK_TOKEN=' .env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"'"'" || true)
+TOKEN=$(grep -E '^AFTER_VISIT_TICK_TOKEN=' .env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"'"'" || true)
 
 if [ -z "${TOKEN:-}" ]; then
-  echo "CARELOOP_TICK_TOKEN is not set in .env."
+  echo "AFTER_VISIT_TICK_TOKEN is not set in .env."
   echo "Generate one:  openssl rand -hex 32"
   exit 1
 fi
 
 tick() {
-  curl -s -X POST -H "x-careloop-tick: $TOKEN" "http://localhost:$PORT/api/tick" \
+  curl -s -X POST -H "x-after-visit-tick: $TOKEN" "http://localhost:$PORT/api/tick" \
     | python3 -c 'import json,sys,datetime
 try:
     d = json.load(sys.stdin)

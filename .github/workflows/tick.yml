@@ -6,8 +6,8 @@
 # DEPLOYMENT.md describes, using the same `POST /api/tick` door as `--ticker`.
 #
 # Two repository secrets, under Settings → Secrets and variables → Actions:
-#   CARELOOP_TICK_URL    https://<your-host>/api/tick
-#   CARELOOP_TICK_TOKEN  the same value as the deployment's CARELOOP_TICK_TOKEN
+#   AFTER_VISIT_TICK_URL    https://<your-host>/api/tick
+#   AFTER_VISIT_TICK_TOKEN  the same value as the deployment's AFTER_VISIT_TICK_TOKEN
 #
 # GitHub's scheduler is best-effort and drifts several minutes under load. That
 # is harmless here — the tolerance is 90 minutes, not 5. It also stops running
@@ -26,7 +26,7 @@ on:
 
 # A slow tick must never have a second one pile up behind it.
 concurrency:
-  group: careloop-tick
+  group: after-visit-tick
   cancel-in-progress: false
 
 jobs:
@@ -36,13 +36,13 @@ jobs:
     steps:
       - name: Run the scheduler
         env:
-          URL: ${{ secrets.CARELOOP_TICK_URL }}
-          TOKEN: ${{ secrets.CARELOOP_TICK_TOKEN }}
+          URL: ${{ secrets.AFTER_VISIT_TICK_URL }}
+          TOKEN: ${{ secrets.AFTER_VISIT_TICK_TOKEN }}
         run: |
           # Unconfigured is not a failure: a fork, or a repository that has not
           # set up an external scheduler, should not go red every five minutes.
           if [ -z "$URL" ] || [ -z "$TOKEN" ]; then
-            echo "::notice::CARELOOP_TICK_URL and CARELOOP_TICK_TOKEN are not set — skipping the tick."
+            echo "::notice::AFTER_VISIT_TICK_URL and AFTER_VISIT_TICK_TOKEN are not set — skipping the tick."
             exit 0
           fi
           # `tick()` returns its counters, so the run log says what happened
@@ -50,5 +50,5 @@ jobs:
           curl --fail-with-body --silent --show-error \
             --max-time 120 \
             --request POST "$URL" \
-            --header "x-careloop-tick: $TOKEN"
+            --header "x-after-visit-tick: $TOKEN"
           echo

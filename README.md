@@ -81,13 +81,13 @@ AfterVisit is **no-call by default**. Three independent locks each stop a dial:
 | Lock | Default | What it does |
 |---|---|---|
 | `CALLE_API_KEY` | unset | No key, no calls. The follow-up page says so when a follow-up starts. |
-| `CARELOOP_CALL_ALLOWLIST` | **unset = locked** | Every dial is refused `not_allowlisted` until an operator lists numbers, or sets `*` for any consenting patient. |
+| `AFTER_VISIT_CALL_ALLOWLIST` | **unset = locked** | Every dial is refused `not_allowlisted` until an operator lists numbers, or sets `*` for any consenting patient. |
 | Patient consent | `unknown` | `dial()` refuses anyone whose consent is not an explicit `granted`. |
 
 So a fresh clone, or a fresh deploy, rings nobody. **The hosted demo is the deliberate
 exception:** it runs with a CALL-E key and the allowlist at `*` so judges can hear a call, and it
 has no login — treat it as a demo, not a deployment. Consent is still required on every dial, and
-the judges' Try a call sits behind `CARELOOP_TRY_PASSCODE`.
+the judges' Try a call sits behind `AFTER_VISIT_TRY_PASSCODE`.
 
 To try it end to end without a phone:
 
@@ -104,7 +104,7 @@ stand-in for CALL-E’s HTTP API.
 
 ### Opting in to a real call
 
-Set `CALLE_API_KEY`, set `CARELOOP_CALL_ALLOWLIST` to **your own number only**, register a
+Set `CALLE_API_KEY`, set `AFTER_VISIT_CALL_ALLOWLIST` to **your own number only**, register a
 patient with that number and consent recorded, write a note and start the follow-up, and keep the Follow-ups page
 open (it drives the scheduler), or run `./demo-tick.sh --every 5` to drive it from a terminal.
 Calls cost money and reach real people.

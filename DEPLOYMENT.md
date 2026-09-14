@@ -34,11 +34,11 @@ means due calls are silently skipped. Five minutes gives a wide margin.
 
 The point is to prove calls dial with **no browser tab open**.
 
-1. Set `CARELOOP_TICK_TOKEN` in `.env` (`openssl rand -hex 32`).
+1. Set `AFTER_VISIT_TICK_TOKEN` in `.env` (`openssl rand -hex 32`).
 2. `./start.sh --ticker`
 
 That starts a loop POSTing `/api/tick` every 10 seconds. The banner should read
-*Scheduler poll loop: every 10s* — if it says *"--ticker needs CARELOOP_TICK_TOKEN.
+*Scheduler poll loop: every 10s* — if it says *"--ticker needs AFTER_VISIT_TICK_TOKEN.
 Skipping the poll loop"*, the variable is not set. Next reads `.env` at boot, so restart
 after changing it.
 
@@ -78,7 +78,7 @@ The scheduler on Hobby is an external cron, hitting the same door `--ticker` use
 
 ```
 POST https://<your-host>/api/tick
-Header: x-careloop-tick: <CARELOOP_TICK_TOKEN>
+Header: x-after-visit-tick: <AFTER_VISIT_TICK_TOKEN>
 Every 5 minutes
 ```
 
@@ -86,14 +86,14 @@ Every 5 minutes
 
 1. Create a job, URL `https://<your-host>/api/tick`
 2. Method **POST**
-3. Add a header — key `x-careloop-tick`, value your `CARELOOP_TICK_TOKEN`
+3. Add a header — key `x-after-visit-tick`, value your `AFTER_VISIT_TICK_TOKEN`
 4. Schedule: every 5 minutes
 5. Save, then **Test run** — a healthy tick returns `200` with the counters as JSON.
-   `503` means `CARELOOP_TICK_TOKEN` is unset on the deployment; `401` means the header
+   `503` means `AFTER_VISIT_TICK_TOKEN` is unset on the deployment; `401` means the header
    value does not match it.
 
 **GitHub Actions** is wired as a fallback in `.github/workflows/tick.yml`. Set two
-repository secrets — `CARELOOP_TICK_URL` and `CARELOOP_TICK_TOKEN` — and it runs every five
+repository secrets — `AFTER_VISIT_TICK_URL` and `AFTER_VISIT_TICK_TOKEN` — and it runs every five
 minutes. Its scheduler is best-effort and drifts several minutes under load, which is
 harmless here since the tolerance is 90 minutes; it also stops after 60 days with no push
 to the default branch, which is why it is the fallback and not the primary.
@@ -112,22 +112,22 @@ to do, and no external cron is needed.
 
 | Variable | Needed for | If unset |
 |---|---|---|
-| `CARELOOP_TICK_TOKEN` | `POST /api/tick` — the external cron **and** `--ticker` | Endpoint returns 503 |
+| `AFTER_VISIT_TICK_TOKEN` | `POST /api/tick` — the external cron **and** `--ticker` | Endpoint returns 503 |
 | `CRON_SECRET` | `GET /api/cron/tick` — Vercel's own cron | Endpoint returns 503 |
-| `CARELOOP_PUBLIC_URL` | Handing CALL-E a `webhookUrl` | No callback; results wait for the next tick |
-| `CARELOOP_WEBHOOK_TOKEN` | The webhook receiver, and the URL above | Receiver returns 503 |
-| `CARELOOP_CALL_ALLOWLIST` | Which numbers may be dialled — a comma list, or `*` for any consenting patient | **Every dial is refused** `not_allowlisted`. This is the default on purpose: there is no auth, so a public console must not dial until an operator opens it |
+| `AFTER_VISIT_PUBLIC_URL` | Handing CALL-E a `webhookUrl` | No callback; results wait for the next tick |
+| `AFTER_VISIT_WEBHOOK_TOKEN` | The webhook receiver, and the URL above | Receiver returns 503 |
+| `AFTER_VISIT_CALL_ALLOWLIST` | Which numbers may be dialled — a comma list, or `*` for any consenting patient | **Every dial is refused** `not_allowlisted`. This is the default on purpose: there is no auth, so a public console must not dial until an operator opens it |
 | `CALLE_API_KEY` | Dialling at all | Every dial refused `missing_api_key` |
 | `OPENAI_API_KEY` | Reading the note and call triage | No follow-up can start (the note form says why); every finished call escalated unjudged |
 
-`CARELOOP_PUBLIC_URL` and `CARELOOP_WEBHOOK_TOKEN` are a pair — both, or no webhook is sent
+`AFTER_VISIT_PUBLIC_URL` and `AFTER_VISIT_WEBHOOK_TOKEN` are a pair — both, or no webhook is sent
 at all. With them, a finished call lands in seconds; without them the reconciler picks it up
 on the next tick. The reconciler is the guarantee, the webhook is the latency.
 
 ## Verifying a deployment
 
 ```bash
-curl -sS -X POST https://<host>/api/tick -H "x-careloop-tick: $CARELOOP_TICK_TOKEN"
+curl -sS -X POST https://<host>/api/tick -H "x-after-visit-tick: $AFTER_VISIT_TICK_TOKEN"
 ```
 
 Expect a JSON body of counters. `401` means the token does not match; `503` means it is not

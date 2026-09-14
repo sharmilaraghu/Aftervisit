@@ -123,10 +123,10 @@ fi
 # The banner.
 # ---------------------------------------------------------------------------
 CALLE_KEY=$(env_value CALLE_API_KEY)
-ALLOWLIST=$(env_value CARELOOP_CALL_ALLOWLIST)
+ALLOWLIST=$(env_value AFTER_VISIT_CALL_ALLOWLIST)
 DB_URL=$(env_value DATABASE_URL)
 OPENAI_KEY=$(env_value OPENAI_API_KEY)
-TICK_TOKEN=$(env_value CARELOOP_TICK_TOKEN)
+TICK_TOKEN=$(env_value AFTER_VISIT_TICK_TOKEN)
 
 OPEN_GATE=0
 case ",$ALLOWLIST," in *,\*,*) OPEN_GATE=1 ;; esac
@@ -152,9 +152,9 @@ elif [ "$OPEN_GATE" = "1" ]; then
   printf '%s  CALLS ARE LIVE and the dial allowlist is OPEN (*). Any consenting%s\n' "$RED$BOLD" "$OFF"
   printf '%s  patient on an approved plan will be called. This reaches real people.%s\n' "$RED$BOLD" "$OFF"
 elif [ "$ARMED" = "0" ]; then
-  # An empty CARELOOP_CALL_ALLOWLIST is locked (lib/config.ts): the key is set,
+  # An empty AFTER_VISIT_CALL_ALLOWLIST is locked (lib/config.ts): the key is set,
   # but no number may be dialled until an operator lists numbers or sets *.
-  warn "  CALLS ARE LOCKED — CALLE_API_KEY is set, but CARELOOP_CALL_ALLOWLIST is empty."
+  warn "  CALLS ARE LOCKED — CALLE_API_KEY is set, but AFTER_VISIT_CALL_ALLOWLIST is empty."
   echo "$DIM  Every scheduled call is refused with a visible reason. List the numbers$OFF"
   echo "$DIM  this instance may call, or set it to * to allow any consenting patient.$OFF"
 else
@@ -175,13 +175,13 @@ echo
 
 if [ "$TICKER" = "1" ]; then
   if [ -z "$TICK_TOKEN" ]; then
-    warn "  --ticker needs CARELOOP_TICK_TOKEN. Skipping the poll loop."
+    warn "  --ticker needs AFTER_VISIT_TICK_TOKEN. Skipping the poll loop."
   else
     info "  Scheduler poll loop: every 10s against /api/tick"
     (
       sleep 6
       while true; do
-        curl -s -X POST -H "x-careloop-tick: $TICK_TOKEN" \
+        curl -s -X POST -H "x-after-visit-tick: $TICK_TOKEN" \
           "http://localhost:$PORT/api/tick" >/dev/null 2>&1 || true
         sleep 10
       done
