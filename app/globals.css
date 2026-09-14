@@ -1481,6 +1481,9 @@ select {
   display: grid;
   /* The rail publishes its own width so the shell's column follows it. */
   grid-template-columns: minmax(0, 1fr);
+  /* Rows take their content's height. Stretched, a phone's rail grew by the
+     page's unused height on a near-empty screen — 136px of blank nav. */
+  align-content: start;
   background: var(--bench);
 }
 
@@ -1545,10 +1548,15 @@ select {
 }
 
 /*
- * The two roles, captioned. With no logins, the rail is the only place a new
- * receptionist — or a judge with ten seconds — learns who each section is for.
- * Side by side on a phone, stacked on a desk. Secondary ink, not the quiet one:
- * the quiet ink drops under 4.5:1 on the rail's lighter ground.
+ * The roles, as the dividers in a dispensing sleeve. With no logins, the rail is
+ * the only place a new receptionist — or a judge with ten seconds — learns who
+ * each section is for. The captions used to be 11px of the links' own ink over
+ * a 20px gap, so the groups ran together into one list. Each role now prints on
+ * its own band, the world's way of starting a section, and a group sits further
+ * from the next than its links sit from each other.
+ *
+ * Secondary ink, not the quiet one: it clears 5.7:1 on the band, where the
+ * quiet ink would not reach 4.5:1.
  */
 .rail-groups {
   display: flex;
@@ -1566,19 +1574,56 @@ select {
   color: var(--bench-ink-2);
 }
 
+/*
+ * On a phone a band would cost the rail its height, and roles laid side by side
+ * wrap unevenly at 390px. So each role is one compact row — its caption in a
+ * fixed column, its links beside it — with a hairline between roles.
+ */
+@media (max-width: 899px) {
+  .rail-groups {
+    display: grid;
+    gap: 0;
+  }
+
+  .rail-group {
+    display: grid;
+    grid-template-columns: calc(var(--cell) * 15) minmax(0, 1fr);
+    align-items: center;
+    padding-block: calc(var(--cell) * 0.5);
+  }
+
+  .rail-group + .rail-group {
+    border-top: 1px solid var(--bench-line-strong);
+  }
+
+  /* One line: "Clinic staff" broke in two and made its row the odd one out. */
+  .rail-group-label {
+    margin: 0;
+    white-space: nowrap;
+  }
+}
+
 @media (min-width: 900px) {
   .rail-groups {
     display: grid;
-    gap: calc(var(--cell) * 2.5);
+    gap: calc(var(--cell) * 3);
   }
 
   .rail-group-label {
-    padding: 0 calc(var(--cell) * 1.5);
+    margin: 0 0 calc(var(--cell) * 0.75);
+    padding: calc(var(--cell) * 0.75) calc(var(--cell) * 1.5);
+    background: var(--bench-3);
   }
 
-  /* Collapsed, the rail is a column of edge tabs; the captions would not fit. */
+  /* Collapsed, the rail is a column of edge tabs; the captions would not fit,
+     so a rule between roles keeps the groups apart. */
   .rail[data-collapsed] .rail-group-label {
     display: none;
+  }
+
+  .rail[data-collapsed] .rail-group + .rail-group {
+    padding-top: calc(var(--cell) * 2);
+    border-top: 1px solid var(--bench-line-strong);
   }
 }
 

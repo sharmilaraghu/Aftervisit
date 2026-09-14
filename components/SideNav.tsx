@@ -154,7 +154,7 @@ export function SideNav({
           vertically, a quarter of every phone screen spent on navigation. */}
       <div className="rail-groups">
         {GROUPS.map(({ role, items }) => (
-          <div key={role}>
+          <div key={role} className="rail-group">
             <p className="rail-group-label" id={`rail-${role.replace(/\s+/g, "-").toLowerCase()}`}>
               {role}
             </p>
