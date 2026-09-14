@@ -85,6 +85,13 @@ doctor's free-text note → "Save and start follow-up"
    or empty refuses every dial, a list allows only those numbers, and `*` opens it to any
    consenting patient. There is no auth, so a public console must not be able to dial
    until an operator deliberately opens it.
+   *The judges' instant call* (`/try`) is the one deliberate exception, chosen for the
+   hackathon: a judge types a first name, a number, a language and optionally a note, and
+   that number rings now with **nothing saved** — no patient, no call row — so a page closed
+   mid-call cannot show that result again (law 1's price, accepted on purpose). It stays
+   shut unless `CARELOOP_TRY_PASSCODE` is set, needs the allowlist at `*`, and passes a
+   consent tick box as `consentGranted`. The note compiler, the assembled script with its
+   AI disclosure and stop-the-call clause, and every check inside `dial()` still run.
 3. **Never weaken the guard, the AI disclosure, the emergency stop, or the emergency
    handoff** to make a demo smoother. If they get in the way, that *is* the demo.
    *Consent moved off the call deliberately* — it is a condition of enrolment recorded on

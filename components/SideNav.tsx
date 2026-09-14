@@ -29,7 +29,7 @@ import { Badge } from "@/components/ui";
 import { Logo } from "@/components/Logo";
 
 /**
- * Three sections, grouped by who uses them.
+ * The sections, grouped by who uses them.
  *
  * There are no logins, so the roles are made obvious the only way left: the
  * rail says who each section is for. Clinic staff register patients and book
@@ -54,6 +54,11 @@ const GROUPS = [
       { label: "Consultations", href: "/consult", also: [] },
       { label: "Follow-ups", href: "/dashboard", also: ["/plans", "/calls", "/followups"] },
     ],
+  },
+  {
+    /* One call on your own phone, behind a passcode. Named for who it is for, like the others. */
+    role: "Judges",
+    items: [{ label: "Try a call", href: "/try", also: [] }],
   },
 ] as const;
 

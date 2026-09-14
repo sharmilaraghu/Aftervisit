@@ -211,7 +211,7 @@ function answeredBy(call: Call): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
-function flattenTranscript(call: Call): StoredTurn[] {
+export function flattenTranscript(call: Call): StoredTurn[] {
   const turns: StoredTurn[] = [];
   for (const recipient of call.recipients ?? []) {
     for (const attempt of recipient.attempts ?? []) {

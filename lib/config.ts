@@ -86,6 +86,13 @@ export interface CareLoopConfig {
    */
   practiceName: string;
   clinicianName: string;
+  /**
+   * The passcode for the judges' instant call at /try.
+   *
+   * That page rings a typed number with nothing saved, and there is no login —
+   * so unset keeps it shut, the same fail-closed stance as the tick token.
+   */
+  tryPasscode: string | null;
 }
 
 /** The one way to open the lock: an explicit `*`. */
@@ -115,5 +122,6 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): CareLoopConfig
     publicUrl: (env.CARELOOP_PUBLIC_URL || "").replace(/\/+$/, "") || null,
     practiceName: env.CARELOOP_PRACTICE_NAME || "Banyan Family Clinic",
     clinicianName: env.CARELOOP_CLINICIAN_NAME || "Dr Rao",
+    tryPasscode: env.CARELOOP_TRY_PASSCODE || null,
   };
 }
