@@ -31,10 +31,10 @@
  * gets a record to show without the scheduler having anyone to ring. It clears
  * only seeded patients that are not archived, so archived history stays.
  *
- * `--waiting` seeds only patients booked for today with no note yet, ready on
- * the Consultations list. It clears only earlier waiting patients — seeded,
- * not archived, with no follow-up — so the closed history is left alone, and
- * `--closed` in turn clears only seeded patients that have a follow-up.
+ * `--closed` also books visits on earlier days — two seen, each linked to the
+ * note its closed course came from, and one patient who never turned up — so
+ * the consult history has both endings without anyone waiting today. Waiting
+ * patients are left to be booked by hand.
  */
 
 import { config } from "dotenv";
@@ -57,7 +57,8 @@ import {
   DEMO_UTTERANCES,
   SEED_PATIENTS,
   SEED_UNPLANNED,
-  SEED_WAITING,
+  SEED_CLOSED_EXTRA,
+  SEED_NO_SHOWS,
   type SeedDay,
 } from "../data/demo-patients";
 import { UNIVERSAL_QUESTIONS } from "../lib/plan/universal-questions";
@@ -78,8 +79,8 @@ const db = drizzle(neon(url), { schema });
 /** Finished history only: nothing scheduled, nothing open, nothing waiting. */
 const CLOSED = process.argv.includes("--closed");
 
-/** Only today's waiting patients: no plans, no calls, nothing to dial until a note is written. */
-const WAITING = process.argv.includes("--waiting");
+/** Every number closed seeding writes — and so the only numbers it may clear. */
+const CLOSED_PHONES = [...SEED_PATIENTS, ...SEED_CLOSED_EXTRA, ...SEED_NO_SHOWS].map((p) => p.phone);
 
 // ---------------------------------------------------------------------------
 // What every call records
@@ -353,8 +354,8 @@ function build(): Built {
    * Patients with nothing hanging off them. `needs_plan` is derived from the
    * absent plan row, so this loop writes one row each and that is the state.
    */
-  /* Closed history has no one still waiting for a plan. */
-  for (const p of WAITING ? SEED_WAITING : CLOSED ? [] : SEED_UNPLANNED) {
+  /* Closed history has no one waiting — only a patient who never turned up. */
+  for (const p of CLOSED ? SEED_NO_SHOWS : SEED_UNPLANNED) {
     const patientId = newId("pat");
     out.patients.push({
       id: patientId,
@@ -369,19 +370,21 @@ function build(): Built {
       createdAt: new Date(now - 1 * DAY_MS),
       updatedAt: new Date(now - 1 * DAY_MS),
     });
-    // Booked for today, in their own zone, and still waiting for the doctor.
+    /* Booked for today, in their own zone, and still waiting for the doctor —
+       or, for closed history, a day that has passed and a patient who never came. */
+    const daysAgo = CLOSED ? (p.daysAgo ?? 3) : 0;
     out.visits.push({
       id: newId("vis"),
       patientId,
       kind: p.visit.kind,
-      visitDate: localDate(new Date(now), p.timezone),
+      visitDate: localDate(new Date(now - daysAgo * DAY_MS), p.timezone),
       reportedSymptoms: p.visit.reportedSymptoms,
-      status: "waiting",
-      createdAt: new Date(now - 1 * DAY_MS),
+      status: CLOSED ? "no_show" : "waiting",
+      createdAt: new Date(now - (daysAgo + 1) * DAY_MS),
     });
   }
 
-  for (const p of WAITING ? [] : SEED_PATIENTS) {
+  for (const p of CLOSED ? [...SEED_PATIENTS, ...SEED_CLOSED_EXTRA] : SEED_PATIENTS) {
     // A real, armed number can replace the fiction one at seed time. It is read
     // from the environment and never written back to the repository.
     let phone = p.phone;
@@ -409,6 +412,8 @@ function build(): Built {
     /* Closed: every day of the window happened, so a call still ahead becomes one that was answered. */
     const week: SeedDay[] = CLOSED ? p.week.map((d) => (d === "scheduled" ? "answered" : d)) : p.week;
     const elapsed = elapsedDays(week);
+    /* A course is as long as its week — seven for the main cohort, shorter for some closed ones. */
+    const days = week.length;
 
     out.patients.push({
       id: patientId,
@@ -426,6 +431,23 @@ function build(): Built {
 
     /* Back today with something new: a waiting visit on the doctor's list,
        with this patient's earlier follow-up to read beside it. */
+    /* Closed history: the consultation this course came from, seen and written up
+       the day the note was — the way Save and start follow-up leaves a visit. */
+    if (p.visit && CLOSED) {
+      const seenAt = new Date(now - (elapsed + 1) * DAY_MS);
+      out.visits.push({
+        id: newId("vis"),
+        patientId,
+        kind: p.visit.kind,
+        visitDate: localDate(seenAt, p.timezone),
+        reportedSymptoms: p.visit.reportedSymptoms,
+        status: "seen",
+        noteId,
+        seenAt,
+        createdAt: new Date(seenAt.getTime() - 2 * 60 * 60 * 1000),
+      });
+    }
+
     if (p.visitToday && !CLOSED) {
       out.visits.push({
         id: newId("vis"),
@@ -588,7 +610,7 @@ function build(): Built {
        different things. */
     const planLocalTime = p.timezone === "Asia/Kolkata" ? "17:30" : "10:00";
     const startsAt = occurrenceAt(now, 1, elapsed, p.timezone, planLocalTime);
-    const endsAt = occurrenceAt(now, 7, elapsed, p.timezone, planLocalTime);
+    const endsAt = occurrenceAt(now, days, elapsed, p.timezone, planLocalTime);
     const redFlagTerms: RedFlagTerm[] = redFlagsFor(p.condition).map((term) => ({
       term,
       source: "default",
@@ -604,7 +626,7 @@ function build(): Built {
       reason: p.reason,
       condition: p.condition,
       goal: p.goal,
-      durationDays: 7,
+      durationDays: days,
       cadence: "daily",
       localTime: planLocalTime,
       timeScale: 1,
@@ -790,7 +812,7 @@ function build(): Built {
         calleStatus: "completed",
         resultStatus: "present",
         structuredResult: structured,
-        summary: `Follow-up call ${occurrence} of 7. Patient reached.`,
+        summary: `Follow-up call ${occurrence} of ${days}. Patient reached.`,
         taskCompleted: true,
         completionConfidence: { score: 0.94, label: "high" },
         evidence: [utterance],
@@ -929,14 +951,12 @@ async function clearSeeded(): Promise<number> {
   const rows = (
     await db.execute(
       /* Closed seeding leaves archived patients alone: their history was kept on purpose. */
-      /* Each partial mode clears only its own kind: waiting patients have no follow-up, closed ones do. */
-      WAITING
-        ? sqlRaw`select id from patients where phone_e164 like '+1%55501__' and archived_at is null
-                 and not exists (select 1 from follow_up_plans p where p.patient_id = patients.id)`
-        : CLOSED
-          ? sqlRaw`select id from patients where phone_e164 like '+1%55501__' and archived_at is null
-                   and exists (select 1 from follow_up_plans p where p.patient_id = patients.id)`
-          : sqlRaw`select id from patients where phone_e164 like '+1%55501__'`,
+      /* Closed seeding clears exactly the numbers it writes and never an archived
+         record, so a patient booked by hand is untouched even on a fiction number. */
+      CLOSED
+        ? sqlRaw`select id from patients where archived_at is null
+                 and phone_e164 in (${sqlRaw.join(CLOSED_PHONES.map((ph) => sqlRaw`${ph}`), sqlRaw`, `)})`
+        : sqlRaw`select id from patients where phone_e164 like '+1%55501__'`,
     )
   ).rows as { id: string }[];
 
@@ -982,10 +1002,10 @@ async function main() {
 
   console.log("  Inserting…");
   await db.insert(schema.patients).values(built.patients as never);
-  // Closed history books no visits, and drizzle refuses an empty insert.
-  if (built.visits.length) await db.insert(schema.visits).values(built.visits as never);
-  // Waiting patients have no note, plan or questions yet; drizzle refuses an empty insert.
+  // Notes before visits: a seen visit points at the note it was written up in.
+  // Empty inserts are skipped, because drizzle refuses them.
   if (built.notes.length) await db.insert(schema.consultationNotes).values(built.notes as never);
+  if (built.visits.length) await db.insert(schema.visits).values(built.visits as never);
   if (built.plans.length) await db.insert(schema.followUpPlans).values(built.plans as never);
   if (built.questions.length) await db.insert(schema.planQuestions).values(built.questions as never);
   // Chunked: the HTTP driver has a statement size ceiling and the transcript

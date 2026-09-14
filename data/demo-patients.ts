@@ -107,6 +107,12 @@ export interface SeedPatient {
    * as a clinician would record it — what happened, never advice to the patient.
    */
   closed?: { summary: string; resolution?: "resumed" | "contacted_patient"; resolutionNote?: string };
+  /**
+   * The consultation this course came from, for `seed --closed`: booked,
+   * seen on the day the note was written, and linked to that note — the way
+   * *Save and start follow-up* leaves a visit.
+   */
+  visit?: { kind: "consultation" | "post_op"; reportedSymptoms: string };
 }
 
 export interface SeedPriorPlan {
@@ -141,6 +147,8 @@ export interface SeedUnplannedPatient {
   consent: "granted" | "unknown" | "declined";
   /** What the front desk booked. In the receptionist's words, never the model's input. */
   visit: { kind: "consultation" | "post_op"; reportedSymptoms: string };
+  /** For a visit on an earlier day, how many days ago it was booked for. */
+  daysAgo?: number;
 }
 
 /*
@@ -337,14 +345,11 @@ export const SEED_UNPLANNED: SeedUnplannedPatient[] = [
 ];
 
 /**
- * Patients waiting to be seen today, for `seed --waiting`.
- *
- * Booked at the desk, consent recorded, no note yet — they sit on the doctor's
- * Consultations list so a demo can write the note and press Save and start
- * follow-up. Numbers stay fiction-reserved: a follow-up started for one of them
- * dials a line that cannot connect.
+ * Consultations from earlier this week that were seen and followed up, for
+ * `seed --closed` only. Shorter courses than the main cohort's week, each
+ * closed by the doctor, each with the seen visit it came from.
  */
-export const SEED_WAITING: SeedUnplannedPatient[] = [
+export const SEED_CLOSED_EXTRA: SeedPatient[] = [
   {
     slug: "anil-d",
     name: "Anil D",
@@ -353,10 +358,32 @@ export const SEED_WAITING: SeedUnplannedPatient[] = [
     language: "en-IN",
     phone: "+14155550172",
     consent: "granted",
+    condition: "hypertension",
+    reason: "Blood pressure · new amlodipine",
+    note:
+      "Anil D, 63. BP 164/100 with headaches in the mornings. Started amlodipine 5mg once daily. " +
+      "Call daily for five days: is he taking it, any headaches or dizziness, and his home blood " +
+      "pressure reading. Escalate if he has chest pain or blurred vision.",
+    planStatus: "completed",
+    goal: "Find out whether he is taking the amlodipine, and how his headaches and home blood pressure are.",
+    watchPoints: [
+      { text: "whether he is taking the amlodipine", quote: "is he taking it" },
+      { text: "headaches or dizziness", quote: "any headaches or dizziness" },
+      { text: "his home blood pressure reading", quote: "his home blood pressure reading" },
+    ],
+    topicAnswers: ["taking it every morning", "no headaches after the second day", "around 140 over 90"],
+    scheduleQuotes: { cadence: "daily", durationDays: "for five days" },
+    week: ["answered", "answered", "answered", "answered", "answered"],
+    conditionSummary:
+      "Taking amlodipine every morning, headaches gone after the second day, and home readings around 140/90.",
     visit: {
       kind: "consultation",
       reportedSymptoms:
-        "Blood pressure read 164/100 at the pharmacy last week. Occasional headaches in the morning. Already on amlodipine.",
+        "Blood pressure read 164/100 at the pharmacy. Occasional headaches in the morning.",
+    },
+    closed: {
+      summary:
+        "Taking amlodipine every day, headaches settled, home readings down to about 140/90. Follow-up complete; blood pressure review at clinic in four weeks.",
     },
   },
   {
@@ -367,12 +394,41 @@ export const SEED_WAITING: SeedUnplannedPatient[] = [
     language: "ta-IN",
     phone: "+14155550185",
     consent: "granted",
+    condition: "post_op_wound",
+    reason: "Appendectomy · wound and pain",
+    note:
+      "Kavya M, 34. Day 2 after a laparoscopic appendectomy. Call each evening for four days: " +
+      "are the port sites clean and dry, is the pain settling. Escalate if a wound is red and hot or she has a fever.",
+    planStatus: "completed",
+    goal: "Find out whether the port sites are clean and the pain is settling.",
+    watchPoints: [
+      { text: "whether the port sites are clean and dry", quote: "are the port sites clean and dry" },
+      { text: "her pain score", quote: "is the pain settling", unit: "score_0_10" },
+    ],
+    topicAnswers: ["clean and dry", "settling"],
+    measured: { topic: 1, values: ["4", "3", "2", "1"] },
+    utteranceTopic: 0,
+    scheduleQuotes: { cadence: "each evening", durationDays: "for four days", localTime: "each evening" },
+    week: ["answered", "answered", "answered", "answered"],
+    conditionSummary: "Port sites clean and dry, and the pain is down to 1 out of 10.",
     visit: {
       kind: "post_op",
       reportedSymptoms:
         "Day 2 after a laparoscopic appendectomy. Asking how to look after the wound and when the stitches come out.",
     },
+    closed: {
+      summary:
+        "Port sites healed cleanly and the pain was down to 1 out of 10 by the fourth evening. Discharged from follow-up; stitches out at the clinic.",
+    },
   },
+];
+
+/**
+ * Booked earlier this week and never arrived, for `seed --closed` only. No note
+ * and no follow-up — the roster shows them as still needing one, which is what
+ * a no-show leaves behind for the desk to rebook.
+ */
+export const SEED_NO_SHOWS: SeedUnplannedPatient[] = [
   {
     slug: "joseph-p",
     name: "Joseph P",
@@ -381,10 +437,10 @@ export const SEED_WAITING: SeedUnplannedPatient[] = [
     language: "ml-IN",
     phone: "+14155550146",
     consent: "granted",
+    daysAgo: 3,
     visit: {
       kind: "consultation",
-      reportedSymptoms:
-        "Getting short of breath on the stairs for about two weeks. Ankles swollen by the evening.",
+      reportedSymptoms: "Getting short of breath on the stairs for about two weeks. Ankles swollen by the evening.",
     },
   },
 ];
@@ -429,6 +485,13 @@ export const DEMO_UTTERANCES: Record<string, string[]> = {
     // It has to be an answer that genuinely reads as moderate — the rule that
     // fires on it is `symptom_severity in ("moderate")`.
     "It's got a fair bit sorer since yesterday and I've stopped going upstairs.",
+  ],
+  hypertension: [
+    "Taking it every morning after breakfast.",
+    "The headache's gone, first morning without one.",
+    "The machine said 142 over 90 this morning.",
+    "No dizziness, I feel steadier.",
+    "All fine, still taking it every day.",
   ],
   thyroid: [
     "Energy's better than it was.",
