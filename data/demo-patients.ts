@@ -101,6 +101,12 @@ export interface SeedPatient {
    * calendar.
    */
   priorPlan?: SeedPriorPlan;
+  /**
+   * How this course ended, for `seed --closed`: the file the doctor closed and,
+   * when a day was flagged or went quiet, what the doctor did about it. Written
+   * as a clinician would record it — what happened, never advice to the patient.
+   */
+  closed?: { summary: string; resolution?: "resumed" | "contacted_patient"; resolutionNote?: string };
 }
 
 export interface SeedPriorPlan {
@@ -170,6 +176,12 @@ export const SEED_PATIENTS: SeedPatient[] = [
     scheduleQuotes: { cadence: "daily", durationDays: "for a week" },
     flagRule: "red_flag_term_heard",
     week: ["answered", "answered", "flagged", "held", "scheduled", "scheduled", "scheduled"],
+    closed: {
+      summary:
+        "Vomiting settled within a day once the tablets were taken with food. Taking metformin twice daily and tolerating it on every later call. Follow-up complete.",
+      resolution: "resumed",
+      resolutionNote: "Spoke to her the same afternoon. Keeping fluids down by the evening, so calls resumed.",
+    },
   },
   {
     slug: "mohan-b",
@@ -198,6 +210,12 @@ export const SEED_PATIENTS: SeedPatient[] = [
     topicAnswers: ["same as yesterday", "breathing alright", "no change"],
     scheduleQuotes: { cadence: "Daily check", durationDays: "for a week" },
     week: ["answered", "answered", "missed", "missed", "missed", "scheduled", "scheduled"],
+    closed: {
+      summary:
+        "Went quiet for three days mid-week. Reached by the clinic; weight and breathing steady on the last two calls. File closed, clinic review booked.",
+      resolution: "contacted_patient",
+      resolutionNote: "Rang him from the clinic. He had been staying with his daughter and had no new symptoms.",
+    },
     priorPlan: {
       condition: "chest_infection",
       reason: "Chest infection · antibiotic course",
@@ -232,10 +250,13 @@ export const SEED_PATIENTS: SeedPatient[] = [
       { text: "her pain score", quote: "is the pain settling", unit: "score_0_10" },
     ],
     topicAnswers: ["dry, no discharge", "settling"],
-    measured: { topic: 1, values: ["5", "4", "3"] },
+    measured: { topic: 1, values: ["5", "4", "3", "3", "2", "2", "1"] },
     utteranceTopic: 0,
     scheduleQuotes: { cadence: "each evening", durationDays: "for a week", localTime: "each evening" },
     week: ["answered", "answered", "answered", "scheduled", "scheduled", "scheduled", "scheduled"],
+    closed: {
+      summary: "Wound dry and healed, pain down to 1 out of 10 by the end of the week. Discharged from follow-up.",
+    },
     conditionSummary:
       "Wound is dry with no redness or discharge, and the pain is settling. Nothing she described is concerning.",
   },
@@ -270,6 +291,9 @@ export const SEED_PATIENTS: SeedPatient[] = [
     week: ["answered", "answered", "answered", "answered", "answered", "answered", "answered"],
     conditionSummary:
       "Energy is better, no palpitations this week, and he is sleeping properly. Nothing concerning on any call.",
+    closed: {
+      summary: "Energy and sleep back to normal on 75mcg, no palpitations all week. No further calls needed.",
+    },
     visitToday: {
       kind: "consultation",
       reportedSymptoms:

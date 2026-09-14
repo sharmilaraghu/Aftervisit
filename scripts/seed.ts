@@ -24,6 +24,12 @@
  * the rows below.
  *
  * Re-runnable: it clears the Care Loop tables first, in foreign-key order.
+ *
+ * `--closed` seeds the same patients as finished history instead: every
+ * follow-up closed by the doctor with a closing summary, every escalation
+ * resolved, no visits waiting and no call still ahead — so a live deployment
+ * gets a record to show without the scheduler having anyone to ring. It clears
+ * only seeded patients that are not archived, so archived history stays.
  */
 
 import { config } from "dotenv";
@@ -62,6 +68,9 @@ if (!url) {
 }
 
 const db = drizzle(neon(url), { schema });
+
+/** Finished history only: nothing scheduled, nothing open, nothing waiting. */
+const CLOSED = process.argv.includes("--closed");
 
 // ---------------------------------------------------------------------------
 // What every call records
@@ -199,6 +208,24 @@ const FLAG_SPECS = {
 } as const;
 
 /**
+ * An escalation a clinician already dealt with, for `--closed`.
+ *
+ * Acknowledged an hour after it was raised and resolved two hours later, with
+ * the doctor's own record of what they did — a closed file with an open
+ * escalation on it would be a contradiction the queue shows.
+ */
+function resolved(p: (typeof SEED_PATIENTS)[number], raisedAt: Date): Row {
+  return {
+    status: "resolved",
+    acknowledgedAt: new Date(raisedAt.getTime() + 60 * 60 * 1000),
+    resolvedAt: new Date(raisedAt.getTime() + 3 * 60 * 60 * 1000),
+    resolvedBy: "Dr Rao",
+    resolution: p.closed?.resolution ?? "contacted_patient",
+    resolutionNote: p.closed?.resolutionNote ?? null,
+  };
+}
+
+/**
  * The floor every seeded plan carries.
  *
  * Four rules, and no doctor authored any of them — which is the point. What a
@@ -317,7 +344,8 @@ function build(): Built {
    * Patients with nothing hanging off them. `needs_plan` is derived from the
    * absent plan row, so this loop writes one row each and that is the state.
    */
-  for (const p of SEED_UNPLANNED) {
+  /* Closed history has no one still waiting for a plan. */
+  for (const p of CLOSED ? [] : SEED_UNPLANNED) {
     const patientId = newId("pat");
     out.patients.push({
       id: patientId,
@@ -348,7 +376,8 @@ function build(): Built {
     // A real, armed number can replace the fiction one at seed time. It is read
     // from the environment and never written back to the repository.
     let phone = p.phone;
-    if (p.phoneOverrideEnv) {
+    // Not for closed history: nothing rings, so a real number has no reason to be stored.
+    if (p.phoneOverrideEnv && !CLOSED) {
       const raw = process.env[p.phoneOverrideEnv];
       if (raw) {
         const normalized = normalizePhone(raw);
@@ -368,7 +397,9 @@ function build(): Built {
     const noteId = newId("note");
     const planId = newId("pln");
     const firstName = p.name.split(" ")[0];
-    const elapsed = elapsedDays(p.week);
+    /* Closed: every day of the window happened, so a call still ahead becomes one that was answered. */
+    const week: SeedDay[] = CLOSED ? p.week.map((d) => (d === "scheduled" ? "answered" : d)) : p.week;
+    const elapsed = elapsedDays(week);
 
     out.patients.push({
       id: patientId,
@@ -386,7 +417,7 @@ function build(): Built {
 
     /* Back today with something new: a waiting visit on the doctor's list,
        with this patient's earlier follow-up to read beside it. */
-    if (p.visitToday) {
+    if (p.visitToday && !CLOSED) {
       out.visits.push({
         id: newId("vis"),
         patientId,
@@ -560,7 +591,7 @@ function build(): Built {
       noteId,
       version: p.priorPlan?.closeReason === "superseded" ? 2 : 1,
       supersedesPlanId: p.priorPlan?.closeReason === "superseded" ? priorPlanId : null,
-      status: p.planStatus,
+      status: CLOSED ? "completed" : p.planStatus,
       reason: p.reason,
       condition: p.condition,
       goal: p.goal,
@@ -576,8 +607,14 @@ function build(): Built {
       approvedBy: "Dr Rao",
       /* A completed current plan ran out of calendar and nobody closed the
          file — the doctor's "Finished" band, with no closing note yet. */
-      closeReason: p.planStatus === "completed" ? "duration_elapsed" : null,
-      closedAt: p.planStatus === "completed" ? endsAt : null,
+      closeReason: CLOSED ? "clinician_closed" : p.planStatus === "completed" ? "duration_elapsed" : null,
+      closedAt: CLOSED
+        ? new Date(endsAt.getTime() + 3 * 60 * 60 * 1000)
+        : p.planStatus === "completed"
+          ? endsAt
+          : null,
+      /* Closed by the doctor, in their words — what takes a patient off the "Finished" band. */
+      ...(CLOSED ? { closingSummary: p.closed?.summary ?? "Follow-up complete." } : {}),
       rules: rulesFor(),
       redFlagTerms,
       provenance: {
@@ -626,12 +663,12 @@ function build(): Built {
     const last: { reached: { summary: string | null; at: Date; callId: string } | null } = {
       reached: null,
     };
-    const lastReachedIndex = p.week.reduce(
+    const lastReachedIndex = week.reduce(
       (acc, d, i) => (d === "answered" || d === "flagged" ? i : acc),
       -1,
     );
 
-    p.week.forEach((day, index) => {
+    week.forEach((day, index) => {
       const occurrence = index + 1;
       const at = occurrenceAt(now, occurrence, elapsed, p.timezone, planLocalTime);
 
@@ -806,7 +843,7 @@ function build(): Built {
           /* One row per call, matching what `completeCall` writes. */
           triageId,
           dedupeKey: `${planId}:call:${callId}`,
-          status: "open",
+          ...(CLOSED ? resolved(p, finishedAt) : { status: "open" }),
           // Only an urgent escalation stops a plan, and only the plan it
           // actually stopped may claim it did.
           pausedPlan: spec.urgent && p.planStatus === "paused",
@@ -824,11 +861,16 @@ function build(): Built {
 
     // A patient who has gone quiet across three exhausted occurrences gets one
     // routine escalation, attached to the last attempt that failed.
-    const missedDays = p.week.filter((d) => d === "missed").length;
+    const missedDays = week.filter((d) => d === "missed").length;
     if (missedDays >= 3) {
       const lastMissed = [...out.calls].reverse().find(
         (c) => c.planId === planId && c.outcome === "no_answer",
       );
+      /* Closed: raised when the third quiet day ended, not "just now" — the week after it happened too. */
+      const raisedAt =
+        CLOSED && lastMissed
+          ? new Date((lastMissed.finishedAt as Date).getTime() + 2 * 60 * 60 * 1000)
+          : new Date(now - 0.4 * DAY_MS);
       out.escalations.push({
         id: newId("esc"),
         patientId,
@@ -853,9 +895,9 @@ function build(): Built {
           `has heard from this patient in ${missedDays} days.`,
         utterance: null,
         dedupeKey: `${planId}:no_answer_exhausted:${lastMissed?.id ?? "none"}`,
-        status: "open",
+        ...(CLOSED ? resolved(p, raisedAt) : { status: "open" }),
         pausedPlan: false,
-        raisedAt: new Date(now - 0.4 * DAY_MS),
+        raisedAt,
       });
     }
   }
@@ -877,7 +919,10 @@ function build(): Built {
 async function clearSeeded(): Promise<number> {
   const rows = (
     await db.execute(
-      sqlRaw`select id from patients where phone_e164 like '+1%55501__'`,
+      /* Closed seeding leaves archived patients alone: their history was kept on purpose. */
+      CLOSED
+        ? sqlRaw`select id from patients where phone_e164 like '+1%55501__' and archived_at is null`
+        : sqlRaw`select id from patients where phone_e164 like '+1%55501__'`,
     )
   ).rows as { id: string }[];
 
@@ -923,7 +968,8 @@ async function main() {
 
   console.log("  Inserting…");
   await db.insert(schema.patients).values(built.patients as never);
-  await db.insert(schema.visits).values(built.visits as never);
+  // Closed history books no visits, and drizzle refuses an empty insert.
+  if (built.visits.length) await db.insert(schema.visits).values(built.visits as never);
   await db.insert(schema.consultationNotes).values(built.notes as never);
   await db.insert(schema.followUpPlans).values(built.plans as never);
   await db.insert(schema.planQuestions).values(built.questions as never);
