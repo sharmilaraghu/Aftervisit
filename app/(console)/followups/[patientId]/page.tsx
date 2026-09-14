@@ -30,6 +30,7 @@ import { getPatientSummary } from "@/lib/db/summary";
 import { getParameterGrid } from "@/lib/db/parameters";
 import { getPlanForReview } from "@/lib/db/plans";
 import { getLatestReading, getTopicFindings } from "@/lib/db/followup";
+import { getTriage } from "@/lib/db/triage";
 import { getWaitingVisits } from "@/lib/db/visits";
 import { HEALTH_LABEL } from "@/lib/patients/labels";
 import { languageLabel } from "@/lib/patients/languages";
@@ -81,7 +82,12 @@ export default async function FollowUpPatientPage({
   const live = detail.planStatus === "active" || detail.planStatus === "paused";
   const draft = detail.planStatus === "awaiting_approval";
   const firstName = patient.name.split(" ")[0];
-  const waiting = summary.escalations.find((e) => e.status === "open" || e.status === "acknowledged");
+  const openFlags = summary.escalations.filter((e) => e.status === "open" || e.status === "acknowledged");
+  const waiting = openFlags[0];
+  /* What made the call alarming — which of the doctor's own conditions it
+     touched and the patient's words — lived only on the call page, so the
+     decision block said "severe" without saying why. */
+  const flagTriage = waiting?.callId ? await getTriage(waiting.callId) : null;
   const now = new Date();
   const nextCall = detail.calls
     .filter((c) => c.status === "scheduled" && c.scheduledFor > now)
@@ -241,6 +247,25 @@ export default async function FollowUpPatientPage({
             {reading?.quote && reading.quoteCallId === waiting.callId ? (
               <p style={{ margin: "calc(var(--cell) * 1) 0 0", fontSize: 15, color: "var(--print-2)" }}>
                 In their words: &ldquo;{reading.quote}&rdquo;
+              </p>
+            ) : null}
+            {flagTriage && flagTriage.matchedConcerns.length > 0 ? (
+              <p style={{ margin: "calc(var(--cell) * 1) 0 0", fontSize: 15 }}>
+                <span style={{ color: "var(--print-3)" }}>Matches your note: </span>
+                <span style={{ color: "var(--print)", fontWeight: 600 }}>{flagTriage.matchedConcerns.join(" · ")}</span>
+              </p>
+            ) : null}
+            {flagTriage && flagTriage.keyTerms.length > 0 ? (
+              <p style={{ margin: "calc(var(--cell) * 1) 0 0", fontSize: 15 }}>
+                <span style={{ color: "var(--print-3)" }}>What they said: </span>
+                <span style={{ color: "var(--print)" }}>
+                  {flagTriage.keyTerms.map((t) => `“${t}”`).join(" · ")}
+                </span>
+              </p>
+            ) : null}
+            {openFlags.length > 1 ? (
+              <p style={{ margin: "calc(var(--cell) * 1) 0 0", fontSize: 14, color: "var(--print-2)" }}>
+                {openFlags.length - 1} earlier flag{openFlags.length === 2 ? " is" : "s are"} also open — see the calls below.
               </p>
             ) : null}
             <p style={{ margin: "calc(var(--cell) * 1) 0 0", fontSize: 13, color: "var(--print-3)" }}>
