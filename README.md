@@ -14,7 +14,7 @@ for a week.**
 | | |
 |---|---|
 | **Live app** | https://aftervisit-calle.vercel.app — fictional `555-01xx` patients only; judges can ring their own phone with **Try a call** |
-| **Demo video** | _link added on upload_ (under 3 minutes) |
+| **Demo video** | https://www.youtube.com/watch?v=GWiwZul4Kss (under 3 minutes) |
 | **Built for** | *CALL-E: Your Code Is Calling* hackathon |
 
 > **This is a hackathon prototype. It is not for use with real patient data.** Every patient,

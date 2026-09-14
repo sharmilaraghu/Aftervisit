@@ -45,3 +45,6 @@ demo/
 
 docs/
 
+
+# Local media generator for the demo video (ElevenLabs); not part of the app.
+scripts/elevenlabs.ts
