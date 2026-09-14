@@ -73,10 +73,11 @@ doctor's free-text note
    silently skipped, never quietly simulated. `consentGranted` is a **required** field on
    `DialRequest` precisely so a new call site fails to compile rather than defaulting to
    dialling someone who never agreed.
-   `CARELOOP_CALL_ALLOWLIST` survives as an **optional deployment lock**, answering a
-   different question: may this instance reach the outside world at all. Unset it narrows
-   nothing. **Set it on any deployment that is publicly reachable without a login**, where
-   anyone who can load the console can enrol a patient and cause a dial.
+   `CARELOOP_CALL_ALLOWLIST` is the **deployment lock**, answering a different question:
+   may this instance reach the outside world at all. **It is closed by default** — unset
+   or empty refuses every dial, a list allows only those numbers, and `*` opens it to any
+   consenting patient. There is no auth, so a public console must not be able to dial
+   until an operator deliberately opens it.
 3. **Never weaken the guard, the AI disclosure, the emergency stop, or the emergency
    handoff** to make a demo smoother. If they get in the way, that *is* the demo.
    *Consent moved off the call deliberately* — it is a condition of enrolment recorded on
@@ -151,7 +152,7 @@ Care Loop/
     phone/normalize.ts    E.164, or an explicit refusal — never a guess
     db/                   Drizzle schema, queries, Neon client
   data/                   seeded patients, demo notes, red-flag term lists
-  skill/                  the installable Care Loop agent skill + worked examples
+  skills/care-loop/       the installable Care Loop agent skill + worked examples
 ```
 
 ## Stack

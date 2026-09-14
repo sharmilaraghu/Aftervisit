@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { createCallePort } from "./port";
+import { callePortFromEnv, createCallePort } from "./port";
 import { createFakeCalleFetch } from "./fake-server";
 
 // US fiction-reserved. Nothing in this repo may carry a number that could be real.
@@ -110,12 +110,22 @@ describe("createCallePort — consent is what authorises a call", () => {
   });
 });
 
-describe("createCallePort — the optional deployment lock", () => {
+describe("createCallePort — the deployment lock, closed by default", () => {
   /*
-   * Not the authorisation gate any more: consent is. This answers a different
-   * question — may this *instance* reach the outside world at all — which is
-   * what you want a hard answer to on a public URL with no login.
+   * Consent authorises a call for a patient; this answers a different question
+   * — may this *instance* reach the outside world at all — which needs a hard
+   * "no" on a public URL with no login until an operator opens it.
    */
+  it("refuses when built from an environment with a key but no allowlist", async () => {
+    // The refusal comes before any request, so this cannot dial.
+    const outcome = await callePortFromEnv({
+      CALLE_API_KEY: "test-key",
+    } as unknown as NodeJS.ProcessEnv).dial(request({ phone: NOT_ARMED }));
+
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) expect(outcome.refusal).toBe("not_allowlisted");
+  });
+
   it("dials any number when the gate is explicitly open", async () => {
     const fake = createFakeCalleFetch();
     const outcome = await createCallePort({
@@ -128,7 +138,7 @@ describe("createCallePort — the optional deployment lock", () => {
     expect(outcome.ok).toBe(true);
   });
 
-  it("refuses a number outside the list once a list is configured", async () => {
+  it("refuses a number outside the list", async () => {
     const fetchSpy = vi.fn();
     const outcome = await createCallePort({
       apiKey: "test-key",
