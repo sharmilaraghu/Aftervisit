@@ -124,7 +124,7 @@ export function ConsultForm({
                 fontSize: 14,
               }}
             >
-              <strong>No model is configured.</strong> Care Loop cannot read this note, so it
+              <strong>No model is configured.</strong> Aftervisit cannot read this note, so it
               cannot start a follow-up from it. It does not invent a follow-up without one.
             </p>
           ) : null}

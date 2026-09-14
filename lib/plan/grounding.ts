@@ -114,7 +114,7 @@ export function assertGrounded(input: GroundingInput): GroundingResult {
       kind: "medication",
       value: medication,
       reason:
-        `"${medication}" does not appear in the note. Care Loop will not name a ` +
+        `"${medication}" does not appear in the note. Aftervisit will not name a ` +
         "medication the doctor did not write down.",
     });
   }

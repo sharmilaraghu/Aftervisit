@@ -108,7 +108,7 @@ function failClosed(status: TriageStatus, error: string): TriageOutcome {
     answer: {
       verdict: "escalate",
       reason:
-        "Care Loop could not read this call automatically, so it is being shown to you " +
+        "Aftervisit could not read this call automatically, so it is being shown to you " +
         "unjudged. The safety floor that runs without a model found nothing further.",
       summary: "",
       keyTerms: [],

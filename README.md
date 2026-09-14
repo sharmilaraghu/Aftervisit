@@ -1,7 +1,9 @@
-# Care Loop
+![Aftervisit. Every patient followed up, without the recall list. A clinical follow-up agent built on CALL-E.](.github/readme/cover.jpg)
+
+# Aftervisit
 
 **A clinical follow-up agent built on CALL-E.** A doctor writes a free-form note after a
-consultation and presses *Save and start follow-up*. Care Loop reads the note into a goal, what
+consultation and presses *Save and start follow-up*. Aftervisit reads the note into a goal, what
 the doctor wants found out and a schedule; the agent then owns the whole workflow — scheduling,
 calling, asking in its own words, extracting typed answers, retrying, escalating — until the
 patient recovers or a clinician takes over.
@@ -11,13 +13,34 @@ for a week.**
 
 | | |
 |---|---|
-| **Live app** | https://careloop-calle.vercel.app — calls are locked, and it holds only fictional `555-01xx` patients |
+| **Live app** | https://aftervisit-calle.vercel.app — fictional `555-01xx` patients only; judges can ring their own phone with **Try a call** |
 | **Demo video** | _link added on upload_ (under 3 minutes) |
 | **Built for** | *CALL-E: Your Code Is Calling* hackathon |
 
 > **This is a hackathon prototype. It is not for use with real patient data.** Every patient,
 > clinician and clinic in this repository is fictional, and every committed phone number is in
 > the US fiction-reserved `555-01xx` range.
+
+## For judges
+
+Every call from the live app is real: it rings a real phone and spends a CALL-E call. The
+passcode for **Try a call** is in the **testing instructions of the Devpost submission**. It is
+not in this repository.
+
+1. **Hear one call — about two minutes.** Open https://aftervisit-calle.vercel.app and choose
+   **Try a call** (top right, or *Judges* in the console's side rail). Enter the passcode, your
+   first name, your number with its country code, and a language. Optionally paste a
+   consultation note — for example *“Started amlodipine 5 mg for high blood pressure. Check for
+   dizziness and ankle swelling.”* — and the call follows up on what it asks. Tick the consent
+   box, press **Call**, and confirm. The assistant says it is an AI assistant, asks about each
+   topic in its own words, and ends the call. The page then shows the recap, what each topic
+   found out, anything a clinician should read, and the transcript. **Nothing is saved.**
+2. **The workflow a doctor uses.** **Consultations** shows the last week's seen and missed
+   visits; **Follow-ups** shows recently closed follow-ups with the doctor's summary. Open any
+   patient to see the compiled plan — every value marked *from your note* or *default* — the
+   calls on record, and what the patient said. Registering a patient with your own number,
+   writing a note and pressing *Save and start follow-up* puts dated calls on the **Calling
+   schedule**, where each can be moved, skipped, or placed now with **Try a call**.
 
 ![Follow-ups — how each patient is doing, in their own words](docs/screenshots/followups.png)
 
@@ -29,7 +52,7 @@ for a week.**
    agreed to automated calls. Consent is the gate: nothing is ever dialled without it.
 2. **The doctor writes the note** they would write anyway, plus an optional
    *“Escalate to me if…”*, kept word for word.
-3. **The doctor presses *Save and start follow-up*.** That is their whole job. Care Loop reads
+3. **The doctor presses *Save and start follow-up*.** That is their whole job. Aftervisit reads
    the note into a goal, up to five things to find out — each quoting the note’s own words —
    and a schedule. How long comes from the note (*“follow up for 3 days”*), otherwise 7 days,
    and so does a wait (*“recheck in 3 days”* is one call on day 3); how often, what time and
@@ -53,7 +76,7 @@ for a week.**
 
 ## Runs without placing calls
 
-Care Loop is **no-call by default**. Three independent locks each stop a dial:
+Aftervisit is **no-call by default**. Three independent locks each stop a dial:
 
 | Lock | Default | What it does |
 |---|---|---|
@@ -61,7 +84,12 @@ Care Loop is **no-call by default**. Three independent locks each stop a dial:
 | `CARELOOP_CALL_ALLOWLIST` | **unset = locked** | Every dial is refused `not_allowlisted` until an operator lists numbers, or sets `*` for any consenting patient. |
 | Patient consent | `unknown` | `dial()` refuses anyone whose consent is not an explicit `granted`. |
 
-So a fresh clone, or a fresh deploy, rings nobody. To try it end to end without a phone:
+So a fresh clone, or a fresh deploy, rings nobody. **The hosted demo is the deliberate
+exception:** it runs with a CALL-E key and the allowlist at `*` so judges can hear a call, and it
+has no login — treat it as a demo, not a deployment. Consent is still required on every dial, and
+the judges' Try a call sits behind `CARELOOP_TRY_PASSCODE`.
+
+To try it end to end without a phone:
 
 ```bash
 cp .env.example .env          # set DATABASE_URL (Neon) and, for compiling notes, OPENAI_API_KEY
@@ -101,7 +129,7 @@ Every call goes through one file, `lib/calle/port.ts` — the only file that imp
 Four properties of the API shape the design: **there is no endpoint to list calls** (every
 call id is persisted before anything waits), **no mid-call tool calling** (everything the agent
 may say is in the task), **no transactions on the Neon HTTP driver** (every race is one
-conditional `UPDATE … RETURNING`), and **no scheduling API** (Care Loop owns the calendar,
+conditional `UPDATE … RETURNING`), and **no scheduling API** (Aftervisit owns the calendar,
 retries and escalation).
 
 ## How a follow-up happens
@@ -157,7 +185,7 @@ number on the doctor’s screen.
 **Uncertainty routes to a human.** Unmappable, unknown and missing are real statuses with a
 real destination. Nothing is guessed to keep a loop closed.
 
-**Care Loop never gives clinical advice and never diagnoses.** Escalation is routing, never a
+**Aftervisit never gives clinical advice and never diagnoses.** Escalation is routing, never a
 verdict. **Phone numbers are masked everywhere.**
 
 ## Stack
@@ -183,13 +211,13 @@ lib/
   schedule/             expand (pure) + store · tick · trigger
   db/                   Drizzle schema, queries, Neon client
 data/                   seeded patients, demo notes, red-flag term lists
-skills/care-loop/       the installable agent skill: SKILL.md + references/
+skills/aftervisit/       the installable agent skill: SKILL.md + references/
 docs/DEMO.md            how the demo is recorded, scene by scene
 ```
 
 ## Agent skill
 
-`skills/care-loop/` packages the pattern independently of this codebase — read a clinician’s
+`skills/aftervisit/` packages the pattern independently of this codebase — read a clinician’s
 note into a goal and grounded topics, run it as calls, and route every uncertain call to a person —
 with safety rules and worked examples in `references/`.
 

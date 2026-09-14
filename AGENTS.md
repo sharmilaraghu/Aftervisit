@@ -1,7 +1,7 @@
-# Care Loop
+# Aftervisit
 
 A clinical follow-up agent built on **CALL-E**. A doctor writes a free-form note after a
-consultation and presses *Save and start follow-up*; Care Loop reads the note into a goal,
+consultation and presses *Save and start follow-up*; Aftervisit reads the note into a goal,
 the things the doctor wants found out (each quoting the note) and a schedule; and the agent
 then owns the whole workflow — scheduling, dialing, asking in its own words, extracting typed
 answers, retrying, escalating — until the patient resolves or a clinician takes over.
@@ -102,7 +102,7 @@ doctor's free-text note → "Save and start follow-up"
    *Known limitation of per-patient call language:* the phase-3 transcript guard's patterns
    are English-only, so a non-English call's agent turns are not phase-3-checkable — the
    safety clauses stay enforced in the English task text that phases 1 and 2 inspect.
-4. **Care Loop never gives clinical advice and never diagnoses anyone.** There is no code
+4. **Aftervisit never gives clinical advice and never diagnoses anyone.** There is no code
    path that makes a clinical decision. An uncertain call becomes a human's problem via an
    escalation. Escalation is routing, never a verdict.
 5. **The model reads the call; four rules stand under it as a floor.**
@@ -146,7 +146,7 @@ doctor's free-text note → "Save and start follow-up"
 ## Layout
 
 ```
-Care Loop/
+Aftervisit/
   AGENTS.md               ← this file: the shared rules, for every tool
   CLAUDE.md               ← imports this, then adds the Claude-only tables
   app/
@@ -167,7 +167,7 @@ Care Loop/
     phone/normalize.ts    E.164, or an explicit refusal — never a guess
     db/                   Drizzle schema, queries, Neon client
   data/                   seeded patients, demo notes, red-flag term lists
-  skills/care-loop/       the installable Care Loop agent skill + worked examples
+  skills/aftervisit/       the installable Aftervisit agent skill + worked examples
 ```
 
 ## Stack

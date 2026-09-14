@@ -35,7 +35,7 @@ export interface CompletionResult {
 export class NoProviderError extends Error {
   constructor() {
     super(
-      "No model is configured. Set OPENAI_API_KEY to compile a note. Care Loop will " +
+      "No model is configured. Set OPENAI_API_KEY to compile a note. Aftervisit will " +
         "not invent a follow-up plan without one.",
     );
     this.name = "NoProviderError";

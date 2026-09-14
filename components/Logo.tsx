@@ -26,7 +26,7 @@ const PULSE = "M 6 12 H 9.4 L 10.6 9 L 12.4 15.6 L 13.6 12 H 18";
 
 export function Logo({
   size = 26,
-  title = "Care Loop",
+  title = "Aftervisit",
 }: {
   size?: number;
   /** Null inside a link that already names the product, so it is not read twice. */

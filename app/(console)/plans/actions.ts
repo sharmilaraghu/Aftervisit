@@ -44,7 +44,7 @@ import type { CompileFormState } from "@/lib/patients/plan-form";
  * pressed *Save and start follow-up*.
  *
  * Read the note, write the plan, take the visit off the consult list, start the
- * calendar — in that order. A note that cannot be read starts nothing: Care Loop
+ * calendar — in that order. A note that cannot be read starts nothing: Aftervisit
  * never invents a generic follow-up to paper over a missing model, and the note
  * stays in the form for the doctor.
  */
@@ -92,7 +92,7 @@ export async function consultAction(
       values,
       error:
         outcome.reason === "no_provider"
-          ? "Care Loop could not read this note: no model is configured. Nothing was scheduled."
+          ? "Aftervisit could not read this note: no model is configured. Nothing was scheduled."
           : `${outcome.detail} Nothing was scheduled.`,
     };
   }
@@ -107,7 +107,7 @@ export async function consultAction(
     return {
       values,
       error:
-        "Care Loop could not find anything specific to follow up in this note, so nothing was scheduled. " +
+        "Aftervisit could not find anything specific to follow up in this note, so nothing was scheduled. " +
         "Say what you want to know — for example, whether the wound is dry or the pain is settling.",
     };
   }

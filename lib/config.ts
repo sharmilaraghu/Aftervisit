@@ -4,7 +4,7 @@
  * **What authorises a call.** The gate is the patient's recorded consent plus a
  * clinician approving their plan — not an environment variable. A doctor enters
  * a number, records that the patient agreed to automated follow-up, approves the
- * plan, and Care Loop calls that number. Requiring an operator to also paste the
+ * plan, and Aftervisit calls that number. Requiring an operator to also paste the
  * number into `CARELOOP_CALL_ALLOWLIST` describes a demo, not a product: no real
  * practice can redeploy to enrol a patient.
  *
@@ -25,7 +25,7 @@
  * typed in. A no-call default is the safe one.
  */
 
-export interface CareLoopConfig {
+export interface AftervisitConfig {
   /** Calls are live whenever CALL-E has a key. There is no separate switch. */
   liveCallsEnabled: boolean;
   /** The only numbers the scheduler may dial, unless `*` opened the lock. Empty = none. */
@@ -105,7 +105,7 @@ function parseAllowlist(raw: string | undefined): string[] {
     .filter(Boolean);
 }
 
-export function readConfig(env: NodeJS.ProcessEnv = process.env): CareLoopConfig {
+export function readConfig(env: NodeJS.ProcessEnv = process.env): AftervisitConfig {
   const entries = parseAllowlist(env.CARELOOP_CALL_ALLOWLIST);
   const numbers = entries.filter((n) => n !== OPEN);
 

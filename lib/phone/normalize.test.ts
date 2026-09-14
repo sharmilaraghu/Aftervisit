@@ -71,7 +71,7 @@ describe("maskPhone — this UI ends up in a published video", () => {
 
 describe("regionForPhone", () => {
   /*
-   * The bug this exists for: Care Loop sent CALL-E a recipient with no region,
+   * The bug this exists for: Aftervisit sent CALL-E a recipient with no region,
    * so three calls to a valid +91 mobile came back region null, SIP 404 and
    * zero seconds of call duration. The number was right and the account could
    * reach it; the call had nowhere to route.

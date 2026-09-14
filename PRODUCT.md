@@ -9,12 +9,12 @@ web
 ## Users
 
 Doctors at clinics and hospitals. After a consultation they write a free-form note; the
-follow-up that note implies is the job Care Loop takes off their hands. A clinician reviews
+follow-up that note implies is the job Aftervisit takes off their hands. A clinician reviews
 the patients the agent escalates.
 
 ## Product Purpose
 
-Care Loop turns a doctor's consultation note into an automated phone follow-up. It reads
+Aftervisit turns a doctor's consultation note into an automated phone follow-up. It reads
 the note into a goal, what the doctor wants found out, and a schedule, then owns the whole
 workflow — scheduling, calling, asking in its own words, extracting typed answers, retrying,
 escalating — until the patient recovers or a clinician takes over.
@@ -42,7 +42,7 @@ calls. Submitted to the *CALL-E: Your Code Is Calling* hackathon with a ~3 minut
 
 ## Brand Commitments
 
-Name: Care Loop. Phone numbers are always masked in the UI, because it appears in a
+Name: Aftervisit. Phone numbers are always masked in the UI, because it appears in a
 published video. Red means danger only.
 
 ## Evidence on Hand

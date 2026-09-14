@@ -169,7 +169,7 @@ export async function registerVisitAction(
         errors: {
           ...state.errors,
           phone:
-            "Another active patient already has this number. Care Loop will not " +
+            "Another active patient already has this number. Aftervisit will not " +
             "create a second record on it — two plans would phone the same person twice.",
         },
       };

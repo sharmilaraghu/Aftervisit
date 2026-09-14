@@ -1,7 +1,7 @@
 /**
  * The clinical guard.
  *
- * Care Loop phones patients about their health. It may ask questions and it may
+ * Aftervisit phones patients about their health. It may ask questions and it may
  * relay what the clinician actually wrote down. It may never advise, diagnose,
  * adjust a dose, predict an outcome, or reassure someone about a symptom. The
  * model is never trusted to have obeyed those instructions, so its words are
@@ -102,7 +102,7 @@ const PROHIBITIONS: Prohibition[] = [
   {
     category: "clinical_advice",
     reason:
-      "Care Loop does not give medical advice. Anything a patient should do next is a clinician's call.",
+      "Aftervisit does not give medical advice. Anything a patient should do next is a clinician's call.",
     patterns: [
       /\byou (?:should|ought to|need to|must)\s+(?:take|stop|start|try|increase|reduce|rest|wait)\b/gi,
       /\bI (?:recommend|suggest|advise)\b/gi,
@@ -115,7 +115,7 @@ const PROHIBITIONS: Prohibition[] = [
   {
     category: "diagnosis",
     reason:
-      "Care Loop does not diagnose. Naming a condition on a follow-up call is practising medicine.",
+      "Aftervisit does not diagnose. Naming a condition on a follow-up call is practising medicine.",
     patterns: [
       /\bthat sounds like\b/gi,
       /\byou (?:probably|likely|might|may) have\b/gi,
@@ -127,7 +127,7 @@ const PROHIBITIONS: Prohibition[] = [
   {
     category: "dosage_change",
     reason:
-      "Care Loop never changes a prescription. Only the prescriber may alter a dose.",
+      "Aftervisit never changes a prescription. Only the prescriber may alter a dose.",
     patterns: [
       /\b(?:increase|decrease|reduce|double|halve|lower|raise)\s+(?:your|the|her|his|their)\s+dose\b/gi,
       // "taking" as well as "take": the failure mode is a question like
@@ -142,7 +142,7 @@ const PROHIBITIONS: Prohibition[] = [
   {
     category: "prognosis",
     reason:
-      "Care Loop does not predict outcomes. A promise about recovery is a clinical judgement.",
+      "Aftervisit does not predict outcomes. A promise about recovery is a clinical judgement.",
     patterns: [
       /\byou'?ll be (?:fine|okay|ok|better)\b/gi,
       /\bthat (?:should|will) (?:clear up|settle|pass|go away|improve)\b/gi,
@@ -156,7 +156,7 @@ const PROHIBITIONS: Prohibition[] = [
     // dangerous. "That's normal" said to someone describing a post-op bleed is
     // the single worst sentence this system could produce.
     reason:
-      "Care Loop never reassures a patient about a symptom. Reassurance is a clinical act, and a wrong one is dangerous.",
+      "Aftervisit never reassures a patient about a symptom. Reassurance is a clinical act, and a wrong one is dangerous.",
     patterns: [
       /\bdon'?t worry\b/gi,
       /\bno need to worry\b/gi,
@@ -182,7 +182,7 @@ const ATTRIBUTION_PATTERNS: RegExp[] = [
 // Required clauses — the guard is bidirectional
 // ---------------------------------------------------------------------------
 //
-// OpenLine's guard only forbids. Care Loop's must also prove the safety frame
+// OpenLine's guard only forbids. Aftervisit's must also prove the safety frame
 // survived every edit path: these clauses live in assembleTask() and nowhere
 // else, and a refactor that drops one would otherwise pass every test about
 // forbidden language.

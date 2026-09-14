@@ -8,7 +8,7 @@
  *
  * Four states, and the third is not decoration. "Patient is fine" and "needs
  * attention" were asked for; but a patient nobody has reached cannot honestly
- * be either, and showing them as fine is the exact failure Care Loop exists to
+ * be either, and showing them as fine is the exact failure Aftervisit exists to
  * catch. So a silence gets its own name, stated as a fact.
  *
  *   needs_attention — an open escalation, or a silence gone on too long. A

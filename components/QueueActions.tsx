@@ -5,7 +5,7 @@
  *
  *   Phone them yourself   — the primary: the first thing a doctor does about a
  *                           patient in trouble. The doctor's own phone (`tel:`);
- *                           Care Loop dials nothing from here.
+ *                           Aftervisit dials nothing from here.
  *   View patient record   — everything else about this patient, including the
  *                           ways to amend or restart the follow-up.
  *   Handled               — the decision: resolve it (resuming paused calls),
@@ -40,7 +40,7 @@ export function QueueActions({
   escalationId: string;
   planId: string;
   patientName: string;
-  /** The patient's number, for the doctor's own phone. Never dialled by Care Loop. */
+  /** The patient's number, for the doctor's own phone. Never dialled by Aftervisit. */
   phoneE164?: string;
   pausedPlan: boolean;
   /** Kept for callers; the escalation's read state no longer changes anything here. */

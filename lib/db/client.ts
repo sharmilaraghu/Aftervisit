@@ -18,7 +18,7 @@ import * as schema from "@/lib/db/schema";
 export class MissingDatabaseUrlError extends Error {
   constructor() {
     super(
-      "DATABASE_URL is not set. Care Loop will not start with an in-memory " +
+      "DATABASE_URL is not set. Aftervisit will not start with an in-memory " +
         "stand-in — a console that renders empty because it has no database " +
         "looks identical to a practice where nobody is drifting.",
     );

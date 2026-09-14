@@ -1,6 +1,6 @@
 # Running the scheduler
 
-Care Loop schedules a call the moment a follow-up starts, and dials it when a **tick**
+Aftervisit schedules a call the moment a follow-up starts, and dials it when a **tick**
 runs. Those are two different jobs, and only the second one needs anything from you.
 
 `startPlan()` expands the plan into dated `scheduled_calls` rows immediately, when the doctor

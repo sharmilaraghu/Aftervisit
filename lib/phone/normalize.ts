@@ -24,7 +24,7 @@ export type NormalizedPhone =
 export const REJECTION_TEXT: Record<RejectionReason, string> = {
   empty: "No number on file.",
   no_country_code:
-    "No country code. Care Loop will not guess one — a guessed code dials a stranger.",
+    "No country code. Aftervisit will not guess one — a guessed code dials a stranger.",
   not_a_number: "Not a phone number.",
   too_short: "Too short to be a phone number.",
   not_possible: "Not a possible number in that country.",
@@ -73,7 +73,7 @@ export function maskPhone(e164: string | null | undefined): string {
  * The country CALL-E should route the call through.
  *
  * `region` is an input on the recipient — the SDK's own schema calls it the
- * "country or region code used for routing and compliance checks". Care Loop
+ * "country or region code used for routing and compliance checks". Aftervisit
  * never sent one, so CALL-E had nothing to resolve a route from: three calls to
  * a `+91` mobile came back `region: null`, SIP 404, and zero seconds of call
  * duration. The number was correct and the account could reach it; the call

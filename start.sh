@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Care Loop — the only supported way to run this app.
+# Aftervisit — the only supported way to run this app.
 #
 #   ./start.sh              start the dev server
 #   ./start.sh --restart    kill whatever holds the port first
@@ -111,7 +111,7 @@ fi
 [ "$CLEAN" = "1" ]   && { info "Removing .next…"; rm -rf .next; }
 [ "$MIGRATE" = "1" ] && { info "Applying migrations…"; pnpm run db:migrate; }
 
-# Seeding clears the Care Loop tables first. Say so before doing it, rather than
+# Seeding clears the Aftervisit tables first. Say so before doing it, rather than
 # letting a flag quietly delete someone's afternoon of hand-entered patients.
 if [ "$SEED" = "1" ]; then
   [ -n "$(env_value DATABASE_URL)" ] || die "--seed needs DATABASE_URL in .env."

@@ -35,7 +35,7 @@ const martian = Martian_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Care Loop",
+  title: "Aftervisit",
   description:
     "A clinical follow-up agent that owns the loop from a doctor's note to resolution.",
 };

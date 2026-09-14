@@ -175,7 +175,7 @@ export function assembleTask(input: TaskInput): AssembleResult {
     return {
       ok: false,
       reason: "no_goal",
-      detail: "A follow-up with no goal has nothing to find out. Care Loop will not place an empty call.",
+      detail: "A follow-up with no goal has nothing to find out. Aftervisit will not place an empty call.",
     };
   }
 
@@ -191,7 +191,7 @@ export function assembleTask(input: TaskInput): AssembleResult {
       reason: "unapproved_question",
       detail:
         `"${unapproved.questionId}" has not passed the clinical guard. ` +
-        "Care Loop will not build a call around it.",
+        "Aftervisit will not build a call around it.",
     };
   }
 
@@ -216,7 +216,7 @@ export function assembleTask(input: TaskInput): AssembleResult {
       reason: "unapproved_question",
       detail:
         `"${unvetted}" does not read as something to find out, so it has not passed the clinical guard. ` +
-        "Care Loop will not build a call around it.",
+        "Aftervisit will not build a call around it.",
     };
   }
 

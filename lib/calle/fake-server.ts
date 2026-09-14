@@ -3,14 +3,14 @@
  *
  * `CalleClient` accepts a `fetch` implementation, so the whole SDK can be
  * exercised without a network, an API key, or a real phone call. This is what
- * makes Care Loop's test suite runnable by anyone who clones the repo with no
+ * makes Aftervisit's test suite runnable by anyone who clones the repo with no
  * credentials at all.
  *
  * It fakes the HTTP API rather than the port, so responses use the wire format
  * (snake_case) and the SDK's own mapping layer is under test rather than
  * bypassed.
  *
- * Note the `outcome: "no_answer"` mode. Care Loop's retry ladder is driven by
+ * Note the `outcome: "no_answer"` mode. Aftervisit's retry ladder is driven by
  * real CALL-E failure codes, so the tests need a faithful unanswered call —
  * a completed call with an empty transcript would test the wrong thing.
  */

@@ -1,7 +1,7 @@
 /**
  * Said out loud when the scheduler has stopped and calls are waiting.
  *
- * Care Loop dials on a tick, and a tick only happens because something asks for
+ * Aftervisit dials on a tick, and a tick only happens because something asks for
  * one — a cron, an open console tab, an approval. When whatever was asking goes
  * away, calls stop being placed and every screen looks exactly like a quiet day.
  * That is the failure this product exists to catch, aimed at itself.
