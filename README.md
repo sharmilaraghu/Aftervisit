@@ -46,7 +46,7 @@ for a week.**
 |---|---|
 | ![Consultations](docs/screenshots/consultations.png) | ![Writing the note](docs/screenshots/write-note.png) |
 | **Consultations** — the doctor’s day | **The note** — free text, plus what should escalate |
-| ![The compiled plan](docs/screenshots/plan-review.png) | ![The patient record](docs/screenshots/patient-record.png) |
+| ![The follow-up — what the calls find out, from the note's own words](docs/screenshots/follow-up.png) | ![The patient record](docs/screenshots/patient-record.png) |
 | **The compiled plan** — every value says where it came from | **The patient record** — what changed, in their words |
 
 ---

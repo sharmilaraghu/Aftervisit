@@ -23,6 +23,7 @@ import { CloseFile } from "@/components/CloseFile";
 import { AmendNote } from "@/components/AmendNote";
 import { EscalationSetup } from "@/components/EscalationSetup";
 import { HowTheyAreDoing } from "@/components/HowTheyAreDoing";
+import { CallLog } from "@/components/CallLog";
 import { getPatientDetail } from "@/lib/db/patients";
 import { getPatientSummary } from "@/lib/db/summary";
 import { getParameterGrid } from "@/lib/db/parameters";
@@ -84,6 +85,17 @@ export default async function FollowUpPatientPage({
     .filter((c) => c.status === "scheduled" && c.scheduledFor > now)
     .sort((a, b) => a.scheduledFor.getTime() - b.scheduledFor.getTime())[0];
   const course = summary.courses.find((c) => c.planId === planId);
+
+  /*
+   * The calling plan, counted by day rather than by attempt: a retry is the
+   * same planned call trying again, not another call the doctor asked for.
+   */
+  const days = new Map<number, string[]>();
+  for (const c of detail.calls) days.set(c.occurrence, [...(days.get(c.occurrence) ?? []), c.status]);
+  const dayStates = [...days.values()];
+  const toCome = dayStates.filter((s) => s.some((x) => ["scheduled", "claimed", "dialing"].includes(x))).length;
+  const skipped = dayStates.filter((s) => s.every((x) => x === "skipped")).length;
+  const done = dayStates.length - toCome - skipped;
 
   /* After a start the doctor's next move is the next patient. */
   const next = started
@@ -428,6 +440,25 @@ export default async function FollowUpPatientPage({
                 </div>
               ) : null}
             </div>
+          </Panel>
+
+          {/* Every call the assistant will make and has made, dated — the plan made visible. */}
+          <Panel title="Calling plan" style={{ marginBottom: "calc(var(--cell) * 2)" }}>
+            {detail.calls.length > 0 ? (
+              <p style={{ margin: 0, padding: "calc(var(--cell) * 2) calc(var(--cell) * 3) 0", fontSize: 14, color: "var(--print-2)" }}>
+                <span className="mono" style={{ color: "var(--print)" }}>{dayStates.length}</span> call
+                {dayStates.length === 1 ? "" : "s"} planned ·{" "}
+                <span className="mono" style={{ color: "var(--print)" }}>{done}</span> done ·{" "}
+                <span className="mono" style={{ color: "var(--print)" }}>{toCome}</span>{" "}
+                {detail.planStatus === "paused" ? "on hold while paused" : "to come"}
+                {skipped > 0 ? (
+                  <>
+                    {" "}· <span className="mono" style={{ color: "var(--print)" }}>{skipped}</span> skipped
+                  </>
+                ) : null}
+              </p>
+            ) : null}
+            <CallLog calls={detail.calls} maxAttempts={detail.maxAttempts} timezone={patient.timezone} />
           </Panel>
 
           {live ? (

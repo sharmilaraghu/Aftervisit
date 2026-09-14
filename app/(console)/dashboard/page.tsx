@@ -85,7 +85,7 @@ export default async function FollowUpsPage() {
       {rows.length === 0 ? (
         <Panel title="Nobody yet">
           <p style={{ margin: 0, padding: "calc(var(--cell) * 3)", color: "var(--print-2)" }}>
-            A patient appears here once you approve a plan from their consultation.
+            A patient appears here once you save and start a follow-up from their consultation.
           </p>
         </Panel>
       ) : (

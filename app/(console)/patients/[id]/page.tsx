@@ -119,8 +119,8 @@ export default async function PatientPage({
             fontSize: 15,
           }}
         >
-          <strong>{patient.name} added.</strong> They will not be called until a follow-up plan
-          has been written and the doctor has approved it.
+          <strong>{patient.name} added.</strong> They will not be called until the doctor writes
+          their consultation note and starts a follow-up from it.
         </p>
       ) : null}
 

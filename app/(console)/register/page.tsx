@@ -67,7 +67,7 @@ export default async function RegisterPage({
         <p className="measure" style={{ margin: 0, color: "var(--bench-ink-2)" }}>
           Book the appointment day. On that day the patient is on the doctor&rsquo;s
           Consultations list, where the follow-up note is written. Nothing is
-          dialled until that note is approved.
+          dialled until the doctor saves that note and starts the follow-up.
         </p>
       </header>
 
