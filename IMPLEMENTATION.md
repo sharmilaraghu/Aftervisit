@@ -168,8 +168,8 @@ now the opposite of the truth.
 
 ## Known gaps
 
-- **Phase 8, the live call, has not run.** The allowlist is cleared and consent is the
-  gate. `docs/TESTING.md` has the scripts.
+- **Phase 8, the live call, has not run.** The allowlist is closed by default; a live
+  run lists one owned number in `CARELOOP_CALL_ALLOWLIST`. `docs/TESTING.md` has the scripts.
 - **`CARELOOP_WEBHOOK_TOKEN` is unset**, so `/api/calle/webhook` returns 503 and refuses
   everything. Correct fail-closed behaviour, but the webhook path is unproven end to end;
   completion currently relies on the in-process waiter and the reconciler.

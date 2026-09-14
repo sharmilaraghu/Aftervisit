@@ -8,26 +8,31 @@
  * number into `CARELOOP_CALL_ALLOWLIST` describes a demo, not a product: no real
  * practice can redeploy to enrol a patient.
  *
- * The allowlist survives as an **optional deployment lock**, because it answers
- * a different question from consent. Consent asks "did this patient agree?";
- * the allowlist asks "is this instance allowed to reach the outside world at
- * all?" — which is the question you want a hard answer to when the console is
- * on a public URL with no login, where anyone who can load the page can enrol a
- * patient. Set `CARELOOP_CALL_ALLOWLIST` to a list of numbers and the scheduler
- * will dial only those. Leave it unset and consent is the only gate.
+ * The allowlist is the **deployment lock**, and it answers a different question
+ * from consent. Consent asks "did this patient agree?"; the allowlist asks "may
+ * this instance reach the outside world at all?" — and on a public URL with no
+ * login, where anyone who can load the page can enrol a patient and record
+ * consent for them, that answer has to be no until an operator says otherwise.
  *
- * **So: unset is open.** That is a deliberate inversion of how this used to
- * work, and the risk it carries is exactly the public-no-auth deployment above.
- * Set the list there.
+ * **So: unset is locked.**
+ *
+ *   unset / empty → no number may be dialled; every call is refused, visibly
+ *   a list        → only those numbers
+ *   `*`           → any consenting patient — an explicit, deliberate opening
+ *
+ * It used to be the other way round — unset meant consent was the only gate —
+ * which made a fresh clone or a fresh deploy able to ring whoever a stranger
+ * typed in. A no-call default is the safe one.
  */
 
 export interface CareLoopConfig {
   /** Calls are live whenever CALL-E has a key. There is no separate switch. */
   liveCallsEnabled: boolean;
-  /** When non-empty, the only numbers the scheduler may dial. */
+  /** The only numbers the scheduler may dial, unless `*` opened the lock. Empty = none. */
   callAllowlist: string[];
   /**
-   * True when no list restricts the scheduler, which is the default.
+   * True only when an operator set `CARELOOP_CALL_ALLOWLIST=*`. Never true by
+   * default: an unset list locks the instance.
    *
    * Consent is still enforced — `lib/calle/port.ts` refuses to dial a patient
    * who has not agreed, whatever this says.
@@ -83,7 +88,7 @@ export interface CareLoopConfig {
   clinicianName: string;
 }
 
-/** Still accepted, and still means open — now the same as leaving it unset. */
+/** The one way to open the lock: an explicit `*`. */
 const OPEN = "*";
 
 function parseAllowlist(raw: string | undefined): string[] {
@@ -100,9 +105,9 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): CareLoopConfig
   return {
     liveCallsEnabled: Boolean(env.CALLE_API_KEY),
     callAllowlist: numbers,
-    /* Unset, empty, or an explicit `*` — all mean "no list restricts this
-       instance". Only a list of actual numbers narrows it. */
-    allowlistOpen: numbers.length === 0,
+    /* Open only when someone wrote `*`. Unset or empty is locked: with no
+       numbers listed, nothing matches, and every dial is refused. */
+    allowlistOpen: entries.includes(OPEN),
     callLocale: env.CARELOOP_CALL_LOCALE || "en-US",
     tickToken: env.CARELOOP_TICK_TOKEN || null,
     cronSecret: env.CRON_SECRET || null,

@@ -115,7 +115,7 @@ to do, and no external cron is needed.
 | `CRON_SECRET` | `GET /api/cron/tick` — Vercel's own cron | Endpoint returns 503 |
 | `CARELOOP_PUBLIC_URL` | Handing CALL-E a `webhookUrl` | No callback; results wait for the next tick |
 | `CARELOOP_WEBHOOK_TOKEN` | The webhook receiver, and the URL above | Receiver returns 503 |
-| `CARELOOP_CALL_ALLOWLIST` | **Set it in production** | There is no auth: anyone who can load the console can cause a dial |
+| `CARELOOP_CALL_ALLOWLIST` | Which numbers may be dialled — a comma list, or `*` for any consenting patient | **Every dial is refused** `not_allowlisted`. This is the default on purpose: there is no auth, so a public console must not dial until an operator opens it |
 | `CALLE_API_KEY` | Dialling at all | Every dial refused `missing_api_key` |
 | `OPENAI_API_KEY` | The note compiler and call triage | Compiling refused; every finished call escalated unjudged |
 

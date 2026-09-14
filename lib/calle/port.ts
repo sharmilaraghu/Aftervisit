@@ -42,9 +42,9 @@ export interface CallePortConfig {
   apiKey: string;
   locale?: string;
   baseUrl?: string;
-  /** An optional deployment lock. When non-empty, only these numbers are dialled. */
+  /** The deployment lock: the only numbers dialled. Absent or empty refuses every number. */
   allowlist?: string[];
-  /** True when no list restricts this instance — the default. */
+  /** True only when an operator opened the lock with `*`. Never the default. */
   allowlistOpen?: boolean;
   /** Injectable so the whole suite can run against the fake server. */
   fetch?: (input: Request) => Promise<Response>;
@@ -112,7 +112,7 @@ export const REFUSAL_TEXT: Record<RefusalReason, string> = {
   no_consent:
     "This patient has not agreed to automated follow-up calls. Care Loop dials without anyone pressing a button, so consent recorded at enrolment is what authorises the call.",
   not_allowlisted:
-    "This number is not on this instance's dial allowlist. The allowlist is set, so the scheduler will only call numbers on it.",
+    "This number is not on this instance's dial allowlist. Set CARELOOP_CALL_ALLOWLIST to the numbers it may call, or to * to allow any consenting patient. Unset, nothing is dialled.",
   missing_api_key: "No CALL-E API key is configured, so nothing can be dialled.",
   api_error: "CALL-E rejected the request.",
 };
@@ -168,8 +168,8 @@ export function createCallePort(config: CallePortConfig): CallePort {
       }
 
       /*
-       * 4. The deployment lock, when one is configured. Unset it narrows
-       *    nothing; set, it is absolute for this instance.
+       * 4. The deployment lock. Closed unless an operator lists this number
+       *    or opens it with `*` — so a fresh clone or deploy dials nobody.
        */
       const allowlist = config.allowlist ?? [];
       if (!config.allowlistOpen && !allowlist.includes(request.phone)) {

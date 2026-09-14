@@ -39,9 +39,11 @@ jobs:
           URL: ${{ secrets.CARELOOP_TICK_URL }}
           TOKEN: ${{ secrets.CARELOOP_TICK_TOKEN }}
         run: |
+          # Unconfigured is not a failure: a fork, or a repository that has not
+          # set up an external scheduler, should not go red every five minutes.
           if [ -z "$URL" ] || [ -z "$TOKEN" ]; then
-            echo "CARELOOP_TICK_URL and CARELOOP_TICK_TOKEN must both be set as repository secrets."
-            exit 1
+            echo "::notice::CARELOOP_TICK_URL and CARELOOP_TICK_TOKEN are not set — skipping the tick."
+            exit 0
           fi
           # `tick()` returns its counters, so the run log says what happened
           # rather than just 200. --fail-with-body keeps the body on a 4xx/5xx.

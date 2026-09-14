@@ -149,15 +149,14 @@ echo
 if [ -z "$CALLE_KEY" ]; then
   warn "  CALLS ARE OFF — no CALLE_API_KEY. Nothing can be dialled."
 elif [ "$OPEN_GATE" = "1" ]; then
-  printf '%s  CALLS ARE LIVE and the dial allowlist is OPEN. Any number on an%s\n' "$RED$BOLD" "$OFF"
-  printf '%s  approved plan will be called. This costs money and reaches people.%s\n' "$RED$BOLD" "$OFF"
+  printf '%s  CALLS ARE LIVE and the dial allowlist is OPEN (*). Any consenting%s\n' "$RED$BOLD" "$OFF"
+  printf '%s  patient on an approved plan will be called. This reaches real people.%s\n' "$RED$BOLD" "$OFF"
 elif [ "$ARMED" = "0" ]; then
-  # An empty CARELOOP_CALL_ALLOWLIST narrows nothing — it is the "no deployment
-  # lock" state, not a safe default. This line used to claim every call would be
-  # refused, which stopped being true when the allowlist became optional.
-  printf '%s  CALLS ARE LIVE and no dial allowlist is set. Consent is the only%s\n' "$RED$BOLD" "$OFF"
-  printf '%s  gate: any consenting patient on an approved plan will be called.%s\n' "$RED$BOLD" "$OFF"
-  echo "$DIM  Set CARELOOP_CALL_ALLOWLIST to lock this deployment down.$OFF"
+  # An empty CARELOOP_CALL_ALLOWLIST is locked (lib/config.ts): the key is set,
+  # but no number may be dialled until an operator lists numbers or sets *.
+  warn "  CALLS ARE LOCKED — CALLE_API_KEY is set, but CARELOOP_CALL_ALLOWLIST is empty."
+  echo "$DIM  Every scheduled call is refused with a visible reason. List the numbers$OFF"
+  echo "$DIM  this instance may call, or set it to * to allow any consenting patient.$OFF"
 else
   printf '%s  CALLS ARE LIVE — %s number(s) armed to dial. This costs money%s\n' "$RED$BOLD" "$ARMED" "$OFF"
   printf '%s  and reaches real people.%s\n' "$RED$BOLD" "$OFF"

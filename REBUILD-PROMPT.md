@@ -53,7 +53,7 @@ Stop at every **CHECKPOINT** and wait for me. Do not continue past one on your o
 
 ### Phase 0 — Docs cleanup
 Delete every `.md` under `docs/` except `HACKATHON_RULES.md` and `call-e-documentation.md`.
-Keep `AGENTS.md`, `CLAUDE.md`, `README.md`, `skill/SKILL.md`. If `CLAUDE.md`/`AGENTS.md`
+Keep `AGENTS.md`, `CLAUDE.md`, `README.md`, `skills/care-loop/SKILL.md`. If `CLAUDE.md`/`AGENTS.md`
 reference a deleted file, fix the reference. No other edits.
 **CHECKPOINT 0:** list what you deleted.
 

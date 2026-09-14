@@ -798,12 +798,13 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
                 willRing: false,
                 /* Name the setting. "Outside the list" describes a cause
                    nobody on this screen can locate: the list is an env var, and
-                   an operator reading this needs to know which one and that
-                   clearing it opens the instance back up. */
+                   an operator reading this needs to know which one — and that
+                   an empty list is locked, so adding the number (or `*`) is
+                   what lets this call through. */
                 blockedReason:
-                  "CARELOOP_CALL_ALLOWLIST is set on this deployment, and this " +
-                  "number is not on it. Clear that variable to let consent be " +
-                  "the only gate.",
+                  "This deployment's dial allowlist does not include this number, " +
+                  "so it is locked for it. Add the number to CARELOOP_CALL_ALLOWLIST, " +
+                  "or set it to * to allow any consenting patient.",
               };
             }
             return { willRing: true, blockedReason: null };
