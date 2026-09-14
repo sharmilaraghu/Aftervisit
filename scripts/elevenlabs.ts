@@ -7,7 +7,7 @@
  *   pnpm media speech "AfterVisit calls the patient." [--voice <id>] [--out name]
  *   pnpm media sfx "a phone ringing twice" [--seconds 3]
  *   pnpm media music "calm ambient piano" [--seconds 30]
- *   pnpm media image "a clinician's desk at dusk" [--model gpt-image-2] [--aspect 16:9]
+ *   pnpm media image "a clinician's desk at dusk" [--model gpt-image-2] [--aspect 16:9] [--ref frame.png]
  *
  * Talks to ElevenLabs only. Never CALL-E, and never dials anyone. Every call
  * except `voices` spends credits. This footage ends up in a published video,
@@ -18,7 +18,7 @@ import { config } from "dotenv";
 
 config({ path: ".env" });
 
-import { createWriteStream, mkdirSync, writeFileSync } from "node:fs";
+import { createWriteStream, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -57,11 +57,25 @@ async function save(audio: ReadableStream<Uint8Array>, path: string) {
   console.log(`wrote ${path}`);
 }
 
+/** Every `--ref <path>` as an inline image reference. */
+function refs(args: string[]): ElevenLabs.ImageReference[] {
+  const out: ElevenLabs.ImageReference[] = [];
+  args.forEach((a, i) => {
+    if (a !== "--ref" || !args[i + 1]) return;
+    const path = args[i + 1];
+    const mimeType = /\.jpe?g$/i.test(path) ? "image/jpeg" : /\.webp$/i.test(path) ? "image/webp" : "image/png";
+    out.push({ type: "inline_base64", contentBase64: readFileSync(path).toString("base64"), mimeType });
+  });
+  return out;
+}
+
 async function image(client: ElevenLabsClient, args: string[]) {
   const request = {
     modelId: flag(args, "model") ?? "gpt-image-2",
     prompt: positional(args),
     aspectRatio: flag(args, "aspect") ?? "16:9",
+    // A reference image keeps characters and style consistent across a sequence of frames.
+    ...(refs(args).length ? { images: refs(args) } : {}),
   } as ElevenLabs.ImageGenerationRequest;
   const { id } = await client.flows.image.create(request);
   console.log(`generation ${id} started with ${request.modelId}`);
