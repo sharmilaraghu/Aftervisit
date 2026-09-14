@@ -11,7 +11,7 @@
 /**
  * The practice's zone, and every new patient's.
  *
- * Aftervisit is deployed in India, so the form no longer offers a choice: a
+ * AfterVisit is deployed in India, so the form no longer offers a choice: a
  * zone picked wrong moves every call by hours, and the only right answer here
  * is always the same one. Existing records keep whatever zone they were saved
  * with until they are edited.

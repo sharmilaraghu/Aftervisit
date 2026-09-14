@@ -190,8 +190,8 @@ function evaluateRule(rule: Rule, input: EvaluationInput): RuleHit[] {
             utterance: words(goal),
             reason:
               goal.status === "answered"
-                ? "The patient was reached, but the call did not find out what it set out to. Aftervisit does not guess; a person should follow up."
-                : "The patient was reached, but the call could not say whether it found out what it set out to. Aftervisit does not guess; a person should follow up.",
+                ? "The patient was reached, but the call did not find out what it set out to. AfterVisit does not guess; a person should follow up."
+                : "The patient was reached, but the call could not say whether it found out what it set out to. AfterVisit does not guess; a person should follow up.",
           }),
         ];
       }
@@ -213,8 +213,8 @@ function evaluateRule(rule: Rule, input: EvaluationInput): RuleHit[] {
           utterance: words(unresolved.find((s) => s.utterance)),
           reason:
             unresolved.length === 1
-              ? `${list} could not be mapped to an answer. Aftervisit does not guess what a patient meant.`
-              : `${unresolved.length} answers could not be mapped: ${list}. Aftervisit does not guess what a patient meant.`,
+              ? `${list} could not be mapped to an answer. AfterVisit does not guess what a patient meant.`
+              : `${unresolved.length} answers could not be mapped: ${list}. AfterVisit does not guess what a patient meant.`,
         }),
       ];
     }

@@ -4,7 +4,7 @@
  * gitignored — generated assets are rendered, not committed.
  *
  *   pnpm media voices
- *   pnpm media speech "Aftervisit calls the patient." [--voice <id>] [--out name]
+ *   pnpm media speech "AfterVisit calls the patient." [--voice <id>] [--out name]
  *   pnpm media sfx "a phone ringing twice" [--seconds 3]
  *   pnpm media music "calm ambient piano" [--seconds 30]
  *   pnpm media image "a clinician's desk at dusk" [--model gpt-image-2] [--aspect 16:9]

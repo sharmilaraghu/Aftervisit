@@ -39,7 +39,7 @@ export default function ConsoleError({ reset }: { error: Error; reset: () => voi
         className="measure"
         style={{ margin: "0 0 calc(var(--cell) * 4)", color: "var(--bench-ink-2)" }}
       >
-        Aftervisit reads everything on this screen from the database on every
+        AfterVisit reads everything on this screen from the database on every
         request, so the usual cause is that the database did not answer. Nothing
         has been changed, and the scheduler is unaffected — no call was placed
         or missed because of this.

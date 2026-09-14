@@ -13,7 +13,7 @@
  *   5. there is an API key
  *
  * Rule 3 is the one that authorises a call. OpenLine, the sibling project, gates
- * every call behind a human pressing a button per candidate. Aftervisit cannot
+ * every call behind a human pressing a button per candidate. AfterVisit cannot
  * have that gate — its whole premise is that nobody has to press anything — so
  * the human act moved earlier: a clinician records that this patient agreed, and
  * approves their plan. Consent is checked here rather than at the call sites so
@@ -108,9 +108,9 @@ const E164 = /^\+[1-9]\d{6,14}$/;
 /** Human-readable text for a refusal, for printing on the call row. */
 export const REFUSAL_TEXT: Record<RefusalReason, string> = {
   guard_violation: "The script did not pass the clinical guard, so nothing was dialled.",
-  invalid_phone: "The number is not in E.164 form. Aftervisit will not guess one.",
+  invalid_phone: "The number is not in E.164 form. AfterVisit will not guess one.",
   no_consent:
-    "This patient has not agreed to automated follow-up calls. Aftervisit dials without anyone pressing a button, so consent recorded at enrolment is what authorises the call.",
+    "This patient has not agreed to automated follow-up calls. AfterVisit dials without anyone pressing a button, so consent recorded at enrolment is what authorises the call.",
   not_allowlisted:
     "This number is not on this instance's dial allowlist. Set CARELOOP_CALL_ALLOWLIST to the numbers it may call, or to * to allow any consenting patient. Unset, nothing is dialled.",
   missing_api_key: "No CALL-E API key is configured, so nothing can be dialled.",

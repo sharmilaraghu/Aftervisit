@@ -2,7 +2,7 @@
  * The judges' instant call: what may be typed into it, and who may press it.
  *
  * The /try page lets a judge type a first name, a phone number and a sample
- * note, and ring that number now with nothing saved — the one dial in Aftervisit
+ * note, and ring that number now with nothing saved — the one dial in AfterVisit
  * that writes no row before it rings (see AGENTS.md, "The judges' instant call").
  * The guard, E.164, consent and the allowlist still run inside the port; this
  * file is the part in front of it.

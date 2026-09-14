@@ -1,9 +1,9 @@
-![Aftervisit. Every patient followed up, without the recall list. A clinical follow-up agent built on CALL-E.](.github/readme/cover.jpg)
+![AfterVisit. Every patient followed up, without the recall list. A clinical follow-up agent built on CALL-E.](.github/readme/cover.jpg)
 
-# Aftervisit
+# AfterVisit
 
 **A clinical follow-up agent built on CALL-E.** A doctor writes a free-form note after a
-consultation and presses *Save and start follow-up*. Aftervisit reads the note into a goal, what
+consultation and presses *Save and start follow-up*. AfterVisit reads the note into a goal, what
 the doctor wants found out and a schedule; the agent then owns the whole workflow — scheduling,
 calling, asking in its own words, extracting typed answers, retrying, escalating — until the
 patient recovers or a clinician takes over.
@@ -52,7 +52,7 @@ not in this repository.
    agreed to automated calls. Consent is the gate: nothing is ever dialled without it.
 2. **The doctor writes the note** they would write anyway, plus an optional
    *“Escalate to me if…”*, kept word for word.
-3. **The doctor presses *Save and start follow-up*.** That is their whole job. Aftervisit reads
+3. **The doctor presses *Save and start follow-up*.** That is their whole job. AfterVisit reads
    the note into a goal, up to five things to find out — each quoting the note’s own words —
    and a schedule. How long comes from the note (*“follow up for 3 days”*), otherwise 7 days,
    and so does a wait (*“recheck in 3 days”* is one call on day 3); how often, what time and
@@ -76,7 +76,7 @@ not in this repository.
 
 ## Runs without placing calls
 
-Aftervisit is **no-call by default**. Three independent locks each stop a dial:
+AfterVisit is **no-call by default**. Three independent locks each stop a dial:
 
 | Lock | Default | What it does |
 |---|---|---|
@@ -129,7 +129,7 @@ Every call goes through one file, `lib/calle/port.ts` — the only file that imp
 Four properties of the API shape the design: **there is no endpoint to list calls** (every
 call id is persisted before anything waits), **no mid-call tool calling** (everything the agent
 may say is in the task), **no transactions on the Neon HTTP driver** (every race is one
-conditional `UPDATE … RETURNING`), and **no scheduling API** (Aftervisit owns the calendar,
+conditional `UPDATE … RETURNING`), and **no scheduling API** (AfterVisit owns the calendar,
 retries and escalation).
 
 ## How a follow-up happens
@@ -185,7 +185,7 @@ number on the doctor’s screen.
 **Uncertainty routes to a human.** Unmappable, unknown and missing are real statuses with a
 real destination. Nothing is guessed to keep a loop closed.
 
-**Aftervisit never gives clinical advice and never diagnoses.** Escalation is routing, never a
+**AfterVisit never gives clinical advice and never diagnoses.** Escalation is routing, never a
 verdict. **Phone numbers are masked everywhere.**
 
 ## Stack
@@ -220,10 +220,6 @@ docs/DEMO.md            how the demo is recorded, scene by scene
 `skills/aftervisit/` packages the pattern independently of this codebase — read a clinician’s
 note into a goal and grounded topics, run it as calls, and route every uncertain call to a person —
 with safety rules and worked examples in `references/`.
-
-## Author
-
-Built by **Sharmila Raghu** ([@sharmilaraghu](https://github.com/sharmilaraghu)).
 
 ## License
 

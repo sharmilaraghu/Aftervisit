@@ -31,13 +31,13 @@ export const RULE_CATALOG: Record<RuleKind, RuleMeta> = {
   unmappable_response: {
     label: "The call didn't find out what you asked",
     rationale:
-      "The patient was reached, but the call could not find out what it set out to. Aftervisit does not guess what a patient meant.",
+      "The patient was reached, but the call could not find out what it set out to. AfterVisit does not guess what a patient meant.",
     locked: true,
   },
   emergency_language: {
     label: "Emergency language heard",
     rationale:
-      "The patient described something that sounded urgent. Aftervisit routes it to a person rather than judging it.",
+      "The patient described something that sounded urgent. AfterVisit routes it to a person rather than judging it.",
     locked: true,
   },
   no_answer_exhausted: {

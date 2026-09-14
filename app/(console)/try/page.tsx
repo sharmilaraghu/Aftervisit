@@ -1,7 +1,7 @@
 /**
  * Try a call — for judges.
  *
- * The fastest honest way to hear Aftervisit: a first name, a number, a language,
+ * The fastest honest way to hear AfterVisit: a first name, a number, a language,
  * and if you like a consultation note to follow up on. The real script rings
  * that phone now, and nothing is saved. It sits behind a passcode like the
  * cron door does, because there is no login and this page can reach a phone.
@@ -37,14 +37,14 @@ export default function TryPage() {
         </h1>
         <p className="measure" style={{ margin: 0, color: "var(--bench-ink-2)", lineHeight: 1.6 }}>
           Your first name, your number and a language — and, if you like, a consultation note for
-          the assistant to follow up on. The real Aftervisit script rings your phone now, and
+          the assistant to follow up on. The real AfterVisit script rings your phone now, and
           nothing is saved.
         </p>
       </header>
 
       <Panel title="This is one call, not the workflow" style={{ marginBottom: "calc(var(--cell) * 2)" }}>
         <p className="measure" style={{ margin: 0, padding: "calc(var(--cell) * 2.5) calc(var(--cell) * 3)", fontSize: 14, lineHeight: 1.6, color: "var(--print-2)" }}>
-          In Aftervisit a doctor writes the note after a consultation and presses <strong>Save and start
+          In AfterVisit a doctor writes the note after a consultation and presses <strong>Save and start
           follow-up</strong>. The assistant then owns the follow-up for days: it schedules the calls,
           retries the ones nobody answers, reads every call, and brings the patient back to a doctor
           when something is wrong. This page lets you hear one of those calls on your own phone.

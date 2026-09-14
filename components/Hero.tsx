@@ -100,7 +100,7 @@ export function Hero() {
             margin: "0 0 calc(var(--cell) * 3)",
           }}
         >
-          Write the note you already write and press save. Aftervisit reads what
+          Write the note you already write and press save. AfterVisit reads what
           you want to know, and it phones your patient for as long as you said
           — escalating the ones who need you, and catching the one who quietly
           stops answering.

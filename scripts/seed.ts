@@ -23,7 +23,7 @@
  * None of those is written anywhere — they are what `deriveHealth()` makes of
  * the rows below.
  *
- * Re-runnable: it clears the Aftervisit tables first, in foreign-key order.
+ * Re-runnable: it clears the AfterVisit tables first, in foreign-key order.
  *
  * `--closed` seeds the same patients as finished history instead: every
  * follow-up closed by the doctor with a closing summary, every escalation

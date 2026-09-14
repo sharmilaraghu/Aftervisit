@@ -3,7 +3,7 @@ name: aftervisit
 description: Read a clinician's free-text note into a goal, grounded things to find out and a schedule, then run it as autonomous phone calls with CALL-E — scheduling, retries, typed extraction, and rule-based escalation to a human. Use when building clinical or high-stakes follow-up where an uncertain answer must reach a person rather than be guessed.
 ---
 
-# Aftervisit
+# AfterVisit
 
 A pattern for making an outbound calling agent own a **workflow** rather than a
 conversation. The differentiator is not that an AI can phone someone; it is that

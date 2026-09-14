@@ -1,6 +1,6 @@
 # The scheduler, driven from outside the deployment.
 #
-# Vercel's Hobby plan runs crons at most once a day, and Aftervisit retires any
+# Vercel's Hobby plan runs crons at most once a day, and AfterVisit retires any
 # call more than MAX_CALL_DELAY_MINUTES (90) late rather than dialling it — so a
 # daily tick means nearly every call is missed. This is the external cron that
 # DEPLOYMENT.md describes, using the same `POST /api/tick` door as `--ticker`.

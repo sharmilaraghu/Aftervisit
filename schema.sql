@@ -1,5 +1,5 @@
 --
--- Aftervisit -- the schema as it exists, dumped from the live database.
+-- AfterVisit -- the schema as it exists, dumped from the live database.
 --
 -- Reference only. This is NOT a migration and must never be applied as one.
 -- The schema is owned by lib/db/schema.ts and changed with `pnpm run db:generate`

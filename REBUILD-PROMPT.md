@@ -1,6 +1,6 @@
-# Aftervisit — MVP consolidation
+# AfterVisit — MVP consolidation
 
-You are working in an existing repo that already implements most of Aftervisit, but it has
+You are working in an existing repo that already implements most of AfterVisit, but it has
 grown too complex and the console UI/flow is not demo-ready. **Your job is to simplify to a
 smooth end-to-end MVP, not to rebuild from scratch and not to add features.**
 

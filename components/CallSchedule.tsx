@@ -14,7 +14,7 @@
  * Try a call follows OpenLine's: a confirm that names the person, the masked
  * number and the language before anything rings, then the page stays on the
  * call and shows what came back when it ends. Unlike OpenLine's, the call is
- * saved before it dials — Aftervisit's rule — so leaving the page loses nothing.
+ * saved before it dials — AfterVisit's rule — so leaving the page loses nothing.
  *
  * Times are printed and edited in the patient's zone, never the browser's —
  * "17:30" has to mean 17:30 where the phone rings.

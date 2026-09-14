@@ -4,7 +4,7 @@
  * The judges' instant call: ring a typed number now, with the real script, and
  * keep nothing.
  *
- * The one dial in Aftervisit that writes no row before it rings — the exception
+ * The one dial in AfterVisit that writes no row before it rings — the exception
  * AGENTS.md records under "The judges' instant call", so a judge can hear the
  * assistant on their own phone without leaving their number in the database.
  * The price is the one law 1 warns about: there is no endpoint to list calls,

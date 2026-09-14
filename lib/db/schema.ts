@@ -1,5 +1,5 @@
 /**
- * The Aftervisit schema.
+ * The AfterVisit schema.
  *
  * Three properties of the environment shape almost every decision below, so
  * they are worth stating once at the top:
@@ -12,7 +12,7 @@
  *   2. **No endpoint lists CALL-E calls.** A `call_id` we fail to persist is a
  *      result we can never read back. So a row is written before we dial, and
  *      `calleCallId` is stored the instant `create()` returns.
- *   3. **There is no scheduling API.** Aftervisit owns the calendar, which is why
+ *   3. **There is no scheduling API.** AfterVisit owns the calendar, which is why
  *      `scheduled_calls` exists at all.
  *
  * Enums are `text` + CHECK rather than `pgEnum` — see `lib/db/enums.ts` for why.
@@ -532,7 +532,7 @@ export const planQuestions = pgTable(
  * at once is the argument the product is making. Attempts beyond the first are
  * inserted lazily, only because an attempt actually failed.
  *
- * NAMING HAZARD: our `attempt` is a Aftervisit retry, which is a **separate
+ * NAMING HAZARD: our `attempt` is a AfterVisit retry, which is a **separate
  * CALL-E call task**. CALL-E's own `recipient.attempts[]` are dial attempts
  * *inside* one call task. They are different numbers and must never be compared.
  */
@@ -579,7 +579,7 @@ export const scheduledCalls = pgTable(
      * Who or what picked up: human, ivr, voicemail, unknown.
      *
      * CALL-E exposes no built-in answered-by field; the documented way to get
-     * one is a per-recipient structured result, which Aftervisit never sent. So
+     * one is a per-recipient structured result, which AfterVisit never sent. So
      * "the patient answered" and "the answerphone answered" were the same row,
      * and the retry ladder could dial a voicemail box three times.
      */

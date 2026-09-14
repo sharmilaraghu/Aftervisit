@@ -13,7 +13,7 @@
  *
  * The interesting field is the phone number. It is the only one where the
  * product refuses rather than corrects: a bare `9876543210` is a real number in
- * several countries, so Aftervisit will not pick one. That refusal is the first
+ * several countries, so AfterVisit will not pick one. That refusal is the first
  * thing a visitor sees the product actually do, so it is given room — mono,
  * because a number is read digit by digit.
  *
@@ -226,7 +226,7 @@ export function PatientForm({
             {/*
               The phone's hint runs under the whole row rather than under its
               own 260px column, where it wrapped to five lines and reintroduced
-              the height the row had just saved. Why Aftervisit refuses rather
+              the height the row had just saved. Why AfterVisit refuses rather
               than guesses is the *refusal's* job to say, and it does.
             */}
             <p
@@ -238,7 +238,7 @@ export function PatientForm({
                 lineHeight: 1.45,
               }}
             >
-              Full international format, starting with +. Aftervisit will not guess a
+              Full international format, starting with +. AfterVisit will not guess a
               country code.
             </p>
           </div>
@@ -247,7 +247,7 @@ export function PatientForm({
           {/*
             The one field on this form that authorises anything, so it is the
             last band read before the form is committed rather than a tickbox
-            halfway up it. Aftervisit dials without a human pressing a button
+            halfway up it. AfterVisit dials without a human pressing a button
             per call, so the human act moved here: unticked, every call to this
             patient is refused with a visible reason. Deliberately not
             pre-ticked.

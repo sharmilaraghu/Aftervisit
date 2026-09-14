@@ -48,7 +48,7 @@ export type AnswerType = "boolean" | "scale_0_10" | "enum" | "text";
 /** Guard phase 1, persisted. Only `approved` questions enter the phase-2 exemption set. */
 export type GuardStatus = "pending" | "approved" | "rejected";
 
-/** Aftervisit's own call lifecycle. */
+/** AfterVisit's own call lifecycle. */
 export type CallStatus =
   | "scheduled"
   | "claimed"

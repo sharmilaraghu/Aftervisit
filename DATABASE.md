@@ -18,7 +18,7 @@ and no scheduling API. So:
 - **Every mutation that could race is a single conditional `UPDATE … RETURNING`**, and
   every derived write is idempotent behind a unique index. There is no transaction to
   roll back into.
-- **Aftervisit owns the calendar**, which is why `scheduled_calls` exists at all.
+- **AfterVisit owns the calendar**, which is why `scheduled_calls` exists at all.
 
 Every enum is a `text` column with a `CHECK`, never a Postgres enum type: adding a value
 stays an ordinary migration instead of type surgery.

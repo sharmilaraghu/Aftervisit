@@ -422,7 +422,7 @@ export function processCompiledAnswer(
       reason: "not_grounded",
       detail:
         "The note was read as referring to something it does not contain. " +
-        "Aftervisit will not ground a call in text the doctor did not write.",
+        "AfterVisit will not ground a call in text the doctor did not write.",
       violations: grounding.violations,
     };
   }
