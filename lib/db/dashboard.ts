@@ -316,3 +316,52 @@ export async function getToday(): Promise<Today> {
     clearedToday: Number((cleared.rows as Record<string, unknown>[])[0]?.n ?? 0),
   };
 }
+
+export interface ClosedCourse {
+  planId: string;
+  patientId: string;
+  name: string;
+  age: number;
+  timezone: string;
+  reason: string;
+  closedAt: Date;
+  /** How it resolved, in the doctor's words. Only closed files with one are listed. */
+  closingSummary: string;
+}
+
+/**
+ * Follow-ups the doctor closed in the last week, for the foot of Follow-ups.
+ *
+ * A closed file still leaves the board above. This is only so the page can
+ * answer "what did we finish this week?" without opening every patient. A
+ * patient already on a new follow-up is on the board, so they are not repeated.
+ */
+export async function getRecentlyClosed(days = 7): Promise<ClosedCourse[]> {
+  const result = await getDb().execute(sql`
+    select p.id as plan_id, pt.id as patient_id, pt.name, pt.age, pt.timezone,
+           coalesce(p.reason, 'Follow-up') as reason, p.closed_at, p.closing_summary
+    from follow_up_plans p
+    join patients pt on pt.id = p.patient_id
+    where p.status = 'completed'
+      and p.closing_summary is not null
+      and p.closed_at >= now() - make_interval(days => ${days}::int)
+      and pt.archived_at is null
+      and not exists (
+        select 1 from follow_up_plans live
+        where live.patient_id = p.patient_id
+          and live.status in ('active', 'paused', 'awaiting_approval')
+      )
+    order by p.closed_at desc
+  `);
+
+  return (result.rows as Record<string, unknown>[]).map((r) => ({
+    planId: String(r.plan_id),
+    patientId: String(r.patient_id),
+    name: String(r.name),
+    age: Number(r.age),
+    timezone: String(r.timezone),
+    reason: String(r.reason),
+    closedAt: new Date(String(r.closed_at)),
+    closingSummary: String(r.closing_summary),
+  }));
+}

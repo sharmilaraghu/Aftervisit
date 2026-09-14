@@ -14,18 +14,24 @@
  *
  * One list, no tabs. A future visit appears on its date; a missed one sits at
  * the top as "From earlier days" until someone writes its note or marks it.
+ *
+ * Below the day, "Last 7 days": the seen and didn't-turn-up visits of the
+ * week before today. Not "this week" — on a Monday that would be a lie. The figures stay about today; this is only so a
+ * morning with nobody booked yet still shows what came before it.
  */
 
 import { Avatar, Badge, Button, Notice, Panel } from "@/components/ui";
 import { ArrivedButton, NoShowButton } from "@/components/VisitActions";
 import {
   getNoShowsOn,
+  getPastVisits,
   getSeenVisitsOn,
   getWaitingVisits,
+  type PastVisit,
   type SeenVisit,
   type WaitingVisit,
 } from "@/lib/db/visits";
-import { localDate } from "@/lib/time/clock";
+import { addDays, localDate } from "@/lib/time/clock";
 import { PRACTICE_TIMEZONE } from "@/lib/patients/timezones";
 import { formatCalendarDay } from "@/lib/format";
 import type { VisitKind } from "@/lib/db/enums";
@@ -37,7 +43,8 @@ const VISIT_KIND_LABEL: Record<VisitKind, string> = {
   post_op: "Post-op",
 };
 
-type RowMode = "waiting" | "next" | "seen" | "noshow";
+/* `past` is a visit from an earlier day that ended: it carries its date and how it ended. */
+type RowMode = "waiting" | "next" | "seen" | "noshow" | "past";
 
 function Row({
   visit,
@@ -45,7 +52,7 @@ function Row({
   href,
   landed = false,
 }: {
-  visit: WaitingVisit;
+  visit: WaitingVisit & { status?: string };
   mode: RowMode;
   href: string;
   landed?: boolean;
@@ -62,6 +69,12 @@ function Row({
           <span className="mono" style={{ fontSize: 13, fontWeight: 400, color: "var(--print-3)" }}>
             {visit.age}
           </span>
+          {mode === "past" ? (
+            <span className="mono" style={{ fontSize: 13, fontWeight: 400, color: "var(--print-3)" }}>
+              {" · "}
+              {formatCalendarDay(visit.visitDate)}
+            </span>
+          ) : null}
           {mode === "next" ? (
             <span className="visit-next" aria-label="Next patient">
               Next
@@ -79,6 +92,11 @@ function Row({
         <Badge tone={visit.kind === "post_op" ? "info" : "plain"} quiet>
           {VISIT_KIND_LABEL[visit.kind]}
         </Badge>
+        {mode === "past" ? (
+          <Badge tone={visit.status === "seen" ? "clear" : "plain"} quiet>
+            {visit.status === "seen" ? "Seen" : "Didn't turn up"}
+          </Badge>
+        ) : null}
         {mode === "waiting" || mode === "next" ? (
           <NoShowButton visitId={visit.id} patientName={visit.patientName} />
         ) : null}
@@ -128,9 +146,10 @@ export default async function ConsultPage({
   /* "Today" on the practice's clock. A server in another zone must not push a
      booking for this morning onto tomorrow. */
   const today = localDate(new Date(), PRACTICE_TIMEZONE);
-  const [seen, noShows]: [SeenVisit[], WaitingVisit[]] = await Promise.all([
+  const [seen, noShows, past]: [SeenVisit[], WaitingVisit[], PastVisit[]] = await Promise.all([
     getSeenVisitsOn(today),
     getNoShowsOn(today),
+    getPastVisits(addDays(today, -7), today),
   ]);
 
   const waitingToday = visits.filter((v) => v.visitDate === today);
@@ -265,6 +284,25 @@ export default async function ConsultPage({
         <Panel title="Didn't turn up" aside={<Count n={noShows.length} />}>
           {noShows.map((v) => (
             <Row key={v.id} visit={v} mode="noshow" href={`/followups/${v.patientId}`} />
+          ))}
+        </Panel>
+      ) : null}
+
+      {/* The week before today, after the fact. A seen visit opens its follow-up;
+          one nobody came to opens the desk record, where a rebooking starts. */}
+      {past.length > 0 ? (
+        <Panel
+          title="Last 7 days"
+          aside={<Count n={past.length} />}
+          style={{ marginTop: "calc(var(--cell) * 2)" }}
+        >
+          {past.map((v) => (
+            <Row
+              key={v.id}
+              visit={v}
+              mode="past"
+              href={v.status === "seen" ? `/followups/${v.patientId}` : `/patients/${v.patientId}`}
+            />
           ))}
         </Panel>
       ) : null}

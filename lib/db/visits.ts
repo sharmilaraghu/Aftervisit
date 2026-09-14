@@ -198,3 +198,26 @@ export async function getNoShowsOn(day: string): Promise<WaitingVisit[]> {
   `);
   return rows.rows as unknown as WaitingVisit[];
 }
+
+/** A visit from an earlier day that reached an end: seen, or the patient never came. */
+export interface PastVisit extends WaitingVisit {
+  status: "seen" | "no_show";
+}
+
+/**
+ * The doctor's recent days, after the fact — the consult page's "Earlier this
+ * week". Today stays today's; this is only what came before it, newest first.
+ * Still-waiting visits are not here: they sit at the top as "From earlier days".
+ */
+export async function getPastVisits(fromDay: string, beforeDay: string): Promise<PastVisit[]> {
+  const rows = await getDb().execute(sql`
+    select ${VISIT_COLUMNS}
+    from visits v
+    join patients pt on pt.id = v.patient_id
+    where v.status in ('seen', 'no_show')
+      and v.visit_date >= ${fromDay}::date and v.visit_date < ${beforeDay}::date
+      and pt.archived_at is null
+    order by v.visit_date desc, v.created_at desc
+  `);
+  return rows.rows as unknown as PastVisit[];
+}

@@ -10,18 +10,20 @@
  * `TickPoller` still mounts here: in a browser it is what drives the scheduler.
  */
 
+import Link from "next/link";
+
 import { Panel } from "@/components/ui";
 import { TickPoller } from "@/components/TickPoller";
 import { TodayList } from "@/components/TodayList";
 import { readConfig } from "@/lib/config";
-import { getToday } from "@/lib/db/dashboard";
-import { formatStamp } from "@/lib/format";
+import { getRecentlyClosed, getToday } from "@/lib/db/dashboard";
+import { formatDay, formatStamp } from "@/lib/format";
 import { PRACTICE_TIMEZONE } from "@/lib/patients/timezones";
 
 export const dynamic = "force-dynamic";
 
 export default async function FollowUpsPage() {
-  const { rows, clearedToday } = await getToday();
+  const [{ rows, clearedToday }, closed] = await Promise.all([getToday(), getRecentlyClosed()]);
   const attention = rows.filter((r) => r.status === "needs_attention").length;
 
   const hour = Number(
@@ -91,6 +93,61 @@ export default async function FollowUpsPage() {
       ) : (
         <TodayList rows={rows} clearedToday={clearedToday} />
       )}
+
+      {/* What was finished this week. Below the board and quiet: a closed file
+          is done, not waiting on anyone. */}
+      {closed.length > 0 ? (
+        <Panel
+          title="Recently closed"
+          aside={
+            <span className="caps mono" style={{ color: "var(--print-3)" }}>
+              {closed.length}
+            </span>
+          }
+          style={{ marginTop: "calc(var(--cell) * 3)" }}
+        >
+          <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+            {closed.map((c, i) => (
+              <li
+                key={c.planId}
+                style={{
+                  padding: "calc(var(--cell) * 2) calc(var(--cell) * 3)",
+                  borderTop: i > 0 ? "1px solid var(--rule-2)" : undefined,
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    alignItems: "baseline",
+                    gap: "calc(var(--cell) * 0.5) calc(var(--cell) * 2)",
+                  }}
+                >
+                  <Link
+                    href={`/followups/${c.patientId}`}
+                    style={{ fontSize: 16, fontWeight: 700, color: "var(--print)", textUnderlineOffset: 3 }}
+                  >
+                    {c.name}
+                  </Link>
+                  <span className="mono" style={{ fontSize: 13, color: "var(--print-3)" }}>
+                    {c.age}
+                  </span>
+                  <span style={{ fontSize: 14, color: "var(--print-2)" }}>{c.reason}</span>
+                  <span className="mono" style={{ marginLeft: "auto", fontSize: 13, color: "var(--print-3)" }}>
+                    Closed {formatDay(c.closedAt, c.timezone)}
+                  </span>
+                </div>
+                <p
+                  className="measure"
+                  style={{ margin: "calc(var(--cell) * 0.75) 0 0", fontSize: 14, lineHeight: 1.55, color: "var(--print)" }}
+                >
+                  {c.closingSummary}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </Panel>
+      ) : null}
     </div>
   );
 }
