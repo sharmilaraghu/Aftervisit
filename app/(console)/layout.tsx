@@ -33,6 +33,7 @@ export default async function ConsoleLayout({
         escalations={stats.openEscalations}
         practiceName={practiceName}
         clinicianName={clinicianName}
+        lockable={Boolean(process.env.AFTER_VISIT_CONSOLE_PASSCODE)}
       />
 
       <main style={{ minWidth: 0 }}>

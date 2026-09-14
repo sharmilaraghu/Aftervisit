@@ -5,34 +5,35 @@
  * patient with a typed number, record consent, start a follow-up, and the scheduler
  * dials it with nobody pressing a button. On a public URL that has to sit behind a
  * password, so when `AFTER_VISIT_CONSOLE_PASSCODE` is set every console page — and
- * every server action, which posts to the page it came from — asks for it first.
+ * every server action, which posts to the page it came from — needs the cookie the
+ * unlock page sets, or is sent to /unlock.
+ *
+ * A page, not the browser's Basic-auth dialog: that dialog is unstyled, cannot say
+ * why the console is locked, and a judge told which password to type had nowhere to
+ * read it. The cookie is httpOnly, so nothing in the browser reads it back.
  *
  * Unset, the console stays open, which is the local no-call setup: a fresh clone has
  * no key and a locked allowlist, so there is nothing to protect. The hosted demo sets it.
  *
- * Deliberately outside the lock: the landing page; `/try`, which has its own passcode
- * and saves nothing; and `/api/*`, where the cron and CALL-E's webhook arrive with
- * their own tokens and cannot answer a browser password prompt.
+ * Deliberately outside the lock: the landing page; `/unlock` itself; `/try`, which has
+ * its own passcode and saves nothing; and `/api/*`, where the cron and CALL-E's webhook
+ * arrive with their own tokens.
  */
 
 import { NextResponse, type NextRequest } from "next/server";
+
+export const CONSOLE_COOKIE = "aftervisit.console";
 
 export function proxy(request: NextRequest) {
   const passcode = process.env.AFTER_VISIT_CONSOLE_PASSCODE;
   if (!passcode) return NextResponse.next();
 
-  const header = request.headers.get("authorization") ?? "";
-  if (header.startsWith("Basic ")) {
-    // Any username; the password is what is checked.
-    const decoded = atob(header.slice(6));
-    const given = decoded.slice(decoded.indexOf(":") + 1);
-    if (same(given, passcode)) return NextResponse.next();
-  }
+  const held = request.cookies.get(CONSOLE_COOKIE)?.value ?? "";
+  if (same(held, passcode)) return NextResponse.next();
 
-  return new NextResponse("The AfterVisit console needs the passcode.", {
-    status: 401,
-    headers: { "WWW-Authenticate": 'Basic realm="AfterVisit console", charset="UTF-8"' },
-  });
+  const unlock = new URL("/unlock", request.url);
+  unlock.searchParams.set("next", request.nextUrl.pathname + request.nextUrl.search);
+  return NextResponse.redirect(unlock);
 }
 
 /* Compared in full, so a wrong guess takes as long however much of it was right. */

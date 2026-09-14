@@ -86,7 +86,7 @@ AfterVisit is **no-call by default**. Three independent locks each stop a dial:
 
 So a fresh clone, or a fresh deploy, rings nobody. **The hosted demo is the deliberate
 exception:** it runs with a CALL-E key and the allowlist at `*` so judges can hear a call — so its whole
-console sits behind a password (`AFTER_VISIT_CONSOLE_PASSCODE`, enforced in `proxy.ts`), and
+console sits behind a passcode (`AFTER_VISIT_CONSOLE_PASSCODE`, asked for on `/unlock` and checked in `proxy.ts`), and
 nobody without it can register a patient or schedule a call. Consent is still required on every
 dial, and the judges' Try a call sits behind its own `AFTER_VISIT_TRY_PASSCODE`. Treat it as a
 demo, not a deployment.

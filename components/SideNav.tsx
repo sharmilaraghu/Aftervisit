@@ -101,10 +101,13 @@ export function SideNav({
   escalations,
   practiceName,
   clinicianName,
+  lockable = false,
 }: {
   escalations: number;
   practiceName: string;
   clinicianName: string;
+  /** A passcode guards this console, so the rail offers to lock it. */
+  lockable?: boolean;
 }) {
   const pathname = usePathname() ?? "";
   const collapsed = useSyncExternalStore(subscribe, readCollapsed, () => false);
@@ -211,6 +214,15 @@ export function SideNav({
           Clinician
         </p>
         <p style={{ margin: "2px 0 0", color: "var(--bench-ink)", fontSize: 14 }}>{clinicianName}</p>
+        {/* Only when a passcode guards the console: the one way to give it back.
+            Not on the unlock page itself, where it would point at the page you are on. */}
+        {lockable && pathname !== "/unlock" ? (
+          <p style={{ margin: "calc(var(--cell) * 1.5) 0 0", fontSize: 13 }}>
+            <Link href="/unlock" style={{ color: "var(--bench-ink-2)", textUnderlineOffset: 3 }}>
+              Lock the console
+            </Link>
+          </p>
+        ) : null}
       </div>
 
     </nav>
