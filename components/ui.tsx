@@ -285,7 +285,8 @@ export function Button({
  * The wordmark is set in the slab — the apothecary's lettering, and the one
  * place this product uses it, so the brand speaks in a different voice from
  * the page beneath it. The console button is the band's counterweight and the
- * page's only door, which is why the amber lives up here now.
+ * page's main door, which is why the amber lives up here now; Try a call beside
+ * it is the judges' door, in ghost so the amber stays the console's.
  *
  * An earlier version bridged the two with a `flex: 1` hairline "leader rule".
  * It spanned 597px — half the band — and a leader rule does not fill a void,
@@ -343,7 +344,12 @@ export function Masthead() {
             on `/dashboard`, so sending a first-time visitor to `/patients`
             meant the one thing that drives the scheduler in a browser never
             started — the console looked alive and nothing was moving. */}
-        <span className="masthead-cta">
+        <span className="masthead-cta" style={{ display: "inline-flex", flexWrap: "wrap", gap: "calc(var(--cell) * 1.5)" }}>
+          {/* The judges' door: one call on their own phone, behind a passcode.
+              Ghost, so the console keeps the band's one amber. */}
+          <Button href="/try" variant="ghost">
+            Try a call
+          </Button>
           <Button href="/dashboard" variant="primary">
             Open the console
           </Button>

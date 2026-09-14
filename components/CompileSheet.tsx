@@ -20,12 +20,23 @@ const NOTE = `Asha K, 54. Started metformin 500mg BD today for new T2DM. Worried
 
 Follow up daily for a week — GI upset, whether she's actually taking it, any dizziness.
 
-If she's vomiting or can't keep fluids down I want to know the same day. She's at work until 5 most days.
+If she's vomiting or can't keep fluids down I want to know the same day. She's at work until 5, so call in the evening.
 
 BP 138/86 today. Repeat U&Es and HbA1c in three months. Went through the sick-day rules with her.`;
 
-/* Approved 16 Aug, so the window is the seven calendar days that follow. */
-const DATES = ["17 Aug", "18 Aug", "19 Aug", "20 Aug", "21 Aug", "22 Aug", "23 Aug"];
+/*
+ * Written and started on 16 Aug in clinic hours, before the evening call time,
+ * so the first call is that same evening: seven calls, 16–22 Aug. This used to
+ * start on the 17th, which is only what a start after the call time does.
+ */
+const DATES = ["16 Aug", "17 Aug", "18 Aug", "19 Aug", "20 Aug", "21 Aug", "22 Aug"];
+
+/*
+ * "Call in the evening" is read as 18:00 — the compiler's own word for evening —
+ * and stamped as the note's. It was 17:30 marked "defaulted", but the default is
+ * 10:00, which would have rung her at work.
+ */
+const CALL_TIME = "18:00";
 
 /*
  * What the note asks, not a script. Each thing to find out carries the note's
@@ -39,10 +50,11 @@ const FIND_OUT = [
   { topic: "Dizziness", quote: "any dizziness" },
 ];
 
+/* The catalog's own labels for the three locked rules — the words a doctor sees on the queue, not the rule ids. */
 const LOCKED = [
-  "patient_requests_clinician",
-  "unmappable_response",
-  "emergency_language",
+  "Patient asked for a clinician",
+  "The call didn't find out what you asked",
+  "Emergency language heard",
 ];
 
 const PULL_DISTANCE = 150;
@@ -210,10 +222,13 @@ export function CompileSheet({
               }}
             >
               <span className="mono" style={{ fontSize: 13, color: "var(--print)" }}>
-                Daily · 7 days · 17:30 Asia/Kolkata
+                Daily · 7 days · {CALL_TIME} Asia/Kolkata
               </span>
+              <Badge tone="clear" quiet>
+                Time from note
+              </Badge>
               <Badge tone="info" quiet>
-                Time defaulted
+                3 tries a day · default
               </Badge>
             </div>
 
@@ -247,7 +262,7 @@ export function CompileSheet({
                     {date}
                   </span>
                   <span className="mono" style={{ fontSize: 13, color: "var(--print-2)" }}>
-                    17:30
+                    {CALL_TIME}
                   </span>
                   <span className="caps" style={{ color: "var(--print-3)" }}>
                     Scheduled
@@ -319,7 +334,8 @@ export function CompileSheet({
                 Cannot be removed
               </span>
               {LOCKED.map((rule) => (
-                <Badge key={rule} tone="plain">
+                /* Wraps: the rule labels are sentences, and at 390px the longest ran off the sheet. */
+                <Badge key={rule} tone="plain" style={{ whiteSpace: "normal" }}>
                   {rule}
                 </Badge>
               ))}

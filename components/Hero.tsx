@@ -26,13 +26,20 @@ const STAGES = [
     done: true,
   },
   {
+    /*
+     * It said "four escalation rules can never be removed". Three are locked —
+     * the patient asked for a person, emergency language, a call that did not
+     * find out what it set out to. The fourth floor rule, nobody answered, is a
+     * default and not locked; the sheet beside this list shows the three.
+     */
     title: "Save and start",
-    body: "One button. The calls are on the calendar, and four escalation rules can never be removed — by you or the model.",
+    body: "One button puts the calls on a calendar you can change: move or skip any call, or try one now. Three escalation rules can never be removed.",
     done: true,
   },
   {
-    title: "It runs the week",
-    body: "The agent dials around the patient's day, speaks their language, and retries the calls nobody answers.",
+    /* "The week" was one example; a follow-up runs as long as the note says. */
+    title: "It runs the follow-up",
+    body: "The agent calls at the time your note gives, speaks the patient's language, and retries the calls nobody answers.",
     done: false,
   },
   {
@@ -44,7 +51,7 @@ const STAGES = [
      * "an outage cannot silence a patient who asked for a person" checkable.
      */
     title: "Drift gets caught",
-    body: "A model reads the transcript and decides. Four pure rules stand under it, so an outage still cannot silence a patient who asked for a person.",
+    body: "A model reads every call. Four pure rules stand under it, so an outage still cannot silence a patient who asked for a person. Anyone who needs you goes to the top of Follow-ups.",
     done: false,
   },
 ];
