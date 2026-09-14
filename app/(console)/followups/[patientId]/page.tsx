@@ -24,6 +24,7 @@ import { AmendNote } from "@/components/AmendNote";
 import { EscalationSetup } from "@/components/EscalationSetup";
 import { HowTheyAreDoing } from "@/components/HowTheyAreDoing";
 import { CallLog } from "@/components/CallLog";
+import { CallSchedule } from "@/components/CallSchedule";
 import { getPatientDetail } from "@/lib/db/patients";
 import { getPatientSummary } from "@/lib/db/summary";
 import { getParameterGrid } from "@/lib/db/parameters";
@@ -32,6 +33,7 @@ import { getLatestReading, getTopicFindings } from "@/lib/db/followup";
 import { getWaitingVisits } from "@/lib/db/visits";
 import { HEALTH_LABEL } from "@/lib/patients/labels";
 import { languageLabel } from "@/lib/patients/languages";
+import { maskPhone } from "@/lib/phone/normalize";
 import { whatChanged } from "@/lib/patients/parameters";
 import { readConfig } from "@/lib/config";
 import { UNIT_LABEL } from "@/lib/plan/result-schema";
@@ -86,12 +88,21 @@ export default async function FollowUpPatientPage({
     .sort((a, b) => a.scheduledFor.getTime() - b.scheduledFor.getTime())[0];
   const course = summary.courses.find((c) => c.planId === planId);
 
+  /* Split once: what is still to ring leads the page; what already happened is the log. */
+  const upcoming = detail.calls
+    .filter((c) => c.status === "scheduled")
+    .sort((a, b) => a.scheduledFor.getTime() - b.scheduledFor.getTime());
+  const history = detail.calls.filter((c) => c.status !== "scheduled");
+
   /*
    * The calling plan, counted by day rather than by attempt: a retry is the
-   * same planned call trying again, not another call the doctor asked for.
+   * same planned call trying again, not another call the doctor asked for —
+   * and a try is an extra call, not a day of the plan at all.
    */
   const days = new Map<number, string[]>();
-  for (const c of detail.calls) days.set(c.occurrence, [...(days.get(c.occurrence) ?? []), c.status]);
+  for (const c of detail.calls.filter((x) => x.kind === "planned")) {
+    days.set(c.occurrence, [...(days.get(c.occurrence) ?? []), c.status]);
+  }
   const dayStates = [...days.values()];
   const toCome = dayStates.filter((s) => s.some((x) => ["scheduled", "claimed", "dialing"].includes(x))).length;
   const skipped = dayStates.filter((s) => s.every((x) => x === "skipped")).length;
@@ -307,6 +318,31 @@ export default async function FollowUpPatientPage({
         </section>
       ) : null}
 
+      {/*
+        When the assistant rings next, each call movable — and a call placed now.
+        Up here rather than under the write-up: straight after a start, "when
+        does it ring?" is the doctor's first question, and it used to be answered
+        at the bottom of the page in a table nobody could change.
+      */}
+      {plan && live ? (
+        <section id="schedule">
+          <Panel title="Calling schedule" style={{ marginBottom: "calc(var(--cell) * 2)" }}>
+            <CallSchedule
+              planId={plan.id}
+              patientId={patient.id}
+              patientName={patient.name}
+              maskedPhone={maskPhone(patient.phoneE164)}
+              language={languageLabel(patient.language)}
+              timezone={patient.timezone}
+              maxAttempts={plan.maxAttempts}
+              upcoming={upcoming}
+              paused={detail.planStatus === "paused"}
+              blocked={blocked}
+            />
+          </Panel>
+        </section>
+      ) : null}
+
       {/* 4 — the follow-up itself: what the calls find out, and when. */}
       {plan && !draft ? (
         <section id="plan">
@@ -442,8 +478,9 @@ export default async function FollowUpPatientPage({
             </div>
           </Panel>
 
-          {/* Every call the assistant will make and has made, dated — the plan made visible. */}
-          <Panel title="Calling plan" style={{ marginBottom: "calc(var(--cell) * 2)" }}>
+          {/* Every call the assistant has made, dated. While the follow-up runs, the calls
+              still to come are in the schedule above rather than repeated here. */}
+          <Panel title={live ? "Calls placed" : "Calling plan"} style={{ marginBottom: "calc(var(--cell) * 2)" }}>
             {detail.calls.length > 0 ? (
               <p style={{ margin: 0, padding: "calc(var(--cell) * 2) calc(var(--cell) * 3) 0", fontSize: 14, color: "var(--print-2)" }}>
                 <span className="mono" style={{ color: "var(--print)" }}>{dayStates.length}</span> call
@@ -458,7 +495,13 @@ export default async function FollowUpPatientPage({
                 ) : null}
               </p>
             ) : null}
-            <CallLog calls={detail.calls} maxAttempts={detail.maxAttempts} timezone={patient.timezone} />
+            {live && history.length === 0 ? (
+              <p style={{ margin: 0, padding: "calc(var(--cell) * 2) calc(var(--cell) * 3) calc(var(--cell) * 3)", fontSize: 14, color: "var(--print-2)" }}>
+                No calls have been placed yet. The schedule above shows when the first one rings.
+              </p>
+            ) : (
+              <CallLog calls={live ? history : detail.calls} maxAttempts={detail.maxAttempts} timezone={patient.timezone} />
+            )}
           </Panel>
 
           {live ? (

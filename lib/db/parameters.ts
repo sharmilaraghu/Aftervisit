@@ -84,7 +84,8 @@ export async function getParameterGrid(planId: string): Promise<ParameterRow[]> 
     `),
     db.execute(sql`
       select distinct occurrence from scheduled_calls
-      where plan_id = ${planId} order by occurrence
+      -- The grid's columns are days of the plan; a try is an extra call, not a day.
+      where plan_id = ${planId} and kind = 'planned' order by occurrence
     `),
   ]);
 

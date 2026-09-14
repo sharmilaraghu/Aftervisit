@@ -109,6 +109,10 @@ export interface PatientCallRow {
   recap: string | null;
   /** What they raised that no question covered, when they raised something. */
   whatElse: string | null;
+  /** `planned` for a day of the calendar, `try` for an extra call a doctor placed. */
+  kind: string;
+  /** Why a skipped call was skipped; `clinician_skipped` when a person chose to. */
+  skipReason: string | null;
 }
 
 /**
@@ -126,11 +130,13 @@ export async function getPatientDetail(id: string): Promise<PatientDetail | null
   const planRows = await db.execute(sql`
     select p.id, p.status, p.reason, p.condition, p.local_time, p.duration_days,
            p.max_attempts, p.starts_at, p.ends_at, p.paused_reason, n.body as note_body,
+      -- Days of the plan, so a try (an extra call a doctor placed) counts in neither.
       count(c.*) filter (
         where c.attempt = 1 and c.scheduled_for <= now() and c.status <> 'skipped'
+          and c.kind = 'planned'
       ) as due,
       count(distinct c.occurrence) filter (
-        where c.outcome in ('answered','flagged','unmappable')
+        where c.outcome in ('answered','flagged','unmappable') and c.kind = 'planned'
       ) as contacted,
       max(c.finished_at) filter (
         where c.outcome in ('answered','flagged','unmappable')
@@ -215,7 +221,7 @@ export async function getPatientDetail(id: string): Promise<PatientDetail | null
     getWeekBands([planId]),
     db.execute(sql`
       select id, occurrence, attempt, scheduled_for, status, outcome,
-             calle_failure_code, finished_at, summary,
+             calle_failure_code, finished_at, summary, kind, skip_reason,
              nullif(structured_result ->> 'call_recap', 'unknown')          as recap,
              nullif(structured_result ->> 'what_else', 'unknown')           as what_else
       from scheduled_calls
@@ -288,6 +294,8 @@ export async function getPatientDetail(id: string): Promise<PatientDetail | null
       summary: r.summary ? String(r.summary) : null,
       recap: r.recap ? String(r.recap) : null,
       whatElse: r.what_else ? String(r.what_else) : null,
+      kind: String(r.kind ?? "planned"),
+      skipReason: r.skip_reason ? String(r.skip_reason) : null,
     })),
     quality: {
       slots: Number(q.slots ?? 0),

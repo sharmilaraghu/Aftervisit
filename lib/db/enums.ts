@@ -108,7 +108,22 @@ export type TickTrigger = "page" | "cron" | "poller" | "manual";
  * be arbitrarily late, and nothing ran the scheduler for hours would otherwise
  * mean the whole backlog rings at whatever hour it finally woke up.
  */
-export type SkipReason = "plan_paused" | "plan_closed" | "patient_archived" | "too_late";
+export type SkipReason =
+  | "plan_paused"
+  | "plan_closed"
+  | "patient_archived"
+  | "too_late"
+  /* A person chose to drop this one call from the schedule. */
+  | "clinician_skipped";
+
+/**
+ * Whether a call is a day of the calendar or an extra one a doctor placed.
+ *
+ * `try` is "Try a call": dialled now, on top of the planned calls rather than
+ * taken from them. It is kept out of every "day N of M" count and off the retry
+ * ladder, because nobody planned it and nobody asked for it to be chased.
+ */
+export type CallKind = "planned" | "try";
 
 export type ConsentSource = "registration" | "call";
 
@@ -252,5 +267,11 @@ export const RESOLUTIONS = [
   "no_action",
 ] as const;
 export const TICK_TRIGGERS = ["page", "cron", "poller", "manual"] as const;
-export const SKIP_REASONS = ["plan_paused", "plan_closed", "patient_archived", "too_late"] as const;
+export const SKIP_REASONS = [
+  "plan_paused",
+  "plan_closed",
+  "patient_archived",
+  "too_late",
+  "clinician_skipped",
+] as const;
 export const CONSENT_SOURCES = ["registration", "call"] as const;

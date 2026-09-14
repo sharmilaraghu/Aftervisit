@@ -41,6 +41,7 @@ import type {
   AnswerType,
   Cadence,
   CalleStatus,
+  CallKind,
   CallOutcome,
   CallStatus,
   CloseReason,
@@ -607,6 +608,13 @@ export const scheduledCalls = pgTable(
     refusalReason: text("refusal_reason"),
     refusalDetail: text("refusal_detail"),
     skipReason: text("skip_reason").$type<SkipReason>(),
+    /**
+     * `planned` for a day of the calendar, `try` for "Try a call" — an extra
+     * call a doctor placed now. A try takes the occurrence after the plan's
+     * last, so `uniq_call_slot` and the idempotency key hold unchanged; the kind
+     * is what keeps it out of day counts and off the retry ladder.
+     */
+    kind: text("kind").$type<CallKind>().notNull().default("planned"),
 
     /**
      * The one derived value this schema stores.
@@ -633,6 +641,7 @@ export const scheduledCalls = pgTable(
     check("calls_skip_reason", oneOf("skip_reason", SKIP_REASONS, true)),
     check("calls_occurrence", sql`${t.occurrence} > 0`),
     check("calls_attempt", sql`${t.attempt} > 0`),
+    check("calls_kind", sql`${t.kind} in ('planned', 'try')`),
     /**
      * The insurance the `resultStatus` distinction needs: nothing else can catch
      * "wrote structured_result but forgot to move result_status off pending".

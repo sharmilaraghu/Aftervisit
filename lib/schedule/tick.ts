@@ -38,6 +38,7 @@ import { readConfig } from "@/lib/config";
 import { isTransientRefusal } from "@/lib/calle/failure";
 import {
   beginTick,
+  claimCall,
   claimDueCalls,
   closeElapsedPlans,
   deferCall,
@@ -103,6 +104,8 @@ interface CallContext extends DueCall {
   topics: TopicSpec[];
   /** Set up before calls carried a goal: its frozen schema and questions do not fit a goal task. */
   legacy: boolean;
+  /** `try` for an extra call a doctor placed now — it is never retried. */
+  kind: string;
   questions: {
     questionId: string;
     prompt: string;
@@ -140,6 +143,7 @@ export async function loadContext(call: DueCall): Promise<CallContext | null> {
     select pt.name, pt.age, pt.phone_e164, pt.timezone, pt.language, pt.ai_call_consent,
            p.max_attempts, p.reason, p.rules, p.red_flag_terms, p.result_schema,
            p.goal, p.watch_points,
+           (select kind from scheduled_calls where id = ${call.id}) as call_kind,
            n.body as note_body, n.escalation_note
     from follow_up_plans p
     join patients pt on pt.id = p.patient_id
@@ -172,6 +176,7 @@ export async function loadContext(call: DueCall): Promise<CallContext | null> {
     goal: row.goal ? String(row.goal) : DEFAULT_GOAL,
     topics: ((row.watch_points ?? []) as WatchPoint[]).map((w) => ({ text: w.text, unit: w.unit ?? null })),
     legacy: !row.goal,
+    kind: String(row.call_kind ?? "planned"),
     questions: (qs.rows as Record<string, unknown>[]).map((q) => ({
       questionId: String(q.question_id),
       prompt: String(q.prompt),
@@ -330,7 +335,8 @@ export async function completeCall(
    * logic on it. "Nobody spoke" is a fact we derive from the transcript and the
    * answered slots, and it is the actual condition a retry is for.
    */
-  const shouldRetry = !reached && ctx.attempt < ctx.maxAttempts;
+  /* A try is one call a doctor asked for now. Nobody planned it, so nobody asked for it to be chased. */
+  const shouldRetry = !reached && ctx.attempt < ctx.maxAttempts && ctx.kind !== "try";
 
   const outcome = foldOutcome({
     reached,
@@ -714,6 +720,53 @@ export async function tick(
           );
           counters.refused += 1;
         }
+      }
+    }
+  } catch (e) {
+    error = e instanceof Error ? e.message : String(e);
+  }
+
+  await endTick(tickId, counters, error);
+  return { ...counters, ran: true, tickId, error };
+}
+
+/**
+ * Place one named call now — "Try a call".
+ *
+ * The same pass a tick makes, narrowed to one row: take the lease, claim the
+ * row conditionally, dial it through `dialOne`. Consent, the allowlist, the
+ * guard and persist-before-wait are therefore the scheduler's own, not a second
+ * copy of them. No reconcile and no sweep: the doctor is waiting on the page,
+ * and the next ordinary tick does both.
+ *
+ * If another tick holds the lease, nothing is dialled here. The row is already
+ * due, so that tick — or the next — claims and places it.
+ */
+export async function dialNow(
+  callId: string,
+  options: { port?: CallePort } = {},
+): Promise<TickResult> {
+  const tickId = await beginTick("manual");
+  if (!tickId) {
+    return { ...EMPTY, ran: false, tickId: null, skipped: true };
+  }
+
+  const counters: TickCounters = { ...EMPTY };
+  let error: string | undefined;
+
+  try {
+    const call = await claimCall(tickId, callId);
+    if (call) {
+      counters.claimed = 1;
+      try {
+        await dialOne(options.port ?? callePortFromEnv(), call, counters);
+      } catch (e) {
+        await recordRefusal(
+          call.id,
+          "api_error",
+          e instanceof Error ? e.message : "The call failed unexpectedly.",
+        );
+        counters.refused += 1;
       }
     }
   } catch (e) {
