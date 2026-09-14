@@ -11,6 +11,9 @@
 docs/*
 !docs/screenshots/
 
+# Demo-video media from `pnpm media` — rendered on demand, never committed.
+media/generated/
+
 node_modules/
 .next/
 out/

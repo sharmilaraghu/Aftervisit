@@ -130,7 +130,7 @@ export default async function ConsultVisitPage({
                 fontSize: 13,
               }}
             >
-              Context only. The questions come from your note alone.
+              Context only. What the calls find out comes from your note alone.
             </p>
           </Panel>
 

@@ -1,13 +1,14 @@
 /**
  * One patient, for the doctor.
  *
- * The follow-up used to live on two screens: the plan page (built to approve a
- * draft, and after approval still printing provenance badges and a coverage
- * check) and the patient record (filed under the front desk, with the
- * escalation halfway down and a link that sent the doctor to the whole list).
- * This is the one place a doctor reads a running follow-up, in the order they
- * need it: what needs deciding, how the patient is doing, whether we are
- * reaching them, then the plan itself.
+ * The one place a doctor reads a running follow-up, in the order they need it:
+ * what needs deciding, how the patient is doing, whether we are reaching them,
+ * then the follow-up itself — what the calls set out to find out, each with the
+ * words in the note it came from and the patient's latest answer.
+ *
+ * There is no plan to review. The doctor saved the note and pressed start; this
+ * page is where they land, and it says plainly what was read from the note and
+ * what code filled in.
  *
  * The desk keeps its own record at /patients/[id] — contact, calls, stop,
  * delete — without the clinical content or the decisions.
@@ -26,16 +27,25 @@ import { getPatientDetail } from "@/lib/db/patients";
 import { getPatientSummary } from "@/lib/db/summary";
 import { getParameterGrid } from "@/lib/db/parameters";
 import { getPlanForReview } from "@/lib/db/plans";
-import { getLatestReading } from "@/lib/db/followup";
+import { getLatestReading, getTopicFindings } from "@/lib/db/followup";
 import { getWaitingVisits } from "@/lib/db/visits";
 import { HEALTH_LABEL } from "@/lib/patients/labels";
 import { languageLabel } from "@/lib/patients/languages";
-import { OBSERVED_QUESTION_IDS } from "@/lib/plan/universal-questions";
 import { whatChanged } from "@/lib/patients/parameters";
+import { readConfig } from "@/lib/config";
+import { UNIT_LABEL } from "@/lib/plan/result-schema";
 import { formatDay, formatStamp } from "@/lib/format";
 import { localDate } from "@/lib/time/clock";
 
 export const dynamic = "force-dynamic";
+
+/* Why something the note asked about is not on the calls, in the doctor's terms. */
+const DROPPED_WHY: Record<string, string> = {
+  not_in_note: "these words were not found in your note",
+  unrelated: "it did not match your words",
+  guard: "it read as advice or an instruction, which the calls never carry",
+  over_cap: "the calls follow up five things at most",
+};
 
 const CADENCE: Record<string, string> = {
   daily: "Daily",
@@ -48,10 +58,10 @@ export default async function FollowUpPatientPage({
   searchParams,
 }: {
   params: Promise<{ patientId: string }>;
-  searchParams: Promise<{ approved?: string }>;
+  searchParams: Promise<{ started?: string }>;
 }) {
   const { patientId } = await params;
-  const { approved } = await searchParams;
+  const { started } = await searchParams;
   const detail = await getPatientDetail(patientId);
   if (!detail) notFound();
 
@@ -63,6 +73,7 @@ export default async function FollowUpPatientPage({
     planId ? getPlanForReview(planId) : Promise.resolve(null),
     planId ? getLatestReading(planId) : Promise.resolve(null),
   ]);
+  const topics = plan ? await getTopicFindings(plan.id, plan.watchPoints) : [];
 
   const live = detail.planStatus === "active" || detail.planStatus === "paused";
   const draft = detail.planStatus === "awaiting_approval";
@@ -74,17 +85,31 @@ export default async function FollowUpPatientPage({
     .sort((a, b) => a.scheduledFor.getTime() - b.scheduledFor.getTime())[0];
   const course = summary.courses.find((c) => c.planId === planId);
 
-  /* After an approval the doctor's next move is the next patient. */
-  const next = approved
+  /* After a start the doctor's next move is the next patient. */
+  const next = started
     ? (await getWaitingVisits()).find(
         (v) => v.patientId !== patient.id && v.visitDate <= localDate(new Date(), v.timezone),
       )
     : undefined;
 
-  const questions = (plan?.questions ?? []).filter(
-    (q) => q.guardStatus === "approved" && !OBSERVED_QUESTION_IDS.has(q.questionId),
-  );
+  /*
+   * Why nothing would ring, said at the moment the doctor believes it will.
+   * The port refuses these dials anyway; this only stops the refusal being a
+   * surprise tomorrow morning.
+   */
+  const config = readConfig();
+  const blocked =
+    patient.aiCallConsent !== "granted"
+      ? `${firstName} has not agreed to automated calls on their record, so none will be placed until the desk records that they have.`
+      : !config.liveCallsEnabled
+        ? "Calls are switched off on this instance, so none will be placed."
+        : !config.allowlistOpen && !config.callAllowlist.includes(patient.phoneE164)
+          ? "This instance's dial allowlist does not include this number, so no call will be placed."
+          : null;
+
   const peak = whatChanged(rows).changed[0];
+  const fromNote = (field: "durationDays" | "startAfterDays" | "cadence" | "localTime") =>
+    plan?.provenance[field] === "note" ? plan.scheduleQuotes[field] : undefined;
 
   return (
     <div
@@ -126,48 +151,61 @@ export default async function FollowUpPatientPage({
               ) : null}
             </p>
           </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "calc(var(--cell) * 1.5)" }}>
-            {draft && planId ? (
-              <Button variant="primary" href={`/plans/${planId}`}>
-                Review and approve
-              </Button>
-            ) : null}
-            {/* Not while the decision block is showing: it carries the same button. */}
-            {!waiting ? (
-              <Button variant="ghost" href={`tel:${patient.phoneE164}`} ariaLabel={`Phone ${patient.name} from your own phone`}>
-                Phone {firstName} yourself
-              </Button>
-            ) : null}
-          </div>
+          {/* Not while the decision block is showing: it carries the same button. */}
+          {!waiting ? (
+            <Button variant="ghost" href={`tel:${patient.phoneE164}`} ariaLabel={`Phone ${patient.name} from your own phone`}>
+              Phone {firstName} yourself
+            </Button>
+          ) : null}
         </div>
       </header>
 
-      {approved && detail.startsAt ? (
-        <p
+      {started && plan && live ? (
+        <div
           role="status"
           style={{
             margin: "0 0 calc(var(--cell) * 2)",
             padding: "calc(var(--cell) * 2)",
-            background: "var(--clear-wash)",
-            boxShadow: "inset 0 0 0 1px var(--clear)",
+            background: blocked ? "var(--amber-wash)" : "var(--clear-wash)",
+            boxShadow: `inset 0 0 0 1px var(--${blocked ? "amber" : "clear"})`,
             color: "var(--print)",
             fontSize: 15,
             lineHeight: 1.55,
           }}
         >
-          <strong>The follow-up has started.</strong> The first call goes out{" "}
-          <span className="mono">{formatStamp(detail.startsAt, patient.timezone)}</span>. Nothing rings before then.
-          {next ? (
-            <>
-              {" "}
-              <Link href={`/consult/${next.id}`} style={{ color: "var(--print)", fontWeight: 700, textUnderlineOffset: 3 }}>
-                Next patient: {next.patientName}
-              </Link>
-            </>
-          ) : (
-            " Nobody else is waiting for a note."
-          )}
-        </p>
+          <p style={{ margin: 0 }}>
+            <strong>Follow-up started.</strong>{" "}
+            {detail.startsAt ? (
+              <>
+                First call <span className="mono">{formatStamp(detail.startsAt, patient.timezone)}</span> ·{" "}
+              </>
+            ) : null}
+            {plan.durationDays === 1 && plan.startAfterDays > 0 ? (
+              <>
+                one call, <span className="mono">{plan.startAfterDays}</span> day{plan.startAfterDays === 1 ? "" : "s"} from now
+                {fromNote("startAfterDays") ? " (from your note)." : "."}
+              </>
+            ) : (
+              <>
+                {(CADENCE[plan.cadence] ?? plan.cadence).toLowerCase()} for{" "}
+                <span className="mono">{plan.durationDays}</span> day{plan.durationDays === 1 ? "" : "s"}
+                {plan.startAfterDays > 0 ? <>, starting in <span className="mono">{plan.startAfterDays}</span> days</> : null}
+                {fromNote("durationDays") ? " (from your note)." : " (the default — your note did not say how long)."}
+              </>
+            )}
+            {next ? (
+              <>
+                {" "}
+                <Link href={`/consult/${next.id}`} style={{ color: "var(--print)", fontWeight: 700, textUnderlineOffset: 3 }}>
+                  Next patient: {next.patientName}
+                </Link>
+              </>
+            ) : (
+              " Nobody else is waiting for a note."
+            )}
+          </p>
+          {blocked ? <p style={{ margin: "calc(var(--cell) * 1) 0 0" }}>{blocked}</p> : null}
+        </div>
       ) : null}
 
       {/* 1 — what needs deciding. The page's one red, and only when it exists. */}
@@ -257,19 +295,99 @@ export default async function FollowUpPatientPage({
         </section>
       ) : null}
 
-      {/* 4 — the plan itself, one line, opened on demand. */}
-      {plan ? (
+      {/* 4 — the follow-up itself: what the calls find out, and when. */}
+      {plan && !draft ? (
         <section id="plan">
-          <Panel title="The plan" style={{ marginBottom: "calc(var(--cell) * 2)" }}>
+          <Panel title="The follow-up" style={{ marginBottom: "calc(var(--cell) * 2)" }}>
             <div style={{ padding: "calc(var(--cell) * 3)" }}>
-              <p className="mono" style={{ margin: 0, fontSize: 14, color: "var(--print)" }}>
-                {CADENCE[plan.cadence] ?? plan.cadence} · {plan.localTime} · up to {plan.maxAttempts} tries a day
+              <p className="measure" style={{ margin: 0, fontSize: 17, lineHeight: 1.5, color: "var(--print)" }}>
+                {plan.goal}
+              </p>
+              <p className="mono" style={{ margin: "calc(var(--cell) * 1.5) 0 0", fontSize: 14, color: "var(--print)" }}>
+                {CADENCE[plan.cadence] ?? plan.cadence} · {plan.localTime} · {plan.durationDays} day
+                {plan.durationDays === 1 ? "" : "s"} · up to {plan.maxAttempts} tries a day
                 {plan.startsAt && plan.endsAt
                   ? ` · ${formatDay(plan.startsAt, patient.timezone)} → ${formatDay(plan.endsAt, patient.timezone)}`
                   : ""}
               </p>
+              <p style={{ margin: "calc(var(--cell) * 0.5) 0 0", fontSize: 13, color: "var(--print-3)" }}>
+                {fromNote("startAfterDays") ? <>Wait from your note, &ldquo;{fromNote("startAfterDays")}&rdquo; · </> : null}
+                {fromNote("durationDays") ? <>Length from your note, &ldquo;{fromNote("durationDays")}&rdquo;</> : "Length is the default"}
+                {" · "}
+                {fromNote("cadence") ? <>how often from your note, &ldquo;{fromNote("cadence")}&rdquo;</> : "how often is the default"}
+                {" · "}
+                {fromNote("localTime") ? <>time from your note, &ldquo;{fromNote("localTime")}&rdquo;</> : "time is the default"}
+              </p>
 
-              {!live && !draft ? (
+              <h3 className="caps" style={{ margin: "calc(var(--cell) * 3) 0 calc(var(--cell) * 1)", color: "var(--print-3)" }}>
+                What the calls find out
+              </h3>
+              {topics.length > 0 ? (
+                <ol style={{ margin: 0, paddingLeft: "calc(var(--cell) * 3)" }}>
+                  {topics.map((t) => (
+                    <li key={t.topic} style={{ marginBottom: "calc(var(--cell) * 1.75)", fontSize: 15, color: "var(--print)" }}>
+                      <span style={{ fontWeight: 600 }}>{t.topic}</span>
+                      <span style={{ display: "block", fontSize: 13, color: "var(--print-3)" }}>
+                        From your note: &ldquo;{t.quote}&rdquo;
+                      </span>
+                      {t.value !== null || t.answer || t.patientWords ? (
+                        <span className="measure" style={{ display: "block", marginTop: 4, fontSize: 14, lineHeight: 1.5 }}>
+                          {t.value !== null ? (
+                            <span className="mono" style={{ fontSize: 17, fontWeight: 700, marginRight: 8 }}>
+                              {t.value}
+                              {t.unit ? (t.unit === "score_0_10" ? "/10" : ` ${UNIT_LABEL[t.unit]}`) : ""}
+                            </span>
+                          ) : null}
+                          {t.value !== null && t.answer ? " " : null}
+                          {t.answer ?? ""}
+                          {t.patientWords ? <> — &ldquo;{t.patientWords}&rdquo;</> : null}
+                          {t.clarity === "unclear" ? " · unclear" : ""}
+                          {t.at ? (
+                            <span className="mono" style={{ color: "var(--print-3)" }}>
+                              {" · "}
+                              {formatStamp(t.at, patient.timezone)}
+                            </span>
+                          ) : null}
+                          {t.callId ? (
+                            <>
+                              {" · "}
+                              <Link href={`/calls/${t.callId}`} style={{ color: "var(--print)", textUnderlineOffset: 3 }}>
+                                Read the call
+                              </Link>
+                            </>
+                          ) : null}
+                        </span>
+                      ) : (
+                        <span style={{ display: "block", marginTop: 4, fontSize: 14, color: "var(--print-2)" }}>
+                          Not discussed on a call yet
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <p className="measure" style={{ margin: 0, fontSize: 14, color: "var(--print-2)" }}>
+                  Your note named nothing specific, so the calls ask how {firstName} has been since the visit.
+                </p>
+              )}
+              {plan.droppedTopics.length > 0 ? (
+                <div className="measure" style={{ margin: "calc(var(--cell) * 1.5) 0 0", fontSize: 13, color: "var(--print-2)" }}>
+                  <span className="caps" style={{ color: "var(--print-3)" }}>Not followed up</span>
+                  <ul style={{ margin: "calc(var(--cell) * 0.5) 0 0", paddingLeft: "calc(var(--cell) * 3)" }}>
+                    {plan.droppedTopics.map((d) => (
+                      <li key={`${d.text}-${d.why}`}>
+                        &ldquo;{d.quote || d.text}&rdquo; — {DROPPED_WHY[d.why] ?? "not followed up"}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              <p className="measure" style={{ margin: "calc(var(--cell) * 1) 0 0", fontSize: 13, color: "var(--print-3)" }}>
+                The assistant asks in its own words. Every call also checks for anything urgent and whether{" "}
+                {firstName} wants to speak to the care team.
+              </p>
+
+              {!live ? (
                 /* A finished course, in one assembled line, then how it resolved. */
                 <div style={{ marginTop: "calc(var(--cell) * 2)" }}>
                   <p style={{ margin: 0, fontSize: 15, color: "var(--print)" }}>
@@ -292,31 +410,12 @@ export default async function FollowUpPatientPage({
                 </div>
               ) : null}
 
-              <details className="disclosure" style={{ marginTop: "calc(var(--cell) * 2.5)" }}>
-                <summary>
-                  What it asks · <span className="mono">{questions.length}</span> questions
-                </summary>
-                <ol style={{ margin: "calc(var(--cell) * 1.5) 0 0", paddingLeft: "calc(var(--cell) * 3)" }}>
-                  {questions.map((q) => (
-                    <li key={q.id} style={{ marginBottom: "calc(var(--cell) * 1)", fontSize: 14, color: "var(--print)" }}>
-                      {q.prompt}
-                      {q.anchorQuote ? (
-                        <span style={{ display: "block", fontSize: 13, color: "var(--print-3)" }}>
-                          From your note: &ldquo;{q.anchorQuote}&rdquo;
-                        </span>
-                      ) : null}
-                    </li>
-                  ))}
-                </ol>
-              </details>
-
               {live ? (
                 /*
-                  What to do next with this follow-up, said plainly rather than
-                  folded under "Manage this follow-up". Adding to it recompiles
-                  the questions onto the plan already running; a new follow-up
-                  starts from a fresh visit and note, and approving it ends this
-                  one; ending it stops the remaining calls.
+                  What to do next with this follow-up, said plainly. Adding to it
+                  re-reads the note onto the follow-up already running; a new
+                  follow-up starts from a fresh visit and note, and starting it
+                  ends this one; ending it stops the remaining calls.
                 */
                 <div style={{ display: "grid", gap: "calc(var(--cell) * 2)", justifyItems: "start", marginTop: "calc(var(--cell) * 2.5)" }}>
                   <AmendNote planId={plan.id} live />

@@ -23,13 +23,17 @@ being taken and tolerated.
 | Field | Value | Provenance |
 |---|---|---|
 | `reason` | New metformin · tolerance and adherence | note |
+| `goal` | Find out whether she is taking the metformin and tolerating it. | note |
+| topic 1 | whether she is taking the metformin | **note** — "she is taking it" |
+| topic 2 | how she is tolerating it | **note** — "tolerating it" |
 | `durationDays` | 7 | **note** — "daily for a week" |
 | `cadence` | daily | **note** |
 | `localTime` | 10:00 | **default** — the note never says a time |
 | `maxAttempts` | 3 | **default** — never offered to the model at all |
 
-The doctor sees "Defaulted" against the time and the retry ladder, and nothing
-else. That mark is only honest because `localTime` was nullable in the compiler's
+The doctor sees "default" against the time and the retry ladder, and nothing
+else. Had the note not said how long, the length would read "default" too — 7
+days, filled by code. That mark is only honest because `localTime` was nullable in the compiler's
 schema and a pure function filled it afterwards.
 
 **Grounding:** `metformin` appears in the note, so a call may name it. Had the
@@ -41,14 +45,24 @@ and the universal set. The compiler additionally proposes `cannot keep fluids
 down` from the note itself; it renders marked as an addition and the doctor can
 delete it.
 
-## What the call asks
+## What the call is told to find out
 
-1. "Have you been able to take it as prescribed since we last spoke?" → yes / no
-2. "Any side effects or new symptoms — would you say none, mild, moderate or
-   severe?" → one of `none, mild, moderate, severe`
-3. "Would you like someone from the care team to call you back?" → yes / no
+The task carries the goal and the two topics under WHAT TO FIND OUT. The agent
+asks about each in its own words — one short, neutral question at a time, never
+leading — inside a fixed frame: the AI disclosure, the identity check, the stop
+for anything urgent or a request for the care team, the refusal to advise.
 
-Each is inspected unmasked before it can enter the script.
+Nothing about the wording is left to trust. The goal and each topic passed
+phase 1 when the note was read, and a topic whose quote is not in the note is
+dropped. What the agent actually said is checked in phase 3.
+
+What comes back is typed: fixed keys (`reached_patient`, `requests_clinician`,
+`emergency_language_heard`, `symptom_change`, `patient_concern`,
+`goal_covered`, …) plus `topic_1` and `topic_2`, each `{answer, patient_words,
+clarity}`. A topic that asks for a number — a temperature, a pain score — also
+carries `value`, and its unit comes from a closed list, never free text. The
+value is kept only when it is a plain number from a clearly answered topic and
+inside a plausible range; "about 38, I think" stays in the patient's words.
 
 ## Day 3
 
@@ -80,14 +94,15 @@ did not reassure her. It routed.
 
 ## The shape
 
-Seven occurrences, one per calendar day, materialised at approval. The doctor
+Seven occurrences, one per calendar day, materialised the moment the doctor
+starts the follow-up. The doctor
 sees all seven dated rows before anything is dialled — which is the point: the
 calendar is the artifact, not a promise about one.
 
 ## What "seven days" means
 
-Seven **calendar days from approval**, not seven answered calls. A day nobody
-picks up still consumes a day. The review screen says so, because a clinician
+Seven **calendar days from the start**, not seven answered calls. A day nobody
+picks up still consumes a day. The follow-up page says so, because a clinician
 would otherwise reasonably assume the plan keeps going until it gets seven
 answers.
 
@@ -95,6 +110,15 @@ The asymmetry that follows:
 
 - a **new occurrence** may not be scheduled past the end date;
 - a **retry** may land after it, because it belongs to a day inside the window.
+
+## A wait is not a length
+
+"Recheck in 3 days" is one call on day 3: a wait of three days, and a length of
+one day filled by code and marked a default. "For 3 days" is three calls from
+the next call time. The wait counts only when the word governs the number — "Day
+3 after surgery" is a day since the operation, not a wait — and a wait quoted
+with the same words as the length is refused, because a wrong wait pushes every
+call past the days the doctor asked for.
 
 That is one missing `WHERE` clause between the two insert paths, and it is worth
 writing a test for.

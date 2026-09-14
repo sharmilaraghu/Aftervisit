@@ -1,10 +1,10 @@
 /**
- * Plans: writing one, reading it back for review, and approving it.
+ * Plans: writing one from a note, starting it, and reading it back.
  *
- * Approval is the moment the product's promise becomes concrete — one click and
- * seven dated rows exist. It is also the only place the locked rules and the
- * frozen result schema are stamped, so nothing downstream has to trust that an
- * earlier step remembered to.
+ * Starting is the moment the product's promise becomes concrete — the doctor
+ * saves the note and dated rows exist. It is also the only place the locked
+ * rules and the frozen result schema are stamped, so nothing downstream has to
+ * trust that an earlier step remembered to.
  */
 
 import { sql } from "drizzle-orm";
@@ -12,47 +12,24 @@ import { sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { newId, idempotencyKey } from "@/lib/db/ids";
 import { expandPlan } from "@/lib/schedule/expand";
-import { buildResultSchema } from "@/lib/plan/result-schema";
+import { buildResultSchema, MAX_TOPICS } from "@/lib/plan/result-schema";
 import { withLockedRules } from "@/lib/rules/catalog";
 import { inspectQuestion } from "@/lib/script/guard";
-import { questionSlug } from "@/lib/plan/clinician-question";
-import { RESERVED_QUESTION_IDS, UNIVERSAL_QUESTIONS } from "@/lib/plan/universal-questions";
-import type { QuestionDraft } from "@/lib/plan/clinician-question";
-import type { ResolvedPlan, ScheduleQuotes, WatchPoint } from "@/lib/plan/defaults";
-import type { AnswerType, CompileProvider, Provenance } from "@/lib/db/enums";
+import { UNIVERSAL_QUESTIONS } from "@/lib/plan/universal-questions";
+import { DEFAULT_GOAL, type ResolvedPlan, type ScheduleQuotes, type WatchPoint } from "@/lib/plan/defaults";
+import type { DroppedTopic } from "@/lib/plan/compile";
+import type { CompileProvider, Provenance } from "@/lib/db/enums";
 import type { PlanRule, RedFlagTerm } from "@/lib/rules/types";
-import type { GuardFinding, GuardResult } from "@/lib/script/guard";
-import { nextOrdinal } from "@/lib/plan/ordinals";
-import { MAX_NOTE_QUESTIONS } from "@/lib/plan/anchors";
-
-export interface PlanQuestionRow {
-  id: string;
-  questionId: string;
-  ordinal: number;
-  prompt: string;
-  answerType: "boolean" | "scale_0_10" | "enum" | "text";
-  enumValues: string[] | null;
-  required: boolean;
-  source: Provenance;
-  guardStatus: string;
-  guardFindings: GuardFinding[] | null;
-  /** The note's words this question serves. Null for universal and clinician questions. */
-  anchorQuote: string | null;
-  /** The watch-point it covers, in the compiler's words. */
-  watchPoint: string | null;
-}
 
 export interface PlanForReview {
   id: string;
   patientId: string;
   patientName: string;
-  /** Age only — the compiler and the triage model never receive the name. */
+  /** Age only — the parser and the triage model never receive the name. */
   patientAge: number;
   timezone: string;
-  /** BCP 47 tag; shown at approval so the doctor knows what the agent will speak. */
   language: string;
   phoneE164: string;
-  /** Needed at the approval moment: the doctor must be told whether it was asked. */
   consent: string;
   noteId: string;
   noteBody: string;
@@ -65,6 +42,10 @@ export interface PlanForReview {
   status: string;
   reason: string;
   condition: string | null;
+  /** What the calls set out to find out. */
+  goal: string;
+  /** Days to wait before the first call. */
+  startAfterDays: number;
   durationDays: number;
   cadence: string;
   localTime: string;
@@ -72,18 +53,19 @@ export interface PlanForReview {
   maxAttempts: number;
   retryDelayMinutes: number;
   provenance: Record<string, Provenance>;
-  /** The note's words behind each schedule value marked "From note". */
+  /** The note's words behind each schedule value marked "from your note". */
   scheduleQuotes: ScheduleQuotes;
-  /** What the note asks to be watched. Empty for plans compiled before this existed. */
+  /** What to find out, each with the note's words for it. */
   watchPoints: WatchPoint[];
+  /** What the note asked about that the calls will not follow up, and why. */
+  droppedTopics: DroppedTopic[];
   redFlagTerms: RedFlagTerm[];
   rules: PlanRule[];
   startsAt: Date | null;
   endsAt: Date | null;
-  questions: PlanQuestionRow[];
 }
 
-/** Write a note and the plan compiled from it, awaiting the doctor's approval. */
+/** Write a note and the follow-up read from it. `startPlan` puts it on the calendar. */
 export async function createPlanFromNote(input: {
   patientId: string;
   noteBody: string;
@@ -95,13 +77,8 @@ export async function createPlanFromNote(input: {
     raw: unknown;
     error: string | null;
   };
-  rejectedQuestions?: {
-    questionId: string;
-    prompt: string;
-    findings: GuardFinding[];
-    anchorQuote?: string | null;
-    watchPoint?: string | null;
-  }[];
+  /** What the checks refused from the note, kept so the doctor can see it. */
+  droppedTopics?: DroppedTopic[];
   timeScale?: number;
   /** The doctor's own escalation wording, kept verbatim for the triage model. */
   escalationNote?: string | null;
@@ -109,6 +86,7 @@ export async function createPlanFromNote(input: {
   const db = getDb();
   const noteId = newId("note");
   const planId = newId("pln");
+  const topics = (input.plan.watchPoints ?? []).slice(0, MAX_TOPICS);
 
   await db.execute(sql`
     insert into consultation_notes
@@ -123,92 +101,40 @@ export async function createPlanFromNote(input: {
 
   await db.execute(sql`
     insert into follow_up_plans
-      (id, patient_id, note_id, status, reason, condition, duration_days, cadence,
+      (id, patient_id, note_id, status, reason, condition, goal, start_after_days, duration_days, cadence,
        local_time, time_scale, max_attempts, retry_delay_minutes, rules, red_flag_terms,
-       provenance, schedule_quotes, watch_points, result_schema)
+       provenance, schedule_quotes, watch_points, dropped_topics, result_schema)
     values (${planId}, ${input.patientId}, ${noteId}, 'awaiting_approval',
-            ${input.plan.reason}, ${input.plan.condition}, ${input.plan.durationDays},
-            ${input.plan.cadence}, ${input.plan.localTime}, ${input.timeScale ?? 1},
-            ${input.plan.maxAttempts}, ${input.plan.retryDelayMinutes},
+            ${input.plan.reason}, ${input.plan.condition}, ${input.plan.goal},
+            ${input.plan.startAfterDays}, ${input.plan.durationDays}, ${input.plan.cadence}, ${input.plan.localTime},
+            ${input.timeScale ?? 1}, ${input.plan.maxAttempts}, ${input.plan.retryDelayMinutes},
             ${JSON.stringify(withLockedRules(input.plan.rules))}::jsonb,
             ${JSON.stringify(input.plan.redFlagTerms)}::jsonb,
             ${JSON.stringify(input.plan.provenance)}::jsonb,
             ${JSON.stringify(input.plan.scheduleQuotes ?? {})}::jsonb,
-            ${JSON.stringify(input.plan.watchPoints ?? [])}::jsonb,
-            ${JSON.stringify(
-              buildResultSchema([
-                ...UNIVERSAL_QUESTIONS,
-                ...input.plan.questions.filter((q) => !RESERVED_QUESTION_IDS.has(q.questionId)),
-              ]),
-            )}::jsonb)
+            ${JSON.stringify(topics)}::jsonb,
+            ${JSON.stringify(input.droppedTopics ?? [])}::jsonb,
+            ${JSON.stringify(buildResultSchema(topics))}::jsonb)
   `);
 
   /*
-   * Questions the guard rejected are stored too, marked `rejected`, so the
-   * review screen can show the doctor what the model tried to ask and why it
-   * was refused. Dropping them silently would hide an attempt to give advice.
+   * The fixed observations go on as rows, by code. They must exist as rows, not
+   * just as schema keys: extraction walks this list, so a key present in the
+   * schema but absent here is recorded by the agent and then dropped — and
+   * losing `reached_patient` that way makes every call fold to `no_answer`.
    */
-  /*
-   * The locked questions go on first and are never left to the compiler. They
-   * must exist as rows, not just as schema keys: extraction walks this list, so
-   * a key present in the schema but absent here is asked on the call, answered
-   * by the patient, and then dropped — and losing `reached_patient` that way
-   * makes every call fold to `no_answer` however it actually went.
-   */
-  /* The compiler names a watch-point by index; the row keeps its words, so the
-     review screen can tie a question to what it covers without the raw draft. */
-  const watchText = (i: number | null | undefined): string | null =>
-    typeof i === "number" ? (input.plan.watchPoints?.[i]?.text ?? null) : null;
-
-  const all = [
-    ...UNIVERSAL_QUESTIONS.map((q) => ({
-      questionId: q.questionId,
-      prompt: q.prompt,
-      answerType: q.answerType,
-      enumValues: q.enumValues ?? null,
-      source: q.source,
-      findings: null as GuardFinding[] | null,
-      anchorQuote: null as string | null,
-      watchPoint: null as string | null,
-    })),
-    ...input.plan.questions
-      // A compiler question may not shadow a locked id.
-      .filter((q) => !RESERVED_QUESTION_IDS.has(q.questionId))
-      .map((q) => ({
-        questionId: q.questionId,
-        prompt: q.prompt,
-        answerType: q.answerType,
-        enumValues: q.enumValues ?? null,
-        source: "note" as const,
-        findings: null as GuardFinding[] | null,
-        anchorQuote: q.why ?? null,
-        watchPoint: watchText(q.watchPoint),
-      })),
-    ...(input.rejectedQuestions ?? []).map((q) => ({
-      questionId: q.questionId,
-      prompt: q.prompt,
-      answerType: "text" as const,
-      enumValues: null,
-      source: "note" as const,
-      findings: q.findings,
-      anchorQuote: q.anchorQuote ?? null,
-      watchPoint: q.watchPoint ?? null,
-    })),
-  ];
-
   let ordinal = 0;
-  for (const q of all) {
+  for (const q of UNIVERSAL_QUESTIONS) {
     ordinal += 1;
-    const verdict = q.findings ? { ok: false, findings: q.findings } : inspectQuestion(q.prompt);
+    const verdict = inspectQuestion(q.prompt);
     await db.execute(sql`
       insert into plan_questions
         (id, plan_id, question_id, ordinal, prompt, answer_type, enum_values, required,
-         source, guard_status, guard_findings, anchor_quote, watch_point)
+         source, guard_status, guard_findings)
       values (${newId("q")}, ${planId}, ${q.questionId}, ${ordinal}, ${q.prompt},
               ${q.answerType}, ${q.enumValues ? JSON.stringify(q.enumValues) : null}::jsonb,
               true, ${q.source}, ${verdict.ok ? "approved" : "rejected"},
-              ${verdict.ok ? null : JSON.stringify(verdict.findings)}::jsonb,
-              ${q.anchorQuote}, ${q.watchPoint})
+              ${verdict.ok ? null : JSON.stringify(verdict.findings)}::jsonb)
       on conflict (plan_id, question_id) do nothing
     `);
   }
@@ -230,12 +156,6 @@ export async function getPlanForReview(planId: string): Promise<PlanForReview | 
   const r = (rows.rows as Record<string, unknown>[])[0];
   if (!r) return null;
 
-  const qs = await db.execute(sql`
-    select id, question_id, ordinal, prompt, answer_type, enum_values, required,
-           source, guard_status, guard_findings, anchor_quote, watch_point
-    from plan_questions where plan_id = ${planId} order by ordinal, question_id
-  `);
-
   return {
     id: String(r.id),
     patientId: String(r.patient_id),
@@ -255,6 +175,8 @@ export async function getPlanForReview(planId: string): Promise<PlanForReview | 
     status: String(r.status),
     reason: String(r.reason),
     condition: r.condition ? String(r.condition) : null,
+    goal: r.goal ? String(r.goal) : DEFAULT_GOAL,
+    startAfterDays: Number(r.start_after_days ?? 0),
     durationDays: Number(r.duration_days),
     cadence: String(r.cadence),
     localTime: String(r.local_time),
@@ -264,290 +186,20 @@ export async function getPlanForReview(planId: string): Promise<PlanForReview | 
     provenance: (r.provenance ?? {}) as Record<string, Provenance>,
     scheduleQuotes: (r.schedule_quotes ?? {}) as ScheduleQuotes,
     watchPoints: (r.watch_points ?? []) as WatchPoint[],
+    droppedTopics: (r.dropped_topics ?? []) as DroppedTopic[],
     redFlagTerms: (r.red_flag_terms ?? []) as RedFlagTerm[],
     rules: (r.rules ?? []) as PlanRule[],
     startsAt: r.starts_at ? new Date(String(r.starts_at)) : null,
     endsAt: r.ends_at ? new Date(String(r.ends_at)) : null,
-    questions: (qs.rows as Record<string, unknown>[]).map((q) => ({
-      id: String(q.id),
-      questionId: String(q.question_id),
-      ordinal: Number(q.ordinal),
-      prompt: String(q.prompt),
-      answerType: String(q.answer_type) as PlanQuestionRow["answerType"],
-      enumValues: (q.enum_values ?? null) as string[] | null,
-      required: Boolean(q.required),
-      source: String(q.source) as Provenance,
-      guardStatus: String(q.guard_status),
-      guardFindings: (q.guard_findings ?? null) as GuardFinding[] | null,
-      anchorQuote: q.anchor_quote ? String(q.anchor_quote) : null,
-      watchPoint: q.watch_point ? String(q.watch_point) : null,
-    })),
   };
-}
-
-/** Edit a plan before approval. Rejected questions can never be edited into approval by accident. */
-/**
- * Set the schedule fields a clinician actually chose.
- *
- * Every field is optional and an omitted one is left exactly as the compiler
- * wrote it — provenance included. That is not fussiness: the review screen's
- * "Defaulted" mark is only worth anything if it still means "nobody chose
- * this", and the wizard offers "take it from the note" on every one of these.
- * Writing all five on every save would mark the note's own inference as the
- * doctor's choice the moment they walked past the step.
- *
- * `timeScale` is the exception with no provenance key: it is a demo clock, not
- * a clinical decision, and nothing marks it.
- */
-export async function updatePlanDraft(
-  planId: string,
-  fields: {
-    durationDays?: number;
-    localTime?: string;
-    timeScale?: number;
-    cadence?: "daily" | "every_other_day" | "weekly";
-    maxAttempts?: number;
-  },
-): Promise<boolean> {
-  const sets = [];
-  const marks: string[] = [];
-
-  if (fields.durationDays !== undefined) {
-    sets.push(sql`duration_days = ${fields.durationDays}`);
-    marks.push("durationDays");
-  }
-  if (fields.localTime !== undefined) {
-    sets.push(sql`local_time = ${fields.localTime}`);
-    marks.push("localTime");
-  }
-  if (fields.cadence !== undefined) {
-    sets.push(sql`cadence = ${fields.cadence}`);
-    marks.push("cadence");
-  }
-  if (fields.maxAttempts !== undefined) {
-    sets.push(sql`max_attempts = ${fields.maxAttempts}`);
-    marks.push("maxAttempts");
-  }
-  if (fields.timeScale !== undefined) sets.push(sql`time_scale = ${fields.timeScale}`);
-
-  if (sets.length === 0) return true;
-
-  /* Editing a defaulted field makes it the clinician's, not ours. The review
-     screen's mark must follow who actually chose the value. */
-  if (marks.length > 0) {
-    /* `::text` on the key: bound bare, Postgres cannot infer a parameter's type
-       inside jsonb_build_object and refuses the statement outright. */
-    const pairs = sql.join(
-      marks.map((k) => sql`${k}::text, 'clinician'::text`),
-      sql`, `,
-    );
-    sets.push(sql`provenance = provenance || jsonb_build_object(${pairs})`);
-  }
-  sets.push(sql`updated_at = now()`);
-
-  const result = await getDb().execute(sql`
-    update follow_up_plans
-    set ${sql.join(sets, sql`, `)}
-    where id = ${planId} and status = 'awaiting_approval'
-    returning id
-  `);
-  return result.rows.length > 0;
-}
-
-export async function deleteQuestion(planId: string, questionId: string): Promise<boolean> {
-  const result = await getDb().execute(sql`
-    delete from plan_questions
-    where plan_id = ${planId} and id = ${questionId}
-      -- A locked question backs a rule nobody may remove, and losing
-      -- reached_patient folds every call to no_answer however it went.
-      and source <> 'locked'
-      and exists (select 1 from follow_up_plans p where p.id = ${planId} and p.status = 'awaiting_approval')
-    returning id
-  `);
-  return result.rows.length > 0;
-}
-
-/** The current order, for translating "up" into "after this row". */
-export async function getPlanQuestionOrder(
-  planId: string,
-): Promise<{ id: string; ordinal: number; source: string }[]> {
-  const result = await getDb().execute(sql`
-    select id, ordinal, source from plan_questions
-    where plan_id = ${planId}
-    order by ordinal, question_id
-  `);
-  return (result.rows as Record<string, unknown>[]).map((r) => ({
-    id: String(r.id),
-    ordinal: Number(r.ordinal),
-    source: String(r.source),
-  }));
-}
-
-/**
- * Move one question, in one statement.
- *
- * The caller says where the question should land ("after this row"), not what
- * number it should take; `nextOrdinal` turns that into a value strictly between
- * two neighbours. Nothing is renumbered, so there is no multi-row phase that a
- * driver without transactions could half-apply — one statement, one row, one
- * lock, and every intermediate state of the table is a valid total order.
- *
- * The failure worth naming is two tabs dropping a question in the same gap.
- * The second write violates `uniq_q_ordinal` and surfaces as a refusal the
- * doctor can act on, never a silent retry that lands somewhere they did not
- * choose.
- */
-export async function moveQuestion(
-  planId: string,
-  questionId: string,
-  afterQuestionId: string | null,
-): Promise<{ moved: boolean; reason?: string }> {
-  const db = getDb();
-
-  const current = await db.execute(sql`
-    select id, ordinal, source from plan_questions
-    where plan_id = ${planId}
-    order by ordinal, question_id
-  `);
-  const rows = (current.rows as Record<string, unknown>[]).map((r) => ({
-    id: String(r.id),
-    ordinal: Number(r.ordinal),
-    source: String(r.source),
-  }));
-
-  const target = nextOrdinal(rows, afterQuestionId);
-  if (!target.ok) {
-    return {
-      moved: false,
-      reason:
-        target.reason === "exhausted"
-          ? "There is no room left between these two questions. Reload the plan and try again."
-          : "The order changed while you were editing. Reload the plan.",
-    };
-  }
-
-  try {
-    const result = await db.execute(sql`
-      update plan_questions
-      set ordinal = ${target.ordinal}, updated_at = now()
-      where id = ${questionId} and plan_id = ${planId}
-        -- The locked questions open the call; moving one changes who the agent
-        -- has established it is talking to before it asks anything.
-        and source <> 'locked'
-        and exists (
-          select 1 from follow_up_plans p
-          where p.id = ${planId} and p.status = 'awaiting_approval'
-        )
-      returning id
-    `);
-    return { moved: result.rows.length > 0 };
-  } catch (error) {
-    /* 23505: another tab took this gap first. */
-    if (String(error).includes("23505")) {
-      return { moved: false, reason: "The order changed while you were editing. Reload the plan." };
-    }
-    throw error;
-  }
-}
-
-/**
- * What happened to a question a clinician wrote.
- *
- * `saved` is whether a row moved; `guard` is phase 1's verdict on the text as it
- * was stored. Both matter: a refused question is still written — marked
- * `rejected`, with its findings — so the review screen can show what was
- * refused and why. It is never silently dropped, and it never becomes askable.
- */
-export interface QuestionWriteResult {
-  saved: boolean;
-  guard: GuardResult;
-}
-
-/**
- * Rewrite a question's spoken wording.
- *
- * The guard runs *here*, on the way to the row, for the same reason it runs
- * inside `port.dial()`: a phase-1 verdict recomputed by a caller is a verdict a
- * caller can forget to compute. `guard_findings` is overwritten either way, so a
- * question edited out of a refusal loses the findings that no longer apply.
- *
- * Locked questions are excluded in SQL. Their wording is what the locked rules
- * were written against, and `source` would flip to `clinician` underneath them.
- */
-export async function updateQuestionPrompt(
-  planId: string,
-  questionId: string,
-  prompt: string,
-): Promise<QuestionWriteResult> {
-  const guard = inspectQuestion(prompt);
-
-  const result = await getDb().execute(sql`
-    update plan_questions
-    set prompt = ${prompt},
-        guard_status = ${guard.ok ? "approved" : "rejected"},
-        guard_findings = ${guard.ok ? null : JSON.stringify(guard.findings)}::jsonb,
-        -- Wording the doctor wrote is the doctor's, whatever the model or the
-        -- defaults put there first.
-        source = 'clinician',
-        updated_at = now()
-    where plan_id = ${planId} and id = ${questionId}
-      and source <> 'locked'
-      and exists (select 1 from follow_up_plans p where p.id = ${planId} and p.status = 'awaiting_approval')
-    returning id
-  `);
-
-  return { saved: result.rows.length > 0, guard };
-}
-
-/**
- * Add a question the doctor wrote themselves.
- *
- * The slug is derived from the existing ones and the insert still carries
- * `on conflict do nothing`, so two tabs racing produce one question rather than
- * a collision. `ordinal` continues the plan's own sequence, so a new question is
- * asked last rather than landing in the middle of a numbering nobody edited.
- */
-export async function addQuestion(
-  planId: string,
-  draft: QuestionDraft,
-): Promise<QuestionWriteResult> {
-  const db = getDb();
-  const guard = inspectQuestion(draft.prompt);
-
-  const existing = await db.execute(sql`
-    select question_id from plan_questions where plan_id = ${planId}
-  `);
-  const slug = questionSlug(
-    draft.prompt,
-    (existing.rows as Record<string, unknown>[]).map((r) => String(r.question_id)),
-  );
-
-  const result = await db.execute(sql`
-    insert into plan_questions
-      (id, plan_id, question_id, ordinal, prompt, answer_type, enum_values, required,
-       source, guard_status, guard_findings)
-    select ${newId("q")}, ${planId}, ${slug},
-           (select coalesce(max(ordinal), 0) + 1 from plan_questions where plan_id = ${planId}),
-           ${draft.prompt}, ${draft.answerType},
-           ${draft.enumValues ? JSON.stringify(draft.enumValues) : null}::jsonb, true,
-           'clinician', ${guard.ok ? "approved" : "rejected"},
-           ${guard.ok ? null : JSON.stringify(guard.findings)}::jsonb
-    from follow_up_plans p
-    where p.id = ${planId} and p.status = 'awaiting_approval'
-    on conflict (plan_id, question_id) do nothing
-    returning id
-  `);
-
-  return { saved: result.rows.length > 0, guard };
 }
 
 /**
  * Cancel a plan outright.
  *
  * Distinct from pausing, which expects a human to resume, and from archiving,
- * which retires the whole patient. This is for a plan that should not have been
- * approved — wrong cadence, wrong questions, wrong patient. Pending calls are
- * skipped first so nothing is dialled in the gap before the status flips.
+ * which retires the whole patient. Pending calls are skipped first so nothing
+ * is dialled in the gap before the status flips.
  *
  * The rows stay. They record calls that actually happened to a person, and the
  * console does not delete its own audit trail.
@@ -571,42 +223,36 @@ export async function cancelPlan(planId: string, by: string): Promise<boolean> {
   return result.rows.length > 0;
 }
 
-export interface ApproveResult {
+export interface StartResult {
   ok: boolean;
   occurrences: number;
+  /** When the first call goes out. */
+  firstCallAt?: Date;
   reason?: string;
 }
 
 /**
- * Approve a plan, and materialise its calendar.
+ * Start a follow-up, and materialise its calendar.
  *
- * Occurrences are inserted `on conflict do nothing`, so a double-clicked
- * Approve produces one set of rows rather than two. The plan flip is itself a
- * conditional update from `awaiting_approval`, which is what makes the second
- * click a no-op instead of a second calendar.
+ * This is the doctor's "press to call": they saved the note and pressed *Save
+ * and start follow-up*. Consent and the deployment allowlist still gate every
+ * dial inside the port; nothing here widens who can be reached.
+ *
+ * Occurrences are inserted `on conflict do nothing`, and the plan flip is a
+ * conditional update from `awaiting_approval`, so a double submit produces one
+ * calendar rather than two.
  */
-export async function approvePlan(planId: string, by: string): Promise<ApproveResult> {
+export async function startPlan(planId: string, by: string): Promise<StartResult> {
   const db = getDb();
 
   const plan = await getPlanForReview(planId);
-  if (!plan) return { ok: false, occurrences: 0, reason: "That plan no longer exists." };
+  if (!plan) return { ok: false, occurrences: 0, reason: "That follow-up no longer exists." };
   if (plan.status !== "awaiting_approval") {
-    return { ok: false, occurrences: 0, reason: "That plan has already been approved." };
-  }
-
-  const approved = plan.questions.filter((q) => q.guardStatus === "approved");
-  if (approved.length === 0) {
-    return {
-      ok: false,
-      occurrences: 0,
-      reason:
-        "No question on this plan passed the clinical guard. Care Loop will not " +
-        "place a call with nothing safe to ask.",
-    };
+    return { ok: false, occurrences: 0, reason: "That follow-up has already started." };
   }
 
   const now = new Date();
-  const expansion = expandPlan({
+  const base = {
     planId,
     patientId: plan.patientId,
     timezone: plan.timezone,
@@ -615,40 +261,30 @@ export async function approvePlan(planId: string, by: string): Promise<ApproveRe
     cadence: plan.cadence as "daily" | "every_other_day" | "weekly",
     timeScale: plan.timeScale,
     now,
-  });
+  };
 
   /*
-   * A plan that would schedule nothing must not approve.
+   * A start after today's call time begins the window tomorrow.
    *
-   * Every occurrence lands in the past when the window is short and its local
-   * time has already gone — approving at 20:33:31 for a 20:33 call, say. The
-   * expansion is right to skip them, but returning success with an empty
-   * calendar tells the doctor the follow-up has started when nothing will ever
-   * ring. Refuse, and say which time to move.
+   * The window is counted from its first day, and today's call has already gone,
+   * so starting today would quietly spend a day nobody is called on: "follow up
+   * for 3 days" saved at 16:00 for a 10:00 call would ring twice, and a one-day
+   * follow-up would not ring at all. The doctor asked for a number of days of
+   * calls; whichever start gives more of them is the one they meant.
    */
-  if (expansion.occurrences.length === 0) {
-    return {
-      ok: false,
-      occurrences: 0,
-      reason:
-        `Every call in this plan would land in the past — ${plan.localTime} ` +
-        `${plan.timezone} has already gone today, and the window is only ` +
-        `${plan.durationDays} day${plan.durationDays === 1 ? "" : "s"} long. ` +
-        "Set a later local time, or lengthen the window, then approve.",
-    };
-  }
+  const onTime = expandPlan({ ...base, startOffsetDays: plan.startAfterDays });
+  const dayLater = expandPlan({ ...base, startOffsetDays: plan.startAfterDays + 1 });
+  const expansion = dayLater.occurrences.length > onTime.occurrences.length ? dayLater : onTime;
 
   /*
    * A successor closes its predecessor, in that order.
    *
    * `uniq_live_plan_per_patient` covers ('active','paused'), so flipping this
-   * plan first would collide with the plan it is replacing. Closing first means
-   * the worst case is a moment with no live plan — recoverable, and visible —
-   * rather than an error the doctor cannot act on. There are no transactions
-   * here to make the pair atomic, so the order is the safety.
+   * plan first would collide with the plan it is replacing. There are no
+   * transactions here to make the pair atomic, so the order is the safety.
    */
   const predecessor = await db.execute(sql`
-    select id, version from follow_up_plans
+    select id, version, status from follow_up_plans
     where patient_id = ${plan.patientId} and id <> ${planId}
       and status in ('active', 'paused')
     order by created_at desc limit 1
@@ -670,33 +306,54 @@ export async function approvePlan(planId: string, by: string): Promise<ApproveRe
   }
 
   /*
-   * The flip first, conditionally. If a second click loses this race it gets
-   * zero rows and stops — before writing a duplicate calendar.
+   * If the flip does not land, the predecessor comes back. Closing it first is
+   * forced by the unique index, and without this a start that lost a race —
+   * this plan cancelled underneath it, or a second visit for the same patient
+   * flipping first — would leave the patient with no follow-up at all. Only
+   * calls still ahead are restored; nothing already due is dialled late.
    */
-  const flipped = await db.execute(sql`
-    update follow_up_plans
-    set status = 'active', approved_at = now(), approved_by = ${by},
-        starts_at = ${expansion.startsAt}, ends_at = ${expansion.endsAt},
-        version = ${prior ? Number(prior.version ?? 1) + 1 : 1},
-        supersedes_plan_id = ${prior ? String(prior.id) : null},
-        rules = ${JSON.stringify(withLockedRules(plan.rules))}::jsonb,
-        result_schema = ${JSON.stringify(
-          buildResultSchema(
-            approved.map((q) => ({
-              questionId: q.questionId,
-              prompt: q.prompt,
-              answerType: q.answerType,
-              enumValues: q.enumValues,
-            })),
-          ),
-        )}::jsonb,
-        updated_at = now()
-    where id = ${planId} and status = 'awaiting_approval'
-    returning id
-  `);
+  const restorePredecessor = async () => {
+    if (!prior) return;
+    await db.execute(sql`
+      update follow_up_plans
+      set status = ${String(prior.status)}, closed_at = null, close_reason = null, updated_at = now()
+      where id = ${String(prior.id)} and status = 'completed' and close_reason = 'superseded'
+    `);
+    await db.execute(sql`
+      update scheduled_calls
+      set status = 'scheduled', skip_reason = null, updated_at = now()
+      where plan_id = ${String(prior.id)} and status = 'skipped' and skip_reason = 'plan_closed'
+        and scheduled_for > now()
+    `);
+  };
 
-  if (flipped.rows.length === 0) {
-    return { ok: false, occurrences: 0, reason: "That plan has already been approved." };
+  let flippedRows = 0;
+  try {
+    const flipped = await db.execute(sql`
+      update follow_up_plans
+      set status = 'active', approved_at = now(), approved_by = ${by},
+          starts_at = ${expansion.startsAt}, ends_at = ${expansion.endsAt},
+          version = ${prior ? Number(prior.version ?? 1) + 1 : 1},
+          supersedes_plan_id = ${prior ? String(prior.id) : null},
+          rules = ${JSON.stringify(withLockedRules(plan.rules))}::jsonb,
+          result_schema = ${JSON.stringify(buildResultSchema(plan.watchPoints))}::jsonb,
+          updated_at = now()
+      where id = ${planId} and status = 'awaiting_approval'
+      returning id
+    `);
+    flippedRows = flipped.rows.length;
+  } catch {
+    /* 23505 on uniq_live_plan_per_patient: another start for this patient won. */
+    flippedRows = 0;
+  }
+
+  if (flippedRows === 0) {
+    await restorePredecessor();
+    return {
+      ok: false,
+      occurrences: 0,
+      reason: "Another follow-up for this patient started at the same moment, so this one was not started.",
+    };
   }
 
   let inserted = 0;
@@ -712,31 +369,16 @@ export async function approvePlan(planId: string, by: string): Promise<ApproveRe
     inserted += result.rows.length;
   }
 
-  return { ok: true, occurrences: inserted };
+  return { ok: true, occurrences: inserted, firstCallAt: expansion.occurrences[0]?.scheduledFor };
 }
 
 /**
  * Append to the note a doctor already wrote.
  *
  * It appends to `consultation_notes.body` rather than living in a column of its
- * own, and that is not a shortcut. The recompile reads the whole body, and
- * grounding checks the compiled plan against that same text — so a medication
- * or question anchored only in an amendment stored elsewhere would be refused
- * as ungrounded. The note the doctor wrote and the note the compiler grounds
- * against have to be the same text.
- *
- * (This used to say grounding runs again at dial time. It does not; the only
- * dial-time check is the guard inside `dial()`.)
- *
- * Only while the plan is awaiting approval, and that is enforced in the SQL
- * rather than in the caller.
- *
- * **A running plan may be amended.** The patient came back with something new
- * and the follow-up that is already dialling them is the right place to put it:
- * one call a day covering everything, rather than two agents phoning the same
- * person. What must not change is a question calls have already been placed
- * against — so a live amendment is strictly additive, enforced in
- * `mergeCompiledQuestions` rather than trusted to the caller.
+ * own: the re-read reads the whole body, and topic quotes are grounded against
+ * that same text — so a topic anchored only in an amendment stored elsewhere
+ * would be refused as ungrounded.
  */
 export async function amendNote(
   planId: string,
@@ -752,9 +394,6 @@ export async function amendNote(
     from follow_up_plans p
     where p.note_id = n.id
       and p.id = ${planId}
-      -- A running plan may be amended too, but only additively:
-      -- mergeCompiledQuestions refuses to rewrite a question once calls
-      -- have been placed against it.
       and p.status in ('awaiting_approval', 'active', 'paused')
     returning n.body, n.escalation_note
   `);
@@ -769,246 +408,46 @@ export async function amendNote(
 }
 
 /**
- * Fold a fresh compile into the questions already on a plan.
+ * Fold a re-read note into a running follow-up: the new goal, and any new topics.
  *
- * Merging on `question_id`, with one rule per case, and the cases exist because
- * a recompile arrives *after* a doctor has already edited and reordered:
- *
- *   new slug          → inserted, appended last, guard run on the way in
- *   source clinician  → never touched. Their wording outranks the model's
- *   source note       → the prompt may be rewritten by the newer compile
- *   locked / default  → never touched; that set is code-owned
- *   gone from the new compile → kept. Deleting is the doctor's act, not ours
- *
- * **A recompile never writes an ordinal except to append.** That single
- * invariant is what makes reordering and re-parsing compose: no code path here
- * can move a question the doctor placed, so their order survives every
- * amendment by construction rather than by care.
- *
- * The `where source = 'note'` on the update is what enforces the clinician rule
- * in the database instead of relying on this function remembering it.
+ * **Additive on topics, never a rewrite.** A call's findings are stored by
+ * position — `topic_1`, `topic_2` — so a topic that moved or vanished would
+ * re-label every answer already given. New topics are appended up to the cap;
+ * existing ones keep their place. The schedule is left alone: a doctor adding a
+ * new symptom is not asking to move tomorrow's call.
  */
-export async function mergeCompiledQuestions(
+export async function updatePlanGoal(
   planId: string,
-  questions: {
-    questionId: string;
-    prompt: string;
-    answerType: string;
-    enumValues?: string[] | null;
-    why?: string | null;
-    watchPoint?: number | null;
-  }[],
-  watchPoints: WatchPoint[] = [],
-  /** What the recompile refused (anchors, cap, guard) — kept and shown on a draft. */
-  refused: {
-    questionId: string;
-    prompt: string;
-    findings: GuardFinding[];
-    anchorQuote?: string | null;
-    watchPoint?: string | null;
-  }[] = [],
-): Promise<{ added: number; rewritten: number; capped: number }> {
+  plan: Pick<ResolvedPlan, "goal" | "watchPoints" | "provenance">,
+): Promise<{ ok: boolean; added: number }> {
   const db = getDb();
+  const current = await db.execute(sql`
+    select watch_points from follow_up_plans
+    where id = ${planId} and status in ('awaiting_approval', 'active', 'paused')
+  `);
+  const row = current.rows[0] as Record<string, unknown> | undefined;
+  if (!row) return { ok: false, added: 0 };
+
+  const topics = [...((row.watch_points ?? []) as WatchPoint[])];
+  const seen = new Set(topics.map((t) => t.text.toLowerCase()));
   let added = 0;
-  let rewritten = 0;
-  let capped = 0;
-
-  /*
-   * The cap holds across amendments, not only within one compile: count the
-   * note's questions already on the plan. A new one past it is not added. It
-   * is counted and reported rather than stored as refused, because a refused
-   * row blocks `assembleTask` — and an amendment must not silently stop a
-   * running follow-up from dialling.
-   */
-  const counted = await db.execute(sql`
-    select count(*)::int as n from plan_questions
-    where plan_id = ${planId} and source = 'note' and guard_status = 'approved'
-  `);
-  let noteQuestions = Number((counted.rows[0] as Record<string, unknown> | undefined)?.n ?? 0);
-
-  for (const q of questions) {
-    if (RESERVED_QUESTION_IDS.has(q.questionId)) continue;
-    const present = await db.execute(sql`
-      select 1 from plan_questions where plan_id = ${planId} and question_id = ${q.questionId}
-    `);
-    if (present.rows.length === 0 && noteQuestions >= MAX_NOTE_QUESTIONS) {
-      capped += 1;
-      continue;
-    }
-    const guard = inspectQuestion(q.prompt);
-    const anchor = q.why ?? null;
-    const watch = typeof q.watchPoint === "number" ? (watchPoints[q.watchPoint]?.text ?? null) : null;
-
-    const inserted = await db.execute(sql`
-      insert into plan_questions
-        (id, plan_id, question_id, ordinal, prompt, answer_type, enum_values, required,
-         source, guard_status, guard_findings, anchor_quote, watch_point, last_compile_at, added_at)
-      select ${newId("q")}, ${planId}, ${q.questionId},
-             (select coalesce(max(ordinal), 0) + 1 from plan_questions where plan_id = ${planId}),
-             ${q.prompt}, ${q.answerType},
-             ${q.enumValues ? JSON.stringify(q.enumValues) : null}::jsonb, true,
-             'note', ${guard.ok ? "approved" : "rejected"},
-             ${guard.ok ? null : JSON.stringify(guard.findings)}::jsonb, ${anchor}, ${watch}, now(),
-             -- Stamped only when the plan was already running, so a call from
-             -- day 2 can be read knowing which questions did not exist yet.
-             (case when p.status = 'awaiting_approval' then null else now() end)
-      from follow_up_plans p
-      where p.id = ${planId} and p.status in ('awaiting_approval', 'active', 'paused')
-      on conflict (plan_id, question_id) do nothing
-      returning id
-    `);
-
-    if (inserted.rows.length > 0) {
-      added += 1;
-      if (guard.ok) noteQuestions += 1;
-      continue;
-    }
-
-    const updated = await db.execute(sql`
-      update plan_questions
-      set prompt = ${q.prompt},
-          guard_status = ${guard.ok ? "approved" : "rejected"},
-          guard_findings = ${guard.ok ? null : JSON.stringify(guard.findings)}::jsonb,
-          anchor_quote = ${anchor},
-          watch_point = ${watch},
-          last_compile_at = now(),
-          updated_at = now()
-      where plan_id = ${planId} and question_id = ${q.questionId}
-        -- The doctor's own wording is never overwritten by a later compile.
-        and source = 'note'
-        and exists (
-          select 1 from follow_up_plans p
-          where p.id = ${planId} and p.status = 'awaiting_approval'
-        )
-      returning id
-    `);
-    if (updated.rows.length > 0) rewritten += 1;
+  for (const t of plan.watchPoints) {
+    if (topics.length >= MAX_TOPICS) break;
+    if (seen.has(t.text.toLowerCase())) continue;
+    seen.add(t.text.toLowerCase());
+    topics.push(t);
+    added += 1;
   }
-
-  /*
-   * What the recompile refused is kept and shown, as at first compile — an
-   * amendment that tried to add an ungrounded question is something the
-   * doctor should see. Drafts only: on a running plan a refused row would stop
-   * the follow-up from dialling, which an amendment must never do by accident.
-   */
-  for (const r of refused) {
-    if (RESERVED_QUESTION_IDS.has(r.questionId)) continue;
-    const inserted = await db.execute(sql`
-      insert into plan_questions
-        (id, plan_id, question_id, ordinal, prompt, answer_type, enum_values, required,
-         source, guard_status, guard_findings, anchor_quote, watch_point, last_compile_at)
-      select ${newId("q")}, ${planId}, ${r.questionId},
-             (select coalesce(max(ordinal), 0) + 1 from plan_questions where plan_id = ${planId}),
-             ${r.prompt}, 'text', null, true, 'note', 'rejected',
-             ${JSON.stringify(r.findings)}::jsonb, ${r.anchorQuote ?? null}, ${r.watchPoint ?? null}, now()
-      from follow_up_plans p
-      where p.id = ${planId} and p.status = 'awaiting_approval'
-      on conflict (plan_id, question_id) do nothing
-      returning id
-    `);
-    if (inserted.rows.length > 0) added += 1;
-  }
-
-  return { added, rewritten, capped };
-}
-
-/**
- * Re-freeze the result schema after questions were added to a running plan.
- *
- * The schema is frozen at approval and `loadContext` sends that frozen copy to
- * CALL-E, so a question added afterwards would be asked on the call and its
- * answer discarded — the key would not be in the contract, and `extractSlots`
- * would record it `missing` forever.
- *
- * Additive and safe: calls already placed were extracted against the older
- * schema and their slots are already written. Only guard-approved questions go
- * in, exactly as at approval — a refused question must never reach a patient.
- */
-export async function refreezeResultSchema(planId: string): Promise<boolean> {
-  const db = getDb();
-  const rows = await db.execute(sql`
-    select question_id, prompt, answer_type, enum_values
-    from plan_questions
-    where plan_id = ${planId} and guard_status = 'approved'
-    order by ordinal, question_id
-  `);
-
-  const questions = (rows.rows as Record<string, unknown>[]).map((r) => ({
-    questionId: String(r.question_id),
-    prompt: String(r.prompt),
-    answerType: String(r.answer_type) as AnswerType,
-    enumValues: (r.enum_values ?? null) as string[] | null,
-  }));
-  if (questions.length === 0) return false;
 
   const result = await db.execute(sql`
     update follow_up_plans
-    set result_schema = ${JSON.stringify(buildResultSchema(questions))}::jsonb,
+    -- A re-read that fell back to code's default goal keeps the one the note gave.
+    set goal = ${plan.provenance.goal === "default" ? sql`coalesce(goal, ${plan.goal})` : plan.goal},
+        watch_points = ${JSON.stringify(topics)}::jsonb,
+        result_schema = ${JSON.stringify(buildResultSchema(topics))}::jsonb,
         updated_at = now()
     where id = ${planId} and status in ('awaiting_approval', 'active', 'paused')
     returning id
   `);
-  return result.rows.length > 0;
-}
-
-/**
- * Take the newer compile's plan-level values, except where the doctor set them.
- *
- * `provenance` already records who chose each field, and it is the same map the
- * review screen reads to print "Defaulted" and "You set this". Honouring it here
- * is what stops an amendment quietly undoing a cadence a doctor typed.
- */
-export async function mergeCompiledPlan(
-  planId: string,
-  plan: ResolvedPlan,
-): Promise<boolean> {
-  const db = getDb();
-  const current = await db.execute(sql`
-    select provenance, red_flag_terms from follow_up_plans
-    where id = ${planId} and status = 'awaiting_approval'
-  `);
-  const row = current.rows[0] as Record<string, unknown> | undefined;
-  if (!row) return false;
-
-  const was = (row.provenance ?? {}) as Record<string, Provenance>;
-
-  /*
-   * A word the doctor typed survives a recompile.
-   *
-   * Taking the new compile's list wholesale would delete every term they added
-   * by hand — the compiler never proposes those, so they would vanish on the
-   * next amendment with no trace and nothing to undo.
-   */
-  const existing = (row.red_flag_terms ?? []) as RedFlagTerm[];
-  const theirs = existing.filter((t) => t.source === "clinician");
-  const seen = new Set(theirs.map((t) => t.term.toLowerCase()));
-  const terms = [
-    ...theirs,
-    ...plan.redFlagTerms.filter((t) => !seen.has(t.term.toLowerCase())),
-  ];
-  const mine = (field: string) => was[field] === "clinician";
-
-  const merged: Record<string, Provenance> = { ...was };
-  for (const [field, source] of Object.entries(plan.provenance)) {
-    if (!mine(field)) merged[field] = source;
-  }
-
-  const result = await db.execute(sql`
-    update follow_up_plans
-    set reason = ${mine("reason") ? sql`reason` : plan.reason},
-        condition = ${mine("condition") ? sql`condition` : plan.condition},
-        duration_days = ${mine("durationDays") ? sql`duration_days` : plan.durationDays},
-        cadence = ${mine("cadence") ? sql`cadence` : plan.cadence},
-        local_time = ${mine("localTime") ? sql`local_time` : plan.localTime},
-        red_flag_terms = ${JSON.stringify(terms)}::jsonb,
-        provenance = ${JSON.stringify(merged)}::jsonb,
-        -- The recompile's quotes. A field the doctor set reads "You set this"
-        -- whatever the quote says, so replacing them wholesale is safe.
-        schedule_quotes = ${JSON.stringify(plan.scheduleQuotes ?? {})}::jsonb,
-        watch_points = ${JSON.stringify(plan.watchPoints ?? [])}::jsonb,
-        updated_at = now()
-    where id = ${planId} and status = 'awaiting_approval'
-    returning id
-  `);
-  return result.rows.length > 0;
+  return { ok: result.rows.length > 0, added };
 }

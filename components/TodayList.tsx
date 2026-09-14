@@ -189,7 +189,6 @@ function Row({ row, open, onToggle }: { row: TodayRow; open: boolean; onToggle: 
  */
 const BANDS: { key: string; label: string; tone: string; match: (r: TodayRow) => boolean }[] = [
   { key: "needs_attention", label: "Needs attention", tone: "needs", match: (r) => r.status === "needs_attention" },
-  { key: "approval", label: "Plans to review", tone: "waiting", match: (r) => r.status !== "needs_attention" && isDraft(r) },
   { key: "finished", label: "Finished", tone: "finished", match: (r) => r.status === "finished" },
   { key: "no_word_yet", label: "No word yet", tone: "waiting", match: (r) => r.status === "no_word_yet" && !isDraft(r) },
   { key: "no_concerns", label: "No concerns raised", tone: "running", match: (r) => r.status === "no_concerns" },

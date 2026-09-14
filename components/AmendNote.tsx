@@ -58,7 +58,7 @@ export function AmendNote({ planId, live = false }: { planId: string; live?: boo
       <Field
         label={live ? "What has changed?" : "What else?"}
         htmlFor="amendment"
-        hint="This is added to the end of your note, and the whole note is read again. Questions you have edited or reordered are left exactly as they are."
+        hint="This is added to the end of your note, and the whole note is read again. Anything new to find out is added to the calls; what they already ask about stays."
       >
         <Textarea
           id="amendment"
@@ -83,15 +83,12 @@ export function AmendNote({ planId, live = false }: { planId: string; live?: boo
               const r = await amendNoteAction(planId, text);
               if (r.ok) {
                 const added = r.added ?? 0;
-                const rewritten = r.rewritten ?? 0;
                 setResult({
                   ok: true,
                   message:
-                    added === 0 && rewritten === 0
-                      ? "Saved. The re-read found nothing new to ask."
-                      : `Saved. ${added} question${added === 1 ? "" : "s"} added` +
-                        (rewritten > 0 ? `, ${rewritten} reworded` : "") +
-                        ".",
+                    added === 0
+                      ? "Saved. The re-read found nothing new to find out."
+                      : `Saved. ${added} new thing${added === 1 ? "" : "s"} to find out, from the next call.`,
                 });
                 setText("");
                 setOpen(false);

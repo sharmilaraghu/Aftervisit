@@ -63,7 +63,7 @@ verify by grepping for one import rather than trusting a convention.
 
 **A recurring workflow must be visible as rows before it runs.**
 
-Expand an approved plan into one dated row per occurrence and show all of them.
+Expand a follow-up the moment a human starts it into one dated row per occurrence and show all of them.
 The calendar is the artifact; a promise that calls will happen is not. Anyone
 looking at the record can see what will be dialled, when, in whose timezone,
 before anything rings.
@@ -124,9 +124,12 @@ one" and moved to the next question, because the can't-answer deflection was
 written broadly enough to swallow a disclosure. Scope that deflection to questions
 the person **asks you**, and make urgency end the call.
 
-Never let a model author the questions freely. Ground every one in the source
-note: a compiler that names a medication the note does not contain is refused
-outright, not warned about.
+Never let a model decide *what* to find out. Ground every topic in the source
+note — each carries the note's own words, checked by code, and a topic without
+them is dropped. The calling agent may phrase its own questions, but only inside
+fixed safety instructions, and what it says is checked afterwards. A parser that
+names a medication the note does not contain is refused outright, not warned
+about.
 
 ---
 
@@ -134,13 +137,14 @@ outright, not warned about.
 
 Three phases, and the ordering is the whole point:
 
-- **Phase 1** inspects each question *individually and unmasked*, before it can
-  enter the approved set.
-- **Phase 2** inspects the assembled script with approved questions masked out.
-- **Phase 3** inspects the transcript afterwards, **agent turns only**.
+- **Phase 1** inspects the goal and each topic *individually and unmasked*, when
+  the note is read and before either can reach a task.
+- **Phase 2** inspects the assembled task with the goal and topics masked out.
+- **Phase 3** inspects the transcript afterwards, **agent turns only** — the
+  only check on the questions the agent phrased itself.
 
-Why phase 1 must come first: phase 2 exempts approved questions, so if a question
-that failed inspection could reach the approved list, listing it would launder it
+Why phase 1 must come first: phase 2 exempts vetted text, so if a topic that
+failed inspection could reach the task, listing it would launder it
 straight past the check that rejected it. Phase 3 skips the caller's own turns
 because someone saying "I stopped taking it" is the disclosure you called for.
 

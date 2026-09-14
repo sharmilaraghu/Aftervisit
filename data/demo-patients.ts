@@ -13,6 +13,8 @@
  * so the roster is reading the database, not this file.
  */
 
+import type { TopicUnit } from "@/lib/plan/result-schema";
+
 export type SeedDay =
   | "answered"
   | "flagged"
@@ -40,14 +42,24 @@ export interface SeedPatient {
   reason: string;
   /** The doctor's free text. The compiler's input, and the grounding source. */
   note: string;
-  /** `awaiting_approval` seeds an unapproved plan with no occurrences. */
-  planStatus: "active" | "paused" | "completed" | "awaiting_approval";
+  planStatus: "active" | "paused" | "completed";
+  /** What the calls set out to find out, as the parser would read it from `note`. */
+  goal: string;
   /**
-   * A draft that also carries the question the guard refuses, so the review
-   * screen shows its blocked state. Off for the draft the demo approves: with
-   * a refused question on it the authorisation panel never renders at all.
+   * What to find out, each with the note's own words for it — exactly what a
+   * live parse stores. Every `quote` is a phrase `note` really contains.
    */
-  withRefusedQuestion?: boolean;
+  watchPoints: { text: string; quote: string; unit?: TopicUnit }[];
+  /** A short answer per topic, in the same order, for every reached call. */
+  topicAnswers: string[];
+  /** For a measured topic: the number given on each reached call, in order. */
+  measured?: { topic: number; values: string[] };
+  /**
+   * Which topic the day's utterance answers, so the patient's words sit under
+   * the one thing they were about. Omitted, no topic carries a quote — the
+   * same sentence under every topic would be wrong evidence, not weak evidence.
+   */
+  utteranceTopic?: number;
   /**
    * The triage summary of the last answered call — what the doctor's
    * Follow-ups view reads as how the patient is doing. Omitted, the seed
@@ -61,17 +73,11 @@ export interface SeedPatient {
    */
   visitToday?: { kind: "consultation" | "post_op"; reportedSymptoms: string };
   /*
-   * The shape a live compile gives a draft, so the seeded review screen shows
-   * what the compiler shows: the note's words behind each schedule value, the
-   * watch-points, which note words each question serves, and the doctor's own
-   * escalation wording. Without them the seeded draft read "Not in note"
-   * beside a note that plainly said it.
+   * The shape a live parse gives a plan: the note's words behind each schedule
+   * value and the doctor's own escalation wording.
    */
   escalationNote?: string;
   scheduleQuotes?: Record<string, string>;
-  watchPoints?: { text: string; quote: string }[];
-  /** questionId → the note words it serves and the watch-point it covers. */
-  anchors?: Record<string, { quote: string; watchPoint: string }>;
   /**
    * Which rule the `flagged` day fires. It has to match what the patient
    * actually said: the queue's entire claim is that the rule, the reason and
@@ -154,6 +160,14 @@ export const SEED_PATIENTS: SeedPatient[] = [
       "want to know she is taking it and tolerating it. Escalate to me same day " +
       "if she reports vomiting or cannot keep fluids down.",
     planStatus: "paused",
+    goal: "Find out whether she is taking the metformin and tolerating it.",
+    watchPoints: [
+      { text: "whether she is taking the metformin", quote: "she is taking it" },
+      { text: "how she is tolerating it", quote: "tolerating it" },
+    ],
+    topicAnswers: ["taking it twice a day with food", "stomach upset at times"],
+    utteranceTopic: 1,
+    scheduleQuotes: { cadence: "daily", durationDays: "for a week" },
     flagRule: "red_flag_term_heard",
     week: ["answered", "answered", "flagged", "held", "scheduled", "scheduled", "scheduled"],
   },
@@ -175,6 +189,14 @@ export const SEED_PATIENTS: SeedPatient[] = [
       "week: daily weight, breathlessness, ankle swelling. He lives alone and " +
       "he does not ring us when things slip, so I want to know if he goes quiet.",
     planStatus: "active",
+    goal: "Find out whether his weight, breathing and ankle swelling are holding steady.",
+    watchPoints: [
+      { text: "his daily weight", quote: "daily weight" },
+      { text: "breathlessness", quote: "breathlessness" },
+      { text: "ankle swelling", quote: "ankle swelling" },
+    ],
+    topicAnswers: ["same as yesterday", "breathing alright", "no change"],
+    scheduleQuotes: { cadence: "Daily check", durationDays: "for a week" },
     week: ["answered", "answered", "missed", "missed", "missed", "scheduled", "scheduled"],
     priorPlan: {
       condition: "chest_infection",
@@ -204,6 +226,15 @@ export const SEED_PATIENTS: SeedPatient[] = [
       "Farida S, 47. Day 3 after an inguinal hernia repair. Call each evening for a week: " +
       "is the wound dry, is the pain settling. Escalate if the wound discharges or she has a fever.",
     planStatus: "active",
+    goal: "Find out whether the wound is staying dry and the pain is settling.",
+    watchPoints: [
+      { text: "whether the wound is dry", quote: "is the wound dry" },
+      { text: "her pain score", quote: "is the pain settling", unit: "score_0_10" },
+    ],
+    topicAnswers: ["dry, no discharge", "settling"],
+    measured: { topic: 1, values: ["5", "4", "3"] },
+    utteranceTopic: 0,
+    scheduleQuotes: { cadence: "each evening", durationDays: "for a week", localTime: "each evening" },
     week: ["answered", "answered", "answered", "scheduled", "scheduled", "scheduled", "scheduled"],
     conditionSummary:
       "Wound is dry with no redness or discharge, and the pain is settling. Nothing she described is concerning.",
@@ -228,6 +259,14 @@ export const SEED_PATIENTS: SeedPatient[] = [
       "Ravi T, 58. Levothyroxine increased to 75mcg. Daily check for a week: energy, " +
       "palpitations, sleep. Escalate if he has chest pain or a racing heart.",
     planStatus: "completed",
+    goal: "Find out how his energy, heart rhythm and sleep are on the new dose.",
+    watchPoints: [
+      { text: "his energy", quote: "energy" },
+      { text: "palpitations", quote: "palpitations" },
+      { text: "his sleep", quote: "sleep" },
+    ],
+    topicAnswers: ["better than before", "none this week", "sleeping properly"],
+    scheduleQuotes: { cadence: "Daily check", durationDays: "for a week" },
     week: ["answered", "answered", "answered", "answered", "answered", "answered", "answered"],
     conditionSummary:
       "Energy is better, no palpitations this week, and he is sleeping properly. Nothing concerning on any call.",
@@ -235,40 +274,6 @@ export const SEED_PATIENTS: SeedPatient[] = [
       kind: "consultation",
       reportedSymptoms:
         "Sore throat and a mild fever for two days. Also asking whether the thyroid tablets need changing.",
-    },
-  },
-  {
-    /*
-     * The plan still waiting on the doctor — the review screen the demo
-     * approves. Without one in the cohort that screen could only be reached by
-     * compiling a note live, and it had gone unseen through a whole redesign.
-     */
-    slug: "lakshmi-r",
-    name: "Lakshmi R",
-    age: 61,
-    timezone: "Asia/Kolkata",
-    language: "en-IN",
-    phone: "+14155550142",
-    consent: "granted",
-    condition: "statin_tolerance",
-    reason: "New atorvastatin · muscle aches and adherence",
-    note:
-      "Lakshmi R, 61. Started atorvastatin 20mg at night for raised cholesterol. " +
-      "Daily check for a week: is she taking it, and any muscle aches or weakness. " +
-      "Escalate to me if she reports severe muscle pain or dark urine.",
-    planStatus: "awaiting_approval",
-    week: ["none", "none", "none", "none", "none", "none", "none"],
-    escalationNote: "severe muscle pain or dark urine",
-    // The note says "daily" and "for a week" — but no time of day, so that one
-    // stays a placeholder and the review screen asks the doctor to set it.
-    scheduleQuotes: { cadence: "Daily", durationDays: "for a week" },
-    watchPoints: [
-      { text: "taking the tablets", quote: "is she taking it" },
-      { text: "muscle aches or weakness", quote: "any muscle aches or weakness" },
-    ],
-    anchors: {
-      taking_as_prescribed: { quote: "is she taking it", watchPoint: "taking the tablets" },
-      symptom_severity: { quote: "any muscle aches or weakness", watchPoint: "muscle aches or weakness" },
     },
   },
 ];

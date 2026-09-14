@@ -1,10 +1,10 @@
 # Care Loop
 
 A clinical follow-up agent built on **CALL-E**. A doctor writes a free-form note after a
-consultation; Care Loop *compiles* it into a structured, reviewable follow-up plan; the
-doctor approves it in one click; and the agent then owns the whole workflow — scheduling,
-dialing, extracting typed answers, retrying, escalating — until the patient resolves or a
-clinician takes over.
+consultation and presses *Save and start follow-up*; Care Loop reads the note into a goal,
+the things the doctor wants found out (each quoting the note) and a schedule; and the agent
+then owns the whole workflow — scheduling, dialing, asking in its own words, extracting typed
+answers, retrying, escalating — until the patient resolves or a clinician takes over.
 
 Built for the *CALL-E: Your Code Is Calling* hackathon (submission via a PR to
 `CALLE-AI/awesome-phone-call-agents` + a ~3 minute demo video).
@@ -44,16 +44,21 @@ the authenticated API before trusting anything a webhook claims.
 ## How a follow-up happens
 
 ```
-doctor's free-text note
-  → compile.ts    OpenAI structured output, strict schema, every defaultable field NULLABLE
-                  → defaults.ts stamps provenance (note | default | clinician)
+doctor's free-text note → "Save and start follow-up"
+  → compile.ts    OpenAI structured output, strict schema, every defaultable field NULLABLE:
+                  reason, goal, what to find out (topic + note quote + unit), schedule +
+                  wait + quotes
                   → grounding.ts refuses any medication not present in the note
-                  → guard phase 1 on each question, individually, UNMASKED
-  → review UI     defaults visibly marked; the doctor edits and approves
-  → expand.ts     approved plan → one scheduled_calls row per occurrence, dated
-  → tick.ts       reconcile → atomic batch claim → guard → dial → persist call id
-                  → after() waiter → store.ts schedules the next attempt if unanswered
-  → extract.ts    CALL-E's structuredResult → typed slots; unmappable is a real status
+                  → defaults.ts fills gaps in code (7 days or one call after a wait, daily,
+                    10:00, 3 attempts) and stamps provenance (note | default)
+                  → each topic's quote must be in the note; guard phase 1 on the goal and
+                    each topic, UNMASKED; a refused topic is dropped, never asked
+  → plans.ts      startPlan → one scheduled_calls row per occurrence, dated from the wait
+                  (a start after today's call time begins a day later if that keeps a call)
+  → tick.ts       reconcile → atomic batch claim → build.ts goal task → guard → dial →
+                  persist call id → store.ts schedules the next attempt if unanswered
+  → extract.ts    fixed result schema → typed slots + per-topic findings and readings;
+                  unmappable is real
   → engine.ts     PURE evaluation of four locked conditions. No model. The floor
   → triage.ts     a model reads the transcript on top: severity, summary, the doctor's
                   own escalating conditions. Fails closed; never speaks to a patient
@@ -67,8 +72,10 @@ doctor's free-text note
    inside `dial()`, so no call site can skip them.
 2. **The scheduler dials autonomously — so consent is the gate.** A doctor enrols a
    patient (at the front desk, ahead of the visit), records that they agreed to automated
-   follow-up, and approves the plan compiled from the consultation note; that is the human
-   "press to call" a manual tool would have, moved earlier. `dial()` refuses any
+   follow-up, and after the consultation writes the note and presses **Save and start
+   follow-up**; that button is the human "press to call" a manual tool would have, moved
+   earlier. There is no separate plan review — the start page says what was read from the
+   note and what code defaulted. `dial()` refuses any
    patient whose consent is not an explicit `granted`, with a visible reason — never
    silently skipped, never quietly simulated. `consentGranted` is a **required** field on
    `DialRequest` precisely so a new call site fails to compile rather than defaulting to
@@ -100,7 +107,8 @@ doctor's free-text note
    settled it: the rules reported "answer could not be mapped" for a line that declined,
    and the model said "the call ended immediately with no speech from the patient."
    What remains in `lib/rules/engine.ts` is a **floor, not a language**: the patient asked
-   for a person, emergency language, an answer nobody could map, nobody answered at all.
+   for a person, emergency language, a reached call that did not find out what it set out
+   to (`goal_covered` none, unknown or missing), nobody answered at all.
    It is still pure — no IO, no clock (`now` is injected), no model, no randomness — and
    keeping it that way is what makes "an outage cannot silence a patient who asked for a
    person" checkable rather than a slogan. Only two of the four pause a plan; unmappable
@@ -110,7 +118,7 @@ doctor's free-text note
    and a clinician overrides both.
 6. **Defaults are applied by code, never by the model.** Every defaultable field is nullable
    in the compiler's output schema and filled deterministically afterwards. That is the only
-   thing that makes the "Defaulted" marking in the review UI trustworthy.
+   thing that makes the "from your note" / "default" marks on the follow-up page trustworthy.
 7. **Never commit a real phone number.** Only US fiction-reserved `555-01xx`. India
    publishes no reserved range, so a plausible `+91` number probably belongs to someone. The
    real demo numbers come from the environment at seed time. (A hook scans for this.)
@@ -136,7 +144,7 @@ Care Loop/
   CLAUDE.md               ← imports this, then adds the Claude-only tables
   app/
     page.tsx              landing — the pitch
-    (console)/            Today, consult list, one visit, register, patients, one plan, one call
+    (console)/            Follow-ups, consult list, one visit, register, patients, one follow-up, one call
     api/tick/             the scheduler door for an external cron
     api/calle/webhook/    CALL-E's callback — takes a call id, re-fetches, never trusts
   lib/
@@ -165,8 +173,9 @@ Care Loop/
 - **OpenAI** for the note compiler and call triage only, behind one provider
   interface (`lib/plan/provider.ts`), as strict structured output against a hand-written
   JSON Schema. Which model ran is persisted on the note, so the claim stays checkable.
-  Screening questions are never model-authored free text beyond what the doctor's note
-  grounds.
+  What to find out is grounded in the note: each topic carries a note quote, checked by
+  code. The calling agent phrases its own questions under fixed safety instructions, and
+  what it is told and says is guarded in phases 2 and 3.
 - **Vitest** for the pure logic. No zod — schemas are hand-written JSON Schema objects
   with `as const satisfies JsonObject` plus a mirrored TS interface.
 - Plain CSS with tokens in `app/globals.css`; inline styles in components.

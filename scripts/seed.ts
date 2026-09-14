@@ -13,14 +13,13 @@
  *     answer; the live retry ladder is exercised against that line, not against
  *     these rows.
  *
- * Every question prompt below is run through the real guard, phase 1, and the
- * verdict is stored. Exactly one prompt is written to fail it — see
- * `REFUSED_QUESTION` — and any prompt whose verdict differs from the one the
- * seed expected, in either direction, is reported rather than quietly stored.
+ * Every fixed observation a plan records is run through the real guard, phase
+ * 1, and the verdict is stored. One that fails is reported rather than quietly
+ * stored.
  *
  * The cohort exists to put every derived state on the roster at once:
- * `escalated`, `never_reached`, `drifting`, `needs_plan`, `awaiting_approval`,
- * `on_track` and `completed`, with a week band covering all five day states.
+ * `escalated`, `never_reached`, `drifting`, `needs_plan`, `on_track` and
+ * `completed`, with a week band covering all five day states.
  * None of those is written anywhere — they are what `deriveHealth()` makes of
  * the rows below.
  *
@@ -49,7 +48,8 @@ import {
   SEED_UNPLANNED,
   type SeedDay,
 } from "../data/demo-patients";
-import type { AnswerType, Provenance } from "../lib/db/enums";
+import { UNIVERSAL_QUESTIONS } from "../lib/plan/universal-questions";
+import { buildResultSchema, topicKey, type TopicSpec } from "../lib/plan/result-schema";
 import type { PlanRule, RedFlagTerm } from "../lib/rules/types";
 import type { StoredTurn } from "../lib/db/schema";
 
@@ -64,90 +64,81 @@ if (!url) {
 const db = drizzle(neon(url), { schema });
 
 // ---------------------------------------------------------------------------
-// The question set
+// What every call records
 // ---------------------------------------------------------------------------
 
-interface QuestionSpec {
-  questionId: string;
-  prompt: string;
-  answerType: AnswerType;
-  enumValues?: string[];
-  source: Provenance;
-  /** Seeded expecting guard phase 1 to refuse it. See `REFUSED_QUESTION`. */
-  mustFailGuard?: boolean;
+/**
+ * The fixed observations, exactly the rows `createPlanFromNote` writes. The
+ * agent asks about the note's topics in its own words; these are what it
+ * records while doing so, and what the floor and the doctor's view read.
+ */
+const QUESTIONS = UNIVERSAL_QUESTIONS;
+
+/** One reached call's structured result, shaped as CALL-E returns it for this schema. */
+function callResult(input: {
+  utterance: string;
+  change: "better" | "same" | "worse";
+  concern: "not_concerned" | "mildly" | "very";
+  goalCovered: "all" | "some" | "none";
+  topicAnswers?: string[];
+  utteranceTopic?: number;
+  /** A measured topic's number on this call, and every topic's unit. */
+  measured?: { topic: number; value: string | undefined };
+  units?: (string | undefined)[];
+}): Record<string, unknown> {
+  const result: Record<string, unknown> = {
+    reached_patient: "yes",
+    requests_clinician: "no",
+    emergency_language_heard: "no",
+    symptom_change: input.change,
+    patient_concern: input.concern,
+    something_else_raised: "no",
+    goal_covered: input.goalCovered,
+    what_else: "unknown",
+    call_recap: input.utterance,
+  };
+  (input.topicAnswers ?? []).forEach((answer, i) => {
+    result[topicKey(i)] = {
+      ...(input.units?.[i]
+        ? { value: input.measured?.topic === i ? (input.measured.value ?? "unknown") : "unknown" }
+        : {}),
+      answer,
+      patient_words: i === input.utteranceTopic ? input.utterance : "unknown",
+      clarity: "clear",
+    };
+  });
+  return result;
 }
 
-/**
- * Six questions per plan. The four `locked` ones back the rules that can never
- * be removed, plus the consent gate; the two `default` ones are what a daily
- * follow-up actually asks.
- *
- * Every prompt is phrased as a question. None of them tells the patient
- * anything, which is what keeps them past guard phase 1 — the guard rejects
- * "Side effects are normal" while requiring "Any side effects?" to be askable.
- */
-const QUESTIONS: QuestionSpec[] = [
-  {
-    questionId: "reached_patient",
-    prompt: "Am I speaking with the patient?",
-    answerType: "boolean",
-    source: "locked",
-  },
-  {
-    questionId: "consent_given",
-    prompt: "Is now a good time to go through a few follow-up questions?",
-    answerType: "boolean",
-    source: "locked",
-  },
-  {
-    questionId: "taking_as_prescribed",
-    /* Stands alone: a call must make sense if yesterday's never connected. */
-    prompt: "Have you been able to take it as prescribed?",
-    answerType: "boolean",
-    source: "default",
-  },
-  {
-    questionId: "symptom_severity",
-    prompt: "Any side effects or new symptoms — would you say none, mild, moderate or severe?",
-    answerType: "enum",
-    enumValues: ["none", "mild", "moderate", "severe"],
-    source: "default",
-  },
-  {
-    questionId: "requests_clinician",
-    /* Observed, not asked — see `spoken: false` in universal-questions.ts. The
-       row still exists so the locked rule keeps a slot to read. */
-    prompt: "Did they ask to speak to a person?",
-    answerType: "boolean",
-    source: "locked",
-  },
-  {
-    questionId: "emergency_language_heard",
-    prompt: "Is there anything urgent you need help with right now?",
-    answerType: "boolean",
-    source: "locked",
-  },
-];
-
-/**
- * One question the guard refuses, seeded onto a draft that sets
- * `withRefusedQuestion` — so the review screen's "Refused by the clinical
- * guard" panel has something real in it when a demo wants to show it.
- *
- * It is *not* marked rejected by hand. It goes through `inspectQuestion` like
- * every other prompt below and fails on three counts at once — it attributes a
- * sentence to the doctor, gives advice, and changes a dose — and the stored
- * findings are the guard's own. A hand-written verdict would make the panel a
- * mock-up of itself.
- */
-const REFUSED_QUESTION: QuestionSpec = {
-  questionId: "doubled_the_dose",
-  prompt:
-    "Your doctor says it's fine to double the dose if your ankles are still puffy — have you done that?",
-  answerType: "boolean",
-  source: "note",
-  mustFailGuard: true,
-};
+/** The slots `completeCall` would extract from that result, one per fixed observation. */
+function slotRows(
+  callId: string,
+  patientId: string,
+  structured: Record<string, unknown>,
+  utterance: string,
+  finishedAt: Date,
+): Row[] {
+  return QUESTIONS.map((q) => {
+    const raw = structured[q.questionId];
+    const text = typeof raw === "string" ? raw : null;
+    return {
+      id: newId("slot"),
+      callId,
+      patientId,
+      questionId: q.questionId,
+      status: "answered",
+      valueBool: q.answerType === "boolean" && (text === "yes" || text === "no") ? text === "yes" : null,
+      valueNumber: null,
+      valueText: q.answerType === "boolean" ? null : text,
+      rawValue: raw ?? null,
+      // The patient's words sit on how they said they were, which is the slot
+      // the doctor's view quotes.
+      utterance: q.questionId === "symptom_change" ? utterance : null,
+      utteranceOffsetSeconds: q.questionId === "symptom_change" ? 24 : null,
+      extractedAt: finishedAt,
+    };
+  });
+}
 
 /**
  * What each seeded `flagged` day raises.
@@ -179,17 +170,17 @@ const FLAG_SPECS = {
   },
   unmappable_response: {
     ruleId: "unmappable_response",
-    label: "Answer could not be mapped",
+    label: "The call didn't find out what you asked",
     urgent: false,
     severity: "escalate" as string | null,
     reason:
-      "She answered in a way the questions could not place, so nothing about how she " +
-      "is doing can be relied on without a person asking her directly.",
+      "She was reached, but the call could not find out what you asked, so nothing " +
+      "about how she is doing can be relied on without a person asking her directly.",
     summary:
       'Said the pain was "about the same, more or less" and did not give a number. ' +
       "The rest of the call was clear." as string | null,
     floorHits: [
-      { ruleId: "unmappable_response", label: "Answer could not be mapped", urgent: false },
+      { ruleId: "unmappable_response", label: "The call didn't find out what you asked", urgent: false },
     ],
   },
   moderate_symptoms: {
@@ -218,20 +209,9 @@ function rulesFor(): PlanRule[] {
   return [...lockedRules(), ...defaultRules()];
 }
 
-/** The CALL-E resultSchema, frozen onto the plan at approval. Hand-written, no zod. */
-function resultSchemaFor(): Record<string, unknown> {
-  const properties: Record<string, unknown> = {};
-  for (const q of QUESTIONS) {
-    properties[q.questionId] =
-      q.answerType === "boolean"
-        ? { type: ["boolean", "null"], description: q.prompt }
-        : { type: ["string", "null"], enum: [...(q.enumValues ?? []), null], description: q.prompt };
-  }
-  properties.call_recap = {
-    type: ["string", "null"],
-    description: "A one-line recap of what the patient said, in their own words where possible.",
-  };
-  return { type: "object", properties, required: [], additionalProperties: false };
+/** The CALL-E resultSchema, frozen onto the plan when it starts. The real builder. */
+function resultSchemaFor(topics: TopicSpec[] = []): Record<string, unknown> {
+  return buildResultSchema(topics);
 }
 
 // ---------------------------------------------------------------------------
@@ -298,7 +278,7 @@ function occurrenceAt(
   return zonedTimeToUtc(date, localTime, timezone);
 }
 
-function transcriptFor(prompt: string, utterance: string): StoredTurn[] {
+function transcriptFor(firstName: string, utterance: string): StoredTurn[] {
   const attemptId = "seed-attempt";
   return [
     /* The configured practice and clinician, so a seeded transcript says what
@@ -309,9 +289,9 @@ function transcriptFor(prompt: string, utterance: string): StoredTurn[] {
       speaker: "bot",
       text: `Hello, this is an AI assistant calling from ${readConfig().practiceName} on behalf of ${readConfig().clinicianName}.`,
     },
-    { attemptId, offsetSeconds: 9, speaker: "bot", text: "Is now a good time to go through a few follow-up questions?" },
-    { attemptId, offsetSeconds: 14, speaker: "user", text: "Yes, go ahead." },
-    { attemptId, offsetSeconds: 18, speaker: "bot", text: prompt },
+    { attemptId, offsetSeconds: 9, speaker: "bot", text: `Am I speaking with ${firstName}?` },
+    { attemptId, offsetSeconds: 14, speaker: "user", text: "Yes, speaking." },
+    { attemptId, offsetSeconds: 18, speaker: "bot", text: "How have things been since your visit?" },
     { attemptId, offsetSeconds: 24, speaker: "user", text: utterance },
     { attemptId, offsetSeconds: 31, speaker: "bot", text: "Thank you. Someone from the care team will follow up if anything needs attention. Goodbye." },
   ];
@@ -387,7 +367,7 @@ function build(): Built {
     const patientId = newId("pat");
     const noteId = newId("note");
     const planId = newId("pln");
-    const approved = p.planStatus !== "awaiting_approval";
+    const firstName = p.name.split(" ")[0];
     const elapsed = elapsedDays(p.week);
 
     out.patients.push({
@@ -528,15 +508,13 @@ function build(): Built {
           p.timezone,
         );
         const utterance = priorSaid[(n - 1) % priorSaid.length];
-        const structured: Record<string, unknown> = {
-          reached_patient: true,
-          consent_given: true,
-          taking_as_prescribed: true,
-          symptom_severity: n === 1 ? "mild" : "none",
-          requests_clinician: false,
-          emergency_language_heard: false,
-          call_recap: utterance,
-        };
+        /* A course from before goal-based calls: no topics on it. */
+        const structured = callResult({
+          utterance,
+          change: n === 1 ? "same" : "better",
+          concern: "not_concerned",
+          goalCovered: "all",
+        });
         const finishedAt = new Date(at.getTime() + 4 * 60 * 1000);
 
         out.calls.push({
@@ -556,28 +534,12 @@ function build(): Built {
           taskCompleted: true,
           completionConfidence: { score: 0.94, label: "high" },
           evidence: [utterance],
-          transcript: transcriptFor(QUESTIONS[3].prompt, utterance),
+          transcript: transcriptFor(firstName, utterance),
           outcome: "answered",
           finishedAt,
         });
 
-        for (const q of QUESTIONS) {
-          const value = structured[q.questionId];
-          out.slots.push({
-            id: newId("slot"),
-            callId,
-            patientId,
-            questionId: q.questionId,
-            status: "answered",
-            valueBool: typeof value === "boolean" ? value : null,
-            valueNumber: null,
-            valueText: typeof value === "string" ? value : null,
-            rawValue: value ?? null,
-            utterance: q.questionId === "symptom_severity" ? utterance : null,
-            utteranceOffsetSeconds: q.questionId === "symptom_severity" ? 24 : null,
-            extractedAt: finishedAt,
-          });
-        }
+        out.slots.push(...slotRows(callId, patientId, structured, utterance, finishedAt));
       }
     }
 
@@ -585,12 +547,8 @@ function build(): Built {
        prints "Local time 10:00" and the rows that actually fire cannot say
        different things. */
     const planLocalTime = p.timezone === "Asia/Kolkata" ? "17:30" : "10:00";
-    const startsAt = approved
-      ? occurrenceAt(now, 1, elapsed, p.timezone, planLocalTime)
-      : null;
-    const endsAt = approved
-      ? occurrenceAt(now, 7, elapsed, p.timezone, planLocalTime)
-      : null;
+    const startsAt = occurrenceAt(now, 1, elapsed, p.timezone, planLocalTime);
+    const endsAt = occurrenceAt(now, 7, elapsed, p.timezone, planLocalTime);
     const redFlagTerms: RedFlagTerm[] = redFlagsFor(p.condition).map((term) => ({
       term,
       source: "default",
@@ -605,6 +563,7 @@ function build(): Built {
       status: p.planStatus,
       reason: p.reason,
       condition: p.condition,
+      goal: p.goal,
       durationDays: 7,
       cadence: "daily",
       localTime: planLocalTime,
@@ -613,8 +572,8 @@ function build(): Built {
       retryDelayMinutes: 120,
       startsAt,
       endsAt,
-      approvedAt: approved ? new Date(now - (elapsed + 1) * DAY_MS) : null,
-      approvedBy: approved ? "Dr Rao" : null,
+      approvedAt: new Date(now - (elapsed + 1) * DAY_MS),
+      approvedBy: "Dr Rao",
       /* A completed current plan ran out of calendar and nobody closed the
          file — the doctor's "Finished" band, with no closing note yet. */
       closeReason: p.planStatus === "completed" ? "duration_elapsed" : null,
@@ -622,37 +581,28 @@ function build(): Built {
       rules: rulesFor(),
       redFlagTerms,
       provenance: {
-        // Every seeded reason is written from its note.
+        // Every seeded reason and goal is written from its note.
         reason: "note",
+        goal: "note",
         cadence: "note",
         durationDays: "note",
-        localTime: "default",
+        localTime: p.scheduleQuotes?.localTime ? "note" : "default",
         maxAttempts: "default",
         retryDelayMinutes: "default",
       },
-      resultSchema: resultSchemaFor(),
+      resultSchema: resultSchemaFor(p.watchPoints),
       scheduleQuotes: p.scheduleQuotes ?? null,
-      watchPoints: p.watchPoints ?? null,
+      watchPoints: p.watchPoints,
       createdAt: new Date(now - (elapsed + 1) * DAY_MS),
       updatedAt: new Date(now - (elapsed + 1) * DAY_MS),
     };
     out.plans.push(planRow);
 
-    // A draft that asks for it carries the refused question too, so the review
-    // screen has a real guard verdict to render. The draft the demo approves
-    // does not — a refused question blocks the authorisation panel entirely.
-    const questions =
-      !approved && p.withRefusedQuestion ? [...QUESTIONS, REFUSED_QUESTION] : QUESTIONS;
-
-    questions.forEach((q, i) => {
+    QUESTIONS.forEach((q, i) => {
       // The real guard, on the real prompt. Not a stored assumption.
       const verdict = inspectQuestion(q.prompt);
-      if (verdict.ok === Boolean(q.mustFailGuard)) {
-        out.guardSurprises.push(
-          q.mustFailGuard
-            ? `${q.questionId}: seeded to be refused, but guard phase 1 passed it`
-            : `${q.questionId}: ${verdict.findings.map((f) => f.category).join(", ")}`,
-        );
+      if (!verdict.ok) {
+        out.guardSurprises.push(`${q.questionId}: ${verdict.findings.map((f) => f.category).join(", ")}`);
       }
       out.questions.push({
         id: newId("q"),
@@ -663,16 +613,11 @@ function build(): Built {
         answerType: q.answerType,
         enumValues: q.enumValues ?? null,
         required: true,
-        // A question the note asks for is the note's, with the words it serves.
-        source: p.anchors?.[q.questionId] ? "note" : q.source,
-        anchorQuote: p.anchors?.[q.questionId]?.quote ?? null,
-        watchPoint: p.anchors?.[q.questionId]?.watchPoint ?? null,
+        source: q.source,
         guardStatus: verdict.ok ? "approved" : "rejected",
         guardFindings: verdict.ok ? null : verdict.findings,
       });
     });
-
-    if (!approved) continue;
 
     const utterances = DEMO_UTTERANCES[p.condition] ?? ["Yes, all fine."];
     let reachedCount = 0;
@@ -771,16 +716,19 @@ function build(): Built {
          the severity is the model's, and the two are different facts. */
       const unmappable =
         flagged && spec.floorHits.some((h) => h.ruleId === "unmappable_response");
-      const severity = flagged && !unmappable ? "severe" : reachedCount === 1 ? "mild" : "none";
-      const structured: Record<string, unknown> = {
-        reached_patient: true,
-        consent_given: true,
-        taking_as_prescribed: true,
-        symptom_severity: severity,
-        requests_clinician: false,
-        emergency_language_heard: false,
-        call_recap: utterance,
-      };
+      const structured = callResult({
+        utterance,
+        change: flagged && !unmappable ? "worse" : reachedCount === 1 ? "same" : "better",
+        concern: flagged ? (unmappable ? "mildly" : spec.urgent ? "very" : "mildly") : "not_concerned",
+        /* The floor's goal-level reading: an unmappable day found out nothing. */
+        goalCovered: unmappable ? "none" : "all",
+        topicAnswers: p.topicAnswers,
+        utteranceTopic: p.utteranceTopic,
+        units: p.watchPoints.map((w) => w.unit),
+        measured: p.measured
+          ? { topic: p.measured.topic, value: p.measured.values[(reachedCount - 1) % p.measured.values.length] }
+          : undefined,
+      });
 
       const finishedAt = new Date(at.getTime() + 4 * 60 * 1000);
       out.calls.push({
@@ -800,7 +748,7 @@ function build(): Built {
         taskCompleted: true,
         completionConfidence: { score: 0.94, label: "high" },
         evidence: [utterance],
-        transcript: transcriptFor(QUESTIONS[3].prompt, utterance),
+        transcript: transcriptFor(firstName, utterance),
         outcome: flagged ? "flagged" : "answered",
         finishedAt,
       });
@@ -839,26 +787,7 @@ function build(): Built {
       });
       last.reached = { summary: triageSummary, at: finishedAt, callId };
 
-      for (const q of QUESTIONS) {
-        const value = structured[q.questionId];
-        const isUnmappable = unmappable && q.questionId === "symptom_severity";
-        out.slots.push({
-          id: newId("slot"),
-          callId,
-          patientId,
-          questionId: q.questionId,
-          status: isUnmappable ? "unmappable" : "answered",
-          valueBool: typeof value === "boolean" ? value : null,
-          valueNumber: null,
-          valueText: typeof value === "string" ? value : null,
-          rawValue: value ?? null,
-          // The verbatim words sit on the slot the escalation points at, so the
-          // queue can render them from one row read.
-          utterance: q.questionId === "symptom_severity" ? utterance : null,
-          utteranceOffsetSeconds: q.questionId === "symptom_severity" ? 24 : null,
-          extractedAt: finishedAt,
-        });
-      }
+      out.slots.push(...slotRows(callId, patientId, structured, utterance, finishedAt));
 
       if (flagged) {
         out.escalations.push({

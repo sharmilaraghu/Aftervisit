@@ -365,6 +365,20 @@ export const followUpPlans = pgTable(
      * question covers is still visible to the doctor as a gap.
      */
     watchPoints: jsonb("watch_points"),
+    /**
+     * One sentence: what these calls are for, read from the note. The calling
+     * agent is given it as its goal, with `watch_points` as the things to find
+     * out. Nullable: a plan from before goals derives one from `reason`.
+     */
+    goal: text("goal"),
+    /** Days to wait before the first call, from "check in after 3 days". 0 for most plans. */
+    startAfterDays: integer("start_after_days").notNull().default(0),
+    /**
+     * What the note asked about that the calls will not follow up, and why —
+     * not in the note, not matching its words, refused by the guard, or past
+     * the cap of five. Shown on the follow-up page so nothing is dropped silently.
+     */
+    droppedTopics: jsonb("dropped_topics"),
 
     pausedAt: ts("paused_at"),
     pausedReason: text("paused_reason"),

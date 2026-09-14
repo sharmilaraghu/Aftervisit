@@ -34,6 +34,12 @@ export interface ExpandInput {
   timeScale: number;
   /** Injected. Approval time — the anchor the whole window hangs from. */
   now: Date;
+  /**
+   * Days after today the window opens. The doctor's "check in after 3 days" is
+   * 3; one more than that is how a start after today's call time avoids
+   * spending a day nobody is called on.
+   */
+  startOffsetDays?: number;
 }
 
 export interface Occurrence {
@@ -69,7 +75,8 @@ function scaled(now: Date, real: Date, timeScale: number): Date {
 
 export function expandPlan(input: ExpandInput): Expansion {
   const step = CADENCE_STEP[input.cadence];
-  const startDate = localDate(input.now, input.timezone);
+  const today = localDate(input.now, input.timezone);
+  const startDate = addDays(today, input.startOffsetDays ?? 0);
 
   /*
    * "7 days" is a clinical interval measured on a calendar, not a quota of

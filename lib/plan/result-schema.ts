@@ -1,60 +1,38 @@
 /**
- * The JSON Schema CALL-E fills in, built from a plan's questions.
+ * The JSON Schema CALL-E fills in for every follow-up call.
  *
- * Hand-written objects with `as const satisfies JsonObject`, plus a mirrored TS
- * interface. No zod: the schema crosses a network boundary into someone else's
- * model, so what matters is the exact JSON we send, and a library that
- * generates it is a layer between us and the thing being debugged.
+ * Hand-written objects with `as const satisfies JsonObject`. No zod: the schema
+ * crosses a network boundary into someone else's model, so what matters is the
+ * exact JSON we send.
  *
- * **Every answer is a string enum carrying an explicit `unknown`.**
+ * **Every answer is a string enum carrying an explicit `unknown`.** CALL-E's
+ * supported subset is `type`, `properties`, `required`, `enum`, nested objects,
+ * simple `array.items`, `description` and `additionalProperties: false` — a type
+ * union was rejected outright by the live API. So "we could not map this" is a
+ * value the model must actively choose, not an absence we infer.
  *
- * An earlier version made each property nullable with `type: ["boolean", "null"]`.
- * The live API rejected the whole request — `result_schema is not supported` —
- * because a type union is `anyOf` in disguise, and CALL-E's supported subset is
- * `type`, `properties`, `required`, `enum`, nested objects, simple `array.items`,
- * `description` and `additionalProperties: false`. Nothing else.
- *
- * Its own guidance points somewhere better than where we were: prefer string
- * enums over booleans for anything that might be unclear, and include an
- * `unknown` value for when the call does not provide enough evidence. So "we
- * could not map this" is now a value the model must actively choose, rather
- * than an absence we infer — which is a stronger version of the same idea. Every
- * field is `required`, because with `unknown` available there is no honest
- * reason to omit one.
+ * The shape is fixed, with one variable part. The universal keys are the same on
+ * every call; the note's topics each add one small nested object — `topic_1` to
+ * `topic_5` — holding what the patient said about it. Nested objects rather than
+ * an array of objects, because nested objects are squarely inside the documented
+ * subset and an array of objects is not something to discover live.
  */
 
 import type { JsonObject } from "@call-e/calle";
-import type { AnswerType } from "@/lib/db/enums";
-import { UNSPOKEN_RESULT_KEYS } from "@/lib/plan/universal-questions";
-
-/**
- * The keys the locked rules read. They are in every plan's schema whatever the
- * doctor edits, because a locked rule with no key to read is a disarmed rule.
- */
-const LOCKED_RESULT_KEYS = new Set([
-  "reached_patient",
-  "consent_given",
-  "requests_clinician",
-  "emergency_language_heard",
-]);
-
-export interface SchemaQuestion {
-  questionId: string;
-  prompt: string;
-  answerType: AnswerType;
-  enumValues?: string[] | null;
-}
 
 /** The value every enum carries. Extraction turns it into an `unmappable` slot. */
 export const UNKNOWN = "unknown";
 
 const YES_NO = ["yes", "no", UNKNOWN] as const;
 
+/** The most topics a plan carries. Matches the compiler's cap. */
+export const MAX_TOPICS = 5;
+
 /**
- * The keys every follow-up call carries, whatever the plan asks.
+ * The keys every follow-up call carries.
  *
- * Three of them back rules that can never be removed, so they are never left to
- * a compiler or a clinician to include.
+ * Three back floor rules that can never be removed; `goal_covered` backs the
+ * fourth. None is left to a compiler to include.
  */
 export const UNIVERSAL_RESULT_KEYS = {
   reached_patient: {
@@ -63,37 +41,23 @@ export const UNIVERSAL_RESULT_KEYS = {
     description:
       "yes only if the person who answered confirmed they are the patient. no if it was someone else. unknown if nobody answered or it was never established.",
   },
-  consent_given: {
-    type: "string",
-    enum: YES_NO,
-    description:
-      "yes if the patient agreed to go through the questions on this call. no if they declined. unknown if it was never established.",
-  },
   requests_clinician: {
     type: "string",
     enum: YES_NO,
     description:
-      "yes if the patient asked to speak to a person, a nurse, or their doctor at any point in the call.",
+      "yes if the patient asked to speak to a person, a nurse, or their doctor at any point in the call. no if they did not.",
   },
   emergency_language_heard: {
     type: "string",
     enum: YES_NO,
     description:
-      "yes if the patient described something that sounded like an emergency. Report what you heard; do not decide whether it is one.",
+      "yes if the patient described something that sounded like an emergency. Report what you heard; do not decide whether it is one. no if they did not.",
   },
-  /*
-   * The four below are the product's answer to "can the model judge urgency?".
-   *
-   * It observes; code decides. Each is a description of what the patient
-   * expressed, never an assessment of what it means — so the pure rule engine
-   * can read them and a clinician can set the threshold. No second model pass,
-   * no extra call: CALL-E's existing extraction fills them.
-   */
   symptom_change: {
     type: "string",
     enum: ["better", "same", "worse", UNKNOWN],
     description:
-      "How the patient compared today with the last time they were asked, in their own words. Report their comparison; do not form your own. unknown if they did not compare.",
+      "How the patient says they are compared with when they left the clinic, in their own words. Report their comparison; do not form your own. unknown if they did not compare.",
   },
   patient_concern: {
     type: "string",
@@ -103,9 +67,15 @@ export const UNIVERSAL_RESULT_KEYS = {
   },
   something_else_raised: {
     type: "string",
-    enum: ["yes", "no", UNKNOWN],
+    enum: YES_NO,
     description:
-      "yes if the patient raised anything the questions did not cover — a new symptom, a problem at home, a worry about their treatment.",
+      "yes if the patient raised anything this call was not asking about — a new symptom, a problem at home, a worry about their treatment.",
+  },
+  goal_covered: {
+    type: "string",
+    enum: ["all", "some", "none", UNKNOWN],
+    description:
+      "How much of what this call set out to find out was actually found out: all, some, or none. unknown if you cannot tell.",
   },
   what_else: {
     type: "string",
@@ -119,86 +89,117 @@ export const UNIVERSAL_RESULT_KEYS = {
   },
 } as const satisfies JsonObject;
 
-/** The typed view of the universal keys, as they arrive from CALL-E. */
-export interface UniversalResult {
-  reached_patient: string;
-  consent_given: string;
-  requests_clinician: string;
-  emergency_language_heard: string;
-  symptom_change: string;
-  patient_concern: string;
-  something_else_raised: string;
-  what_else: string;
-  call_recap: string;
+/**
+ * The measurements a topic may ask for. A closed list, never free text: the
+ * unit is written into the task beside the safety instructions, so a unit the
+ * model could name freely would be one more place to smuggle an instruction.
+ */
+export const TOPIC_UNITS = [
+  "celsius",
+  "fahrenheit",
+  "score_0_10",
+  /* No blood pressure yet: it is two numbers, and one field would keep half of it. */
+  "bpm",
+  "kg",
+  "mmol_L",
+  "mg_dL",
+  "times_per_day",
+] as const;
+
+export type TopicUnit = (typeof TOPIC_UNITS)[number];
+
+/** How a unit reads beside a number, on screen and in the task. */
+export const UNIT_LABEL: Record<TopicUnit, string> = {
+  celsius: "°C",
+  fahrenheit: "°F",
+  score_0_10: "/10",
+  bpm: "bpm",
+  kg: "kg",
+  mmol_L: "mmol/L",
+  mg_dL: "mg/dL",
+  times_per_day: "times a day",
+};
+
+/**
+ * The widest a reading could plausibly be. Not a clinical range — a pulse of
+ * 999 or a temperature of 101 °C is a mishearing or a unit mix-up, and storing
+ * it as the patient's reading would put a wrong number in front of the doctor.
+ */
+export const UNIT_RANGE: Record<TopicUnit, [number, number]> = {
+  celsius: [30, 45],
+  fahrenheit: [86, 113],
+  score_0_10: [0, 10],
+  bpm: [20, 250],
+  kg: [1, 400],
+  mmol_L: [0.5, 50],
+  mg_dL: [10, 900],
+  times_per_day: [0, 50],
+};
+
+export function isTopicUnit(value: unknown): value is TopicUnit {
+  return typeof value === "string" && (TOPIC_UNITS as readonly string[]).includes(value);
 }
 
-/** One question's property. Always an enum with `unknown`, except free text. */
-function propertyFor(q: SchemaQuestion): JsonObject {
-  switch (q.answerType) {
-    case "boolean":
-      return {
-        type: "string",
-        enum: [...YES_NO],
-        description: `${q.prompt} Answer unknown if they did not give a clear yes or no.`,
-      };
+/** One thing to find out, as the task and the schema need it. */
+export interface TopicSpec {
+  text: string;
+  /** Set when the note asks for a number, e.g. a temperature or a pain score. */
+  unit?: TopicUnit | null;
+}
 
-    case "scale_0_10":
-      return {
-        // A string enum rather than an integer, because an integer type has no
-        // way to say "they never gave me a number" — and inventing one is the
-        // failure this whole design exists to prevent.
-        type: "string",
-        enum: ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", UNKNOWN],
-        description: `${q.prompt} Answer unknown if they did not give a number.`,
-      };
+/** The key holding what the patient said about the note's topic at `index`. */
+export function topicKey(index: number): string {
+  return `topic_${index + 1}`;
+}
 
-    case "enum":
-      return {
+/** One topic's nested object. A measured topic also carries the number itself. */
+function topicProperty(topic: TopicSpec): JsonObject {
+  /* Re-checked here: this is fed straight from stored watch points. */
+  const unit = isTopicUnit(topic.unit) ? topic.unit : null;
+  const value = unit
+    ? {
+        value: {
+          type: "string",
+          description: `The single number they gave, in ${UNIT_LABEL[unit]}, digits only (e.g. 38.5). Write 'unknown' if they gave no number, gave it in a different unit, or gave more than one number. Never convert or estimate one.`,
+        },
+      }
+    : {};
+  return {
+    type: "object",
+    description: `What the patient said about: ${topic.text}`,
+    properties: {
+      ...value,
+      answer: {
         type: "string",
-        enum: [...(q.enumValues ?? []), UNKNOWN],
-        description: `${q.prompt} Answer unknown if what they said does not match one of the other values exactly. Do not pick the nearest.`,
-      };
-
-    case "text":
-      return {
+        description: "Their answer in a few plain words. Write 'unknown' if it was not discussed.",
+      },
+      patient_words: {
         type: "string",
-        description: `${q.prompt} Their own words. Write unknown if they did not answer.`,
-      };
-  }
+        description: "What they said about it, in their own words. Write 'unknown' if it was not discussed.",
+      },
+      clarity: {
+        type: "string",
+        enum: ["clear", "unclear", "not_discussed"],
+        description:
+          "clear if they gave a clear answer, unclear if what they said could not be placed, not_discussed if it never came up.",
+      },
+    },
+    required: unit ? ["value", "answer", "patient_words", "clarity"] : ["answer", "patient_words", "clarity"],
+    additionalProperties: false,
+  };
 }
 
 /**
- * Build the schema frozen onto a plan at approval.
+ * Build the schema frozen onto a plan when it starts.
  *
- * `additionalProperties: false` makes the object strict: a key CALL-E was not
- * asked for is a schema violation rather than a silent extra slot.
+ * `additionalProperties: false` makes it strict: a key CALL-E was not asked for
+ * is a schema violation rather than a silent extra slot.
  */
-export function buildResultSchema(questions: SchemaQuestion[]): JsonObject {
-  const asked = new Set(questions.map((q) => q.questionId));
-
-  /*
-   * Only demand what something actually asks for.
-   *
-   * The four locked keys and the two unspoken ones are always present — the
-   * locked rules read the first set, and the second set is the agent's own
-   * notes on the call. The three default universals are not: they are ordinary
-   * question rows a doctor is allowed to delete, and this used to spread them
-   * unconditionally, so deleting one left the schema requiring a key nothing
-   * would ever ask. That is the shape of bug the contract test now catches.
-   */
-  const properties: Record<string, unknown> = {};
-  for (const [key, property] of Object.entries(UNIVERSAL_RESULT_KEYS)) {
-    const alwaysPresent =
-      LOCKED_RESULT_KEYS.has(key) || (UNSPOKEN_RESULT_KEYS as readonly string[]).includes(key);
-    if (alwaysPresent || asked.has(key)) properties[key] = property;
-  }
-
-  for (const q of questions) {
-    // A question may not shadow a universal key: the locked rules read those,
-    // and a plan-level override would quietly disarm one.
-    if (q.questionId in UNIVERSAL_RESULT_KEYS) continue;
-    properties[q.questionId] = propertyFor(q);
-  }
+export function buildResultSchema(topics: TopicSpec[] = []): JsonObject {
+  const properties: Record<string, unknown> = { ...UNIVERSAL_RESULT_KEYS };
+  topics.slice(0, MAX_TOPICS).forEach((topic, i) => {
+    properties[topicKey(i)] = topicProperty(topic);
+  });
 
   return {
     type: "object",
@@ -209,7 +210,7 @@ export function buildResultSchema(questions: SchemaQuestion[]): JsonObject {
   };
 }
 
-/** The keys a plan's schema declares, in a stable order. Used by extraction. */
+/** The keys a plan's schema declares, in a stable order. */
 export function schemaKeys(schema: JsonObject): string[] {
   const properties = schema.properties;
   if (!properties || typeof properties !== "object") return [];
@@ -219,13 +220,9 @@ export function schemaKeys(schema: JsonObject): string[] {
 /**
  * Who or what actually picked up.
  *
- * CALL-E returns no built-in answered-by or AMD disposition; its documentation
- * is explicit that you define the classification yourself with a per-recipient
- * structured result. Without it a voicemail greeting and a patient are the same
- * row, and the retry ladder cannot tell "nobody was there" from "an answerphone
- * was there" — which are different clinical facts and want different handling.
- *
- * One key, deliberately. This is a routing fact, not a second survey.
+ * CALL-E returns no built-in answered-by disposition; its documentation is
+ * explicit that you define the classification yourself with a per-recipient
+ * structured result. One key, deliberately: a routing fact, not a second survey.
  */
 export const RECIPIENT_RESULT_SCHEMA = {
   type: "object",

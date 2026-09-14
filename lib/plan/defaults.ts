@@ -15,6 +15,7 @@ import type { Cadence, Provenance } from "@/lib/db/enums";
 import type { PlanRule, RedFlagTerm } from "@/lib/rules/types";
 import { defaultRules, withLockedRules } from "@/lib/rules/catalog";
 import { mentionedIn } from "@/lib/plan/grounding";
+import type { TopicUnit } from "@/lib/plan/result-schema";
 
 /** The compiler's raw output. Every defaultable field is nullable, on purpose. */
 export interface CompiledDraft {
@@ -23,7 +24,8 @@ export interface CompiledDraft {
   durationDays: number | null;
   cadence: Cadence | null;
   localTime: string | null;
-  questions: DraftQuestion[] | null;
+  /** One sentence: what the calls are for. Null when the note does not make it clear. */
+  goal: string | null;
   redFlagTerms: string[] | null;
   medications: string[] | null;
   /**
@@ -34,6 +36,12 @@ export interface CompiledDraft {
   cadenceQuote?: string | null;
   durationQuote?: string | null;
   localTimeQuote?: string | null;
+  /**
+   * Days to wait before the first call — "check in after 3 days". Distinct from
+   * `durationDays`: a delay with no stated length is one call on that day.
+   */
+  startAfterDays?: number | null;
+  startAfterQuote?: string | null;
   /** What the note asks to be watched, with the note's words for each. */
   watchPoints?: WatchPoint[] | null;
 }
@@ -41,27 +49,27 @@ export interface CompiledDraft {
 export interface WatchPoint {
   text: string;
   quote: string;
+  /** The measurement the note asks for, from a closed list. Absent for most topics. */
+  unit?: TopicUnit | null;
 }
 
 /** The quoted words behind each schedule value the note supplied. */
 export interface ScheduleQuotes {
   cadence?: string;
   durationDays?: string;
+  startAfterDays?: string;
   localTime?: string;
   /** A frequency the note states that the scheduler cannot follow, e.g. "twice a day". */
   unsupportedCadence?: string;
 }
 
-export interface DraftQuestion {
-  questionId: string;
-  prompt: string;
-  answerType: "boolean" | "scale_0_10" | "enum" | "text";
-  enumValues?: string[] | null;
-  /** The note's exact words this question serves. Checked by `lib/plan/anchors.ts`. */
-  why?: string | null;
-  /** Index into the draft's `watchPoints`. */
-  watchPoint?: number | null;
-}
+/**
+ * The goal code gives a follow-up when the note does not make one clear.
+ *
+ * Fixed text that passes guard phase 1, so the calling agent always has
+ * something safe to set out to do.
+ */
+export const DEFAULT_GOAL = "Find out how the patient has been since their visit.";
 
 export interface PlanDefaults {
   durationDays: number;
@@ -83,11 +91,14 @@ export interface ResolvedPlan {
   reason: string;
   condition: string | null;
   durationDays: number;
+  /** Days to wait before the window opens. 0 is "from the next call time". */
+  startAfterDays: number;
   cadence: Cadence;
   localTime: string;
   maxAttempts: number;
   retryDelayMinutes: number;
-  questions: DraftQuestion[];
+  /** What the calls set out to find out. The calling agent's goal. */
+  goal: string;
   redFlagTerms: RedFlagTerm[];
   rules: PlanRule[];
   /** Field name → where its value came from. Derived here, never declared. */
@@ -138,6 +149,33 @@ export function quoteSaysDays(days: number, quote: string): boolean {
   // "a week" is seven days; "two weeks" is fourteen.
   if (/\bweeks?\b/.test(q)) return days === (counts[0] ?? 1) * 7;
   return counts.includes(days);
+}
+
+/**
+ * Whether the quoted words say to wait this many days before calling.
+ *
+ * "for 3 days" is a length, not a delay, and must never become one — so the
+ * words have to say after, in, wait or from now as well as the number.
+ */
+export function quoteSaysDelay(days: number, quote: string): boolean {
+  /*
+   * The delay word has to govern the number, not merely share the quote with it:
+   * a real note opened "Day 3 after laparoscopic cholecystectomy", which has
+   * both "after" and a 3 and is a day since surgery, not a wait before calling.
+   */
+  const count = String.raw`(?:\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|fourteen|twenty|thirty)`;
+  const span = String.raw`${count}\s+(?:more\s+)?(?:days?|weeks?)|a\s+fortnight`;
+  const delay = new RegExp(
+    String.raw`\b(?:after|in|wait(?:\s+for)?)\s+(?:${span})\b|\b(?:${span})\s+(?:from\s+now|later|time)\b`,
+    "i",
+  );
+  const phrase = quote.match(delay)?.[0];
+  return phrase !== undefined && quoteSaysDays(days, phrase);
+}
+
+function validDelay(value: number | null | undefined): number | null {
+  if (typeof value !== "number" || !Number.isInteger(value)) return null;
+  return value > 0 && value <= 60 ? value : null;
 }
 
 const CADENCE_WORDS: Record<Cadence, RegExp> = {
@@ -193,7 +231,7 @@ export function applyDefaults(
   const fromNote = <T>(
     value: T | null,
     quote: string | null | undefined,
-    field: "cadence" | "durationDays" | "localTime",
+    field: "cadence" | "durationDays" | "startAfterDays" | "localTime",
     /** Whether the words say this value — found in the note is not enough. */
     says: (value: T, words: string) => boolean,
   ): T | null => {
@@ -222,10 +260,33 @@ export function applyDefaults(
     fromNote(statedCadence, draft.cadenceQuote, "cadence", quoteSaysCadence),
     d.cadence,
   );
+  /*
+   * The same words cannot be both the length and the wait. When the model quotes
+   * one phrase for both, it is a length misread as a delay too — and a wrong
+   * delay moves every call past the days the doctor asked for, so it is the
+   * delay that goes.
+   */
+  const delayWords = draft.startAfterQuote?.trim();
+  const sameWords = Boolean(delayWords) && delayWords === draft.durationQuote?.trim();
+  const startAfterDays = take(
+    "startAfterDays",
+    fromNote(
+      sameWords ? null : validDelay(draft.startAfterDays),
+      draft.startAfterQuote,
+      "startAfterDays",
+      quoteSaysDelay,
+    ),
+    0,
+  );
+  /*
+   * "Check in after 3 days" is one call on day 3. A week of daily calls from
+   * day 3 is not what that sentence asked for, so a delay the note gave with no
+   * length of its own defaults to a single day — still marked a default.
+   */
   const durationDays = take(
     "durationDays",
     fromNote(validDuration(draft.durationDays), draft.durationQuote, "durationDays", quoteSaysDays),
-    d.durationDays,
+    provenance.startAfterDays === "note" ? 1 : d.durationDays,
   );
   const localTime = take(
     "localTime",
@@ -269,18 +330,18 @@ export function applyDefaults(
   ];
   provenance.redFlagTerms = noteTerms.length > 0 ? "note" : "default";
 
-  const questions = draft.questions?.length ? draft.questions : [];
-  provenance.questions = questions.length > 0 ? "note" : "default";
+  const goal = take("goal", draft.goal?.trim() || null, DEFAULT_GOAL);
 
   return {
     reason,
     condition: draft.condition,
     durationDays,
+    startAfterDays,
     cadence,
     localTime,
     maxAttempts: d.maxAttempts,
     retryDelayMinutes: d.retryDelayMinutes,
-    questions,
+    goal,
     redFlagTerms,
     // The locked three are re-asserted here, so no compile path can drop them.
     rules: withLockedRules([...defaultRules(), ...options.baseRules]),

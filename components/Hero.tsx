@@ -21,13 +21,13 @@ import { Badge } from "@/components/ui";
  */
 const STAGES = [
   {
-    title: "Compile",
-    body: "A free-text note becomes a dated calling plan, with every code-filled default marked as defaulted.",
+    title: "Read the note",
+    body: "A free-text note becomes a goal and what to find out, each tied to your own words, on a dated schedule.",
     done: true,
   },
   {
-    title: "Approve once",
-    body: "You edit and approve in one click. Four escalation rules can never be removed — by you or the model.",
+    title: "Save and start",
+    body: "One button. The calls are on the calendar, and four escalation rules can never be removed — by you or the model.",
     done: true,
   },
   {
@@ -93,8 +93,8 @@ export function Hero() {
             margin: "0 0 calc(var(--cell) * 3)",
           }}
         >
-          Write the note you already write. Care Loop compiles it into a dated
-          calling plan, you approve it once, and it phones your patient all week
+          Write the note you already write and press save. Care Loop reads what
+          you want to know, and it phones your patient for as long as you said
           — escalating the ones who need you, and catching the one who quietly
           stops answering.
         </p>
@@ -210,7 +210,7 @@ export function Hero() {
           </span>
           {compiled
             ? "Pull the tab back to see the doctor's original note."
-            : "Pull the amber tab to compile this note into a follow-up plan."}
+            : "Pull the amber tab to turn this note into a follow-up."}
         </p>
       </div>
     </div>

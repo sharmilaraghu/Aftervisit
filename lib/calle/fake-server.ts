@@ -52,9 +52,9 @@ export function createFakeCalleFetch(options: FakeCalleOptions = {}): FakeCalleF
   const {
     structuredResult = {
       reached_patient: "yes",
-      consent_given: "yes",
       requests_clinician: "no",
       emergency_language_heard: "no",
+      goal_covered: "all",
       call_recap: "Patient answered all questions.",
     },
     transcriptTurns = [
@@ -146,8 +146,8 @@ export function createFakeCalleFetch(options: FakeCalleOptions = {}): FakeCalleF
         ? null
         : {
             reached_patient: "unknown",
-            consent_given: "unknown",
             requests_clinician: "no",
+            goal_covered: "unknown",
             emergency_language_heard: "unknown",
             call_recap: "unknown",
           },

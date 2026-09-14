@@ -27,6 +27,46 @@ function localHHMM(instant: Date, timeZone: string): string {
   }).format(instant);
 }
 
+describe("expandPlan — starting tomorrow", () => {
+  /* 12:00 UTC is 13:00 in London: today's 10:00 call has already gone. */
+  const late = input({ durationDays: 1, now: new Date("2026-08-30T12:00:00Z") });
+
+  it("gives a one-day plan saved after its call time nothing today", () => {
+    expect(expandPlan(late).occurrences).toHaveLength(0);
+  });
+
+  it("puts that call tomorrow at the same local time when asked to", () => {
+    const { occurrences, startsAt } = expandPlan({ ...late, startOffsetDays: 1 });
+    expect(occurrences).toHaveLength(1);
+    expect(occurrences[0].scheduledFor.toISOString()).toBe("2026-08-31T09:00:00.000Z");
+    expect(startsAt).toEqual(occurrences[0].scheduledFor);
+  });
+});
+
+describe("expandPlan — waiting before the first call", () => {
+  /* 08:00 UTC is 09:00 in London, before the 10:00 call. */
+  const early = new Date("2026-08-30T08:00:00Z");
+
+  it("puts a one-day plan three days out as a single call on day three", () => {
+    const { occurrences, startsAt, endsAt } = expandPlan(
+      input({ durationDays: 1, startOffsetDays: 3, now: early }),
+    );
+    expect(occurrences).toHaveLength(1);
+    expect(occurrences[0].scheduledFor.toISOString()).toBe("2026-09-02T09:00:00.000Z");
+    expect(startsAt).toEqual(occurrences[0].scheduledFor);
+    expect(endsAt).toEqual(occurrences[0].scheduledFor);
+  });
+
+  it("opens a longer window on the later day, keeping its length", () => {
+    const { occurrences } = expandPlan(input({ durationDays: 3, startOffsetDays: 2, now: early }));
+    expect(occurrences.map((o) => o.scheduledFor.toISOString())).toEqual([
+      "2026-09-01T09:00:00.000Z",
+      "2026-09-02T09:00:00.000Z",
+      "2026-09-03T09:00:00.000Z",
+    ]);
+  });
+});
+
 describe("expandPlan — the shape of a window", () => {
   it("produces one dated row per day of the window", () => {
     const { occurrences } = expandPlan(input());

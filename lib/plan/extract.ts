@@ -17,7 +17,7 @@
 
 import type { AnswerType, SlotStatus } from "@/lib/db/enums";
 import type { StoredTurn } from "@/lib/db/schema";
-import { UNKNOWN } from "@/lib/plan/result-schema";
+import { UNIT_RANGE, UNKNOWN, type TopicSpec, type TopicUnit } from "@/lib/plan/result-schema";
 import {
   OBSERVED_QUESTION_IDS,
   UNSPOKEN_RESULT_KEYS,
@@ -246,9 +246,6 @@ export function someoneSpoke(input: {
   const reached = input.slots.find((s) => s.questionId === "reached_patient");
   if (reached?.valueBool === true) return true;
 
-  const consent = input.slots.find((s) => s.questionId === "consent_given");
-  if (consent?.valueBool === true) return true;
-
   /*
    * A patient turn with words in it. This is the strong signal and the reason
    * the rule is broader than `reached_patient`: a call can plainly be answered
@@ -258,6 +255,73 @@ export function someoneSpoke(input: {
   const isAgent = (speaker: string) =>
     ["agent", "assistant", "bot", "ai"].includes(speaker.toLowerCase());
   return (input.transcript ?? []).some((t) => !isAgent(t.speaker) && t.text.trim() !== "");
+}
+
+/** What the patient said about one of the note's topics. */
+export interface Finding {
+  topic: string;
+  /** The number they gave, for a measured topic. Null when they gave none. */
+  value: number | null;
+  unit: TopicUnit | null;
+  answer: string | null;
+  patientWords: string | null;
+  clarity: "clear" | "unclear" | "not_discussed" | null;
+}
+
+/**
+ * Read the per-topic answers out of a call's structured result.
+ *
+ * Pure, and not a second model pass: CALL-E already filled `topic_1`…`topic_n`.
+ * A topic whose object is missing or malformed comes back with nulls rather
+ * than a guessed answer, and `unknown` is read as absent, never as an answer.
+ */
+export function extractFindings(
+  structuredResult: Record<string, unknown> | null,
+  topics: TopicSpec[],
+): Finding[] {
+  const text = (v: unknown): string | null => {
+    if (typeof v !== "string") return null;
+    const t = v.trim();
+    return t === "" || t.toLowerCase() === UNKNOWN ? null : t;
+  };
+  /*
+   * Digits or nothing. "about thirty-eight", "high" or "38-39" are not a number
+   * the doctor can compare day to day, so they stay in the patient's words and
+   * the value stays null — never parsed into the nearest guess.
+   */
+  const number = (v: unknown): number | null => {
+    const t = text(v);
+    if (t === null || !/^-?\d+(?:\.\d+)?$/.test(t)) return null;
+    const n = Number(t);
+    return Number.isFinite(n) ? n : null;
+  };
+  /*
+   * A number is kept only from a clearly answered topic and only inside the
+   * widest plausible range for its unit. "About 38, I think" written down as 38
+   * is the agent's guess, and 101 as °C is a unit mix-up — neither is a reading.
+   */
+  const reading = (v: unknown, unit: TopicUnit, clarity: unknown): number | null => {
+    if (clarity !== "clear") return null;
+    const n = number(v);
+    if (n === null) return null;
+    const [low, high] = UNIT_RANGE[unit];
+    return n >= low && n <= high ? n : null;
+  };
+  return topics.map((topic, i) => {
+    const raw = structuredResult?.[`topic_${i + 1}`];
+    const obj = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
+    const clarity = obj?.clarity;
+    const unit = topic.unit ?? null;
+    return {
+      topic: topic.text,
+      value: unit ? reading(obj?.value, unit, clarity) : null,
+      unit,
+      answer: text(obj?.answer),
+      patientWords: text(obj?.patient_words),
+      clarity:
+        clarity === "clear" || clarity === "unclear" || clarity === "not_discussed" ? clarity : null,
+    };
+  });
 }
 
 /**

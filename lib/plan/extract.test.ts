@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  extractFindings,
   extractSlots,
   foldOutcome,
   someoneSpoke,
@@ -266,13 +267,20 @@ describe("someoneSpoke", () => {
     ...over,
   });
 
+  it("counts a call as answered when the patient confirmed who they are", () => {
+    expect(
+      someoneSpoke({
+        slots: [slot("reached_patient", { status: "answered", valueBool: true })],
+        transcript: null,
+      }),
+    ).toBe(true);
+  });
+
   /*
-   * The bug this exists for. CALL-E returned `reached_patient: "unknown"` on a
-   * call with thirty-nine turns, consent given and a full set of answers — and
-   * the outcome folded to `no_answer`, which then fed the retry ladder and the
-   * "never reached" state.
+   * Consent lives on the patient record now, not on the call. A `consent_given`
+   * slot left over from an older plan is not evidence anybody spoke.
    */
-  it("counts a call as answered when consent was given, even if identity was never confirmed", () => {
+  it("no longer reads a consent slot as speech", () => {
     expect(
       someoneSpoke({
         slots: [
@@ -281,7 +289,7 @@ describe("someoneSpoke", () => {
         ],
         transcript: null,
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   /*
@@ -337,6 +345,88 @@ describe("someoneSpoke", () => {
         transcript: [{ attemptId: "a", offsetSeconds: 1, speaker: "bot", text: "Hello?" }],
       }),
     ).toBe(false);
+  });
+});
+
+describe("extractFindings", () => {
+  const topics = [{ text: "fever" }, { text: "wound discharge" }, { text: "pain" }];
+
+  it("reads each topic by position, mapping clarity exactly", () => {
+    const findings = extractFindings(
+      {
+        topic_1: { answer: "no fever", patient_words: "No temperature.", clarity: "clear" },
+        topic_2: { answer: "a little", patient_words: "Some ooze, I think.", clarity: "unclear" },
+        topic_3: { answer: "unknown", patient_words: "unknown", clarity: "not_discussed" },
+      },
+      topics,
+    );
+    const none = { value: null, unit: null };
+    expect(findings).toEqual([
+      { topic: "fever", ...none, answer: "no fever", patientWords: "No temperature.", clarity: "clear" },
+      { topic: "wound discharge", ...none, answer: "a little", patientWords: "Some ooze, I think.", clarity: "unclear" },
+      { topic: "pain", ...none, answer: null, patientWords: null, clarity: "not_discussed" },
+    ]);
+  });
+
+  /* A measured topic's number is digits or nothing — never the nearest guess. */
+  it("reads a measured topic's value only when it is a plain number", () => {
+    const temp = [{ text: "temperature", unit: "celsius" as const }];
+    const valueOf = (value: unknown) =>
+      extractFindings({ topic_1: { value, answer: "x", patient_words: "x", clarity: "clear" } }, temp)[0];
+
+    expect(valueOf("39.2")).toMatchObject({ value: 39.2, unit: "celsius" });
+    expect(valueOf(" 38 ").value).toBe(38);
+    for (const bad of ["unknown", "about 38", "38-39", "high", "", null, 38.5, undefined]) {
+      expect(valueOf(bad).value, String(bad)).toBeNull();
+    }
+    expect(extractFindings({ topic_1: { answer: "x", patient_words: "x", clarity: "clear" } }, temp)[0].value).toBeNull();
+  });
+
+  it("keeps a number only from a clear answer, inside a plausible range for its unit", () => {
+    const read = (value: string, clarity: string, unit: "celsius" | "score_0_10" | "bpm") =>
+      extractFindings({ topic_1: { value, answer: "x", patient_words: "x", clarity } }, [{ text: "t", unit }])[0]
+        .value;
+
+    /* "About 38, I think", written down as 38, is the agent's guess. */
+    expect(read("38", "unclear", "celsius")).toBeNull();
+    /* 101 is Fahrenheit misfiled as Celsius, not a reading. */
+    expect(read("101", "clear", "celsius")).toBeNull();
+    expect(read("11", "clear", "score_0_10")).toBeNull();
+    expect(read("999", "clear", "bpm")).toBeNull();
+    expect(read("0", "clear", "score_0_10")).toBe(0);
+    expect(read("72", "clear", "bpm")).toBe(72);
+  });
+
+  it("ignores a value on a topic that asked for no number", () => {
+    const [f] = extractFindings(
+      { topic_1: { value: "39.2", answer: "hot", patient_words: "hot", clarity: "clear" } },
+      [{ text: "fever" }],
+    );
+    expect(f.value).toBeNull();
+    expect(f.unit).toBeNull();
+  });
+
+  /* `unknown` is the model saying it has nothing — never an answer to show. */
+  it("reads unknown and blank text as absent", () => {
+    const [f] = extractFindings(
+      { topic_1: { answer: "  UNKNOWN ", patient_words: "   ", clarity: "clear" } },
+      [{ text: "fever" }],
+    );
+    expect(f.answer).toBeNull();
+    expect(f.patientWords).toBeNull();
+  });
+
+  it("gives nulls for a missing, malformed or wrongly typed topic, never a guess", () => {
+    const findings = extractFindings(
+      { topic_1: "yes", topic_2: { answer: 3, patient_words: null, clarity: "sort of" } },
+      topics,
+    );
+    for (const f of findings) {
+      expect(f.answer).toBeNull();
+      expect(f.patientWords).toBeNull();
+      expect(f.clarity).toBeNull();
+    }
+    expect(extractFindings(null, topics).every((f) => f.clarity === null)).toBe(true);
   });
 });
 

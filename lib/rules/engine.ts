@@ -67,6 +67,13 @@ export interface EvaluationInput {
   networkRefusedAll?: boolean;
   /** Attempts actually made for this occurrence. */
   attemptsMade: number;
+  /**
+   * How clearly each of the note's topics was answered, in order. The agent's
+   * own `goal_covered` is its opinion of itself; these are what it recorded per
+   * topic, and a call that reached the patient with not one clear answer did
+   * not find out what it set out to, whatever it says. Absent for older plans.
+   */
+  findings?: { clarity: string | null }[];
   /** Injected. The engine never reads a clock. */
   now: Date;
 }
@@ -89,6 +96,30 @@ export interface Evaluation {
 
 function findSlot(slots: EvaluatedSlot[], questionId: string): EvaluatedSlot | undefined {
   return slots.find((s) => s.questionId === questionId);
+}
+
+/**
+ * Whether the call did not find out what it was for.
+ *
+ * The agent's `goal_covered` alone is not trusted to say it did: with topics
+ * on the plan, at least one of them must have come back clear.
+ */
+function goalUnresolved(goal: EvaluatedSlot, findings: EvaluationInput["findings"] = []): boolean {
+  if (goal.status !== "answered" || goal.valueText === "none") return true;
+  return findings.length > 0 && !findings.some((f) => f.clarity === "clear");
+}
+
+/**
+ * Whether a call's answers leave something a person must pick up.
+ *
+ * A goal-driven call answers that on `goal_covered` and its topics. A plan from
+ * before goals — with no such slot — keeps the old reading: any unmappable or
+ * missing answer. Used for the call's folded outcome, so it matches the floor.
+ */
+export function unresolvedCall(slots: EvaluatedSlot[], findings?: EvaluationInput["findings"]): boolean {
+  const goal = findSlot(slots, "goal_covered");
+  if (goal) return goalUnresolved(goal, findings);
+  return slots.some((s) => s.status === "unmappable" || s.status === "missing");
 }
 
 /** The patient's words for a slot, when we have them. */
@@ -141,6 +172,29 @@ function evaluateRule(rule: Rule, input: EvaluationInput): RuleHit[] {
       // Nobody spoke, so nothing could have been unmappable. An unanswered call
       // is silence, and silence has its own rule.
       if (!input.reached) return [];
+
+      /*
+       * A goal-driven call has no fixed question list, so "an answer that could
+       * not be mapped" is read once, at the level of the goal. Its observations
+       * are often honestly `unknown` — a patient who never compared today with
+       * last week — and firing on each of those would put every routine call in
+       * front of a person. What must reach a person is a call that got through
+       * and still did not find out what it was for.
+       */
+      const goal = findSlot(input.slots, "goal_covered");
+      if (goal) {
+        if (!goalUnresolved(goal, input.findings)) return [];
+        return [
+          hit({
+            questionId: goal.questionId,
+            utterance: words(goal),
+            reason:
+              goal.status === "answered"
+                ? "The patient was reached, but the call did not find out what it set out to. Care Loop does not guess; a person should follow up."
+                : "The patient was reached, but the call could not say whether it found out what it set out to. Care Loop does not guess; a person should follow up.",
+          }),
+        ];
+      }
 
       const unresolved = input.slots.filter(
         (s) => s.status === "unmappable" || s.status === "missing",

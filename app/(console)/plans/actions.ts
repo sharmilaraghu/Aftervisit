@@ -1,12 +1,12 @@
 "use server";
 
 /**
- * Plan actions: write up a visit, edit the draft, approve it, and take a plan
- * back off the clinician's hands from the queue.
+ * Plan actions: save a visit's note and start its follow-up, add to a running
+ * one, and take a plan back off the clinician's hands from the queue.
  *
- * Compiling is the one place a model runs. Everything after it is code, which
- * is why the approve path can be described honestly as "the doctor's decision,
- * executed deterministically".
+ * Reading the note is the one place a model runs. Everything after it is code,
+ * which is why "Save and start follow-up" can be described honestly as the
+ * doctor's decision, executed deterministically.
  */
 
 import { revalidatePath } from "next/cache";
@@ -15,32 +15,20 @@ import { runTickOnPageLoad } from "@/lib/schedule/trigger";
 import { redirect } from "next/navigation";
 import { sql } from "drizzle-orm";
 
-import { stepTarget } from "@/lib/plan/ordinals";
 import { getDb } from "@/lib/db/client";
 import { withLockedRules } from "@/lib/rules/catalog";
 
 import { compileNote } from "@/lib/plan/compile";
-import { applyDefaults, fieldsToMarkAsClinician } from "@/lib/plan/defaults";
 import {
-  addQuestion,
   amendNote,
-  approvePlan,
   cancelPlan,
   createPlanFromNote,
   getPlanForReview,
-  mergeCompiledPlan,
-  mergeCompiledQuestions,
-  refreezeResultSchema,
-  deleteQuestion,
-  getPlanQuestionOrder,
-  moveQuestion,
-  updatePlanDraft,
-  updateQuestionPrompt,
+  startPlan,
+  updatePlanGoal,
 } from "@/lib/db/plans";
-import { validateQuestionDraft } from "@/lib/plan/clinician-question";
-import type { QuestionEditResult } from "@/lib/plan/clinician-question";
 import type { PlanRule, RedFlagTerm } from "@/lib/rules/types";
-import { getVisit, markVisitSeen } from "@/lib/db/visits";
+import { getVisit, markVisitSeen, reopenVisit } from "@/lib/db/visits";
 import {
   acknowledgeEscalation,
   closePlan,
@@ -49,24 +37,16 @@ import {
   resumePlan,
   setResolution,
 } from "@/lib/schedule/store";
-import { redFlagsFor } from "@/data/red-flags";
 import type { CompileFormState } from "@/lib/patients/plan-form";
 
-/*
- * The refusal, in the guard's own register. The findings travel with it, so the
- * doctor reads which words were refused and why rather than a summary of them.
- */
-const GUARD_REFUSAL =
-  "The clinical guard refused this wording, so it will not be asked. " +
-  "It is kept below, with the reason. Rewrite it as a question that asks and tells nothing.";
-
 /**
- * The consultation: the doctor has written the note for a waiting visit.
+ * The consultation: the doctor has written the note for a waiting visit and
+ * pressed *Save and start follow-up*.
  *
- * Compile it, write the draft, and take the visit off the consult list — in
- * that order, because a visit marked `seen` with no plan to show for it is a
- * patient who fell between two screens. The confirm view is the plan page;
- * one press there is what starts the calls.
+ * Read the note, write the plan, take the visit off the consult list, start the
+ * calendar — in that order. A note that cannot be read starts nothing: Care Loop
+ * never invents a generic follow-up to paper over a missing model, and the note
+ * stays in the form for the doctor.
  */
 export async function consultAction(
   visitId: string,
@@ -75,14 +55,14 @@ export async function consultAction(
 ): Promise<CompileFormState> {
   const noteBody = String(formData.get("note") ?? "").trim();
   /* Optional, and kept verbatim: triage matches calls against the doctor's own
-     escalating conditions, so they are stored as written, not as compiled. */
+     escalating conditions, so they are stored as written, not as parsed. */
   const escalationNote = String(formData.get("escalation") ?? "").trim();
   const values = { note: noteBody, escalation: escalationNote };
 
   if (noteBody.length < 20) {
     return {
       values,
-      error: "Write the note first. There is nothing to compile from a line or two.",
+      error: "Write the note first. There is nothing to follow up from a line or two.",
     };
   }
 
@@ -97,8 +77,7 @@ export async function consultAction(
     };
   }
 
-  const postOp = visit.kind === "post_op";
-  const fallbackReason = postOp ? "Post-operative follow-up" : "Follow-up";
+  const fallbackReason = visit.kind === "post_op" ? "Post-operative follow-up" : "Follow-up";
 
   const outcome = await compileNote({
     noteBody,
@@ -108,215 +87,80 @@ export async function consultAction(
     visitKind: visit.kind,
   });
 
+  if (!outcome.ok) {
+    return {
+      values,
+      error:
+        outcome.reason === "no_provider"
+          ? "Care Loop could not read this note: no model is configured. Nothing was scheduled."
+          : `${outcome.detail} Nothing was scheduled.`,
+    };
+  }
+
   /*
-   * A refusal is a real outcome, not an error to swallow. The note is still
-   * written, marked `refused`, and the doctor gets a blank, hand-editable plan —
-   * Care Loop never invents a generic follow-up to paper over a missing key.
+   * A note that yields nothing specific does not start a generic call. With no
+   * topic kept and the goal code's own default, the calls would ask "how have
+   * you been" about a consultation the doctor wrote something particular about —
+   * so the doctor is asked to say what they want to know instead.
    */
-  const resolved = outcome.ok
-    ? outcome.plan
-    : applyDefaults(
-        {
-          reason: null,
-          condition: null,
-          durationDays: null,
-          cadence: null,
-          localTime: null,
-          questions: null,
-          redFlagTerms: null,
-          medications: null,
-        },
-        { fallbackReason, baseRedFlags: redFlagsFor(null), baseRules: [] },
-      );
+  if (outcome.plan.watchPoints.length === 0 && outcome.plan.provenance.goal === "default") {
+    return {
+      values,
+      error:
+        "Care Loop could not find anything specific to follow up in this note, so nothing was scheduled. " +
+        "Say what you want to know — for example, whether the wound is dry or the pain is settling.",
+    };
+  }
 
   const planId = await createPlanFromNote({
     patientId: visit.patientId,
     noteBody,
     escalationNote: escalationNote || null,
-    plan: resolved,
-    compile: outcome.ok
-      ? {
-          status: "compiled",
-          provider: outcome.provider,
-          model: outcome.model,
-          raw: outcome.raw,
-          error: null,
-        }
-      : { status: "refused", provider: null, model: null, raw: null, error: outcome.detail },
-    rejectedQuestions: outcome.ok ? outcome.rejectedQuestions : undefined,
+    plan: outcome.plan,
+    droppedTopics: outcome.droppedTopics,
+    compile: {
+      status: "compiled",
+      provider: outcome.provider,
+      model: outcome.model,
+      raw: outcome.raw,
+      error: null,
+    },
   });
 
   /*
-   * Zero rows means another tab wrote this visit up first. The draft just
-   * made would be a second plan for the same consultation, so it is cancelled
-   * rather than left for someone to approve twice.
+   * Zero rows means another tab wrote this visit up first. The plan just made
+   * would be a second follow-up for the same consultation, so it is cancelled.
    */
+  const by = readConfig().clinicianName;
   const seen = await markVisitSeen(visitId, planId);
   if (!seen) {
-    await cancelPlan(planId, readConfig().clinicianName);
+    await cancelPlan(planId, by);
     return {
       values,
-      error: "This visit was written up in another tab. Open it from Consultations to review that note.",
+      error: "This visit was written up in another tab. Open it from Consultations to see that note.",
     };
   }
+
+  const started = await startPlan(planId, by);
+  if (!started.ok) {
+    /* Put the visit back, so the doctor can press start again. */
+    await cancelPlan(planId, by);
+    await reopenVisit(visitId);
+    return { values, error: started.reason ?? "The follow-up could not be started." };
+  }
+
+  /*
+   * Dial anything this start just made due. Starting is one of the three honest
+   * triggers, and the one the doctor is present for. It cannot break the start:
+   * the tick is bounded, never waits for a call, and records its own failures.
+   */
+  await runTickOnPageLoad();
 
   revalidatePath("/consult");
   revalidatePath("/patients");
   revalidatePath("/dashboard");
-  redirect(`/plans/${planId}`);
-}
-
-export async function updateDraftAction(planId: string, formData: FormData): Promise<void> {
-  const durationDays = Number(formData.get("durationDays") ?? 7);
-  const localTime = String(formData.get("localTime") ?? "10:00");
-  /* The demo clock has its own control now. Absent from the schedule form, it
-     is left alone — defaulting it here would reset the demo on every save. */
-  const timeScaleRaw = formData.get("timeScale");
-  const timeScale = timeScaleRaw === null ? null : Number(timeScaleRaw);
-  const cadence = String(formData.get("cadence") ?? "daily");
-  const maxAttempts = Number(formData.get("maxAttempts") ?? 3);
-
-  const plan = await getPlanForReview(planId);
-  if (!plan) return;
-
-  /* Every one of these printed a provenance mark — "You set this" — while
-     having no control anywhere in the product. Either the mark was a lie or
-     the field was missing; these are the fields. */
-  const after = {
-    cadence: (["daily", "every_other_day", "weekly"] as const).includes(cadence as "daily")
-      ? (cadence as "daily" | "every_other_day" | "weekly")
-      : ("daily" as const),
-    maxAttempts:
-      Number.isInteger(maxAttempts) && maxAttempts >= 1 && maxAttempts <= 5 ? maxAttempts : 3,
-    durationDays: Number.isInteger(durationDays) && durationDays > 0 ? durationDays : 7,
-    localTime: /^([01]\d|2[0-3]):[0-5]\d$/.test(localTime) ? localTime : "10:00",
-  };
-
-  /*
-   * Only what the doctor chose is written — and so marked theirs. Sending all
-   * five on every save used to stamp the note's own values "You set this" the
-   * moment the drawer was saved, which is the opposite of what the mark means.
-   */
-  const marked = new Set(
-    fieldsToMarkAsClinician(
-      {
-        cadence: plan.cadence,
-        maxAttempts: plan.maxAttempts,
-        durationDays: plan.durationDays,
-        localTime: plan.localTime,
-      },
-      after,
-      plan.provenance,
-    ),
-  );
-
-  await updatePlanDraft(planId, {
-    cadence: marked.has("cadence") ? after.cadence : undefined,
-    maxAttempts: marked.has("maxAttempts") ? after.maxAttempts : undefined,
-    durationDays: marked.has("durationDays") ? after.durationDays : undefined,
-    localTime: marked.has("localTime") ? after.localTime : undefined,
-    timeScale: timeScale === null ? undefined : timeScale > 0 ? timeScale : 1,
-  });
-
-  revalidatePath(`/plans/${planId}`);
-}
-
-/**
- * The demo clock, on its own.
- *
- * It lived in the schedule drawer, where a doctor approving a real schedule met
- * a control that only compresses the calendar for a demo. It carries no
- * provenance and changes nothing clinical, so it is set without touching the
- * schedule's marks.
- */
-export async function updateTimeScaleAction(planId: string, formData: FormData): Promise<void> {
-  const timeScale = Number(formData.get("timeScale") ?? 1);
-  await updatePlanDraft(planId, { timeScale: timeScale > 0 ? timeScale : 1 });
-  revalidatePath(`/plans/${planId}`);
-}
-
-export async function deleteQuestionAction(planId: string, questionId: string): Promise<void> {
-  await deleteQuestion(planId, questionId);
-  revalidatePath(`/plans/${planId}`);
-}
-
-/**
- * Move a question one place in the order the agent will ask them.
- *
- * The UI thinks in up and down; the database thinks in "after this row".
- * `stepTarget` translates, so neither side has to know how ordinals work — and
- * a refusal here is a sentence the doctor can act on, because the alternative
- * is a silent no-op that looks like the button is broken.
- */
-export async function moveQuestionAction(
-  planId: string,
-  questionId: string,
-  direction: "up" | "down",
-): Promise<{ ok: boolean; reason?: string }> {
-  const rows = await getPlanQuestionOrder(planId);
-  const step = stepTarget(rows, questionId, direction);
-  if (!step.ok) {
-    return step.reason === "edge"
-      ? { ok: true }
-      : { ok: false, reason: "The order changed while you were editing. Reload the plan." };
-  }
-
-  const result = await moveQuestion(planId, questionId, step.afterId);
-  revalidatePath(`/plans/${planId}`);
-  return result.moved ? { ok: true } : { ok: false, reason: result.reason };
-}
-
-/**
- * The doctor rewrites what the agent will say.
- *
- * The guard is not consulted here. It runs inside `updateQuestionPrompt`, on the
- * way to the row, so the refusal this returns is a report of what was already
- * written — never a decision this action could have skipped or overruled.
- */
-export async function editQuestionAction(
-  planId: string,
-  questionId: string,
-  prompt: string,
-): Promise<QuestionEditResult> {
-  const trimmed = prompt.trim();
-  if (trimmed.length === 0) {
-    return { ok: false, error: "Write the question first. Care Loop will not ask an empty one." };
-  }
-
-  const result = await updateQuestionPrompt(planId, questionId, trimmed);
-  revalidatePath(`/plans/${planId}`);
-
-  if (!result.saved) {
-    return {
-      ok: false,
-      error:
-        "Nothing was saved. This plan is no longer awaiting approval, or that " +
-        "question is one of the locked ones.",
-    };
-  }
-  if (!result.guard.ok) return { ok: false, error: GUARD_REFUSAL, findings: result.guard.findings };
-  return { ok: true };
-}
-
-export async function addQuestionAction(
-  planId: string,
-  formData: FormData,
-): Promise<QuestionEditResult> {
-  const validation = validateQuestionDraft({
-    prompt: String(formData.get("prompt") ?? ""),
-    answerType: String(formData.get("answerType") ?? ""),
-    enumValues: String(formData.get("enumValues") ?? ""),
-  });
-  if (!validation.ok) return { ok: false, error: validation.error };
-
-  const result = await addQuestion(planId, validation.draft);
-  revalidatePath(`/plans/${planId}`);
-
-  if (!result.saved) {
-    return { ok: false, error: "Nothing was saved. This plan is no longer awaiting approval." };
-  }
-  if (!result.guard.ok) return { ok: false, error: GUARD_REFUSAL, findings: result.guard.findings };
-  return { ok: true };
+  revalidatePath(`/followups/${visit.patientId}`);
+  redirect(`/followups/${visit.patientId}?started=1`);
 }
 
 /**
@@ -327,9 +171,7 @@ export async function addQuestionAction(
  * sending only what changed is what stops a chip click from overwriting a
  * half-typed sentence.
  *
- * Allowed on a running plan as well as a draft, the same window
- * `updatePlanRules` uses: day three is when a doctor discovers the wrong word
- * was on the list. Forward-only either way; finished calls are not re-evaluated.
+ * Forward-only: finished calls are not re-evaluated.
  *
  * Two tables, and the Neon HTTP driver has no transactions — so these are two
  * independent statements rather than one atomic write. That is safe because
@@ -378,12 +220,8 @@ export async function updateEscalationAction(
     }
 
     /*
-     * The plan's list is the only list.
-     *
-     * No rule reads these words any more. They are the doctor's own vocabulary,
-     * handed to the model as the reference standard for what to escalate on —
-     * which is strictly better than the substring matcher that used to consume
-     * them, because that matched inside a negation and could not say why.
+     * The plan's list is the only list. No rule reads these words; they are the
+     * doctor's own vocabulary, handed to the model as the reference standard.
      */
     const current = await db.execute(sql`select rules from follow_up_plans where id = ${planId}`);
     const rules = ((current.rows as Record<string, unknown>[])[0]?.rules ?? []) as PlanRule[];
@@ -391,8 +229,8 @@ export async function updateEscalationAction(
     const plan = await db.execute(sql`
       update follow_up_plans
       set red_flag_terms = ${JSON.stringify(terms)}::jsonb,
-          -- Re-asserted on every write, exactly as updatePlanRules does it:
-          -- whatever the row held, the locked three leave with it.
+          -- Re-asserted on every write: whatever the row held, the locked
+          -- rules leave with it.
           rules = ${JSON.stringify(withLockedRules(rules))}::jsonb,
           updated_at = now()
       where id = ${planId} and status in ('awaiting_approval', 'active', 'paused')
@@ -401,54 +239,10 @@ export async function updateEscalationAction(
     ok = ok && plan.rows.length > 0;
   }
 
-  revalidatePath(`/plans/${planId}`);
+  revalidatePath("/followups", "layout");
   revalidatePath("/patients");
   revalidatePath("/dashboard");
   return { ok };
-}
-
-export async function approvePlanAction(
-  planId: string,
-  /** Where to land on success — the patient's own file, where the calendar is. */
-  patientId: string,
-): Promise<{ ok: boolean; reason?: string }> {
-  const result = await approvePlan(planId, readConfig().clinicianName);
-  revalidatePath("/patients");
-  revalidatePath("/dashboard");
-  revalidatePath(`/plans/${planId}`);
-
-  // A refusal is returned to the button, not swallowed by a redirect that would
-  // look exactly like success.
-  if (!result.ok) return { ok: false, reason: result.reason };
-
-  /*
-   * Dial anything this approval just made due.
-   *
-   * Expansion is calendar-anchored, so approving at 09:16 a plan whose local
-   * time is 09:15 produces a row that is already due. Without this it sits
-   * there until some tick happens to run — which, with no console tab open and
-   * no cron configured, was overnight. Approving is one of the three honest
-   * triggers, and it is the one the doctor is actually present for.
-   *
-   * It cannot break the approval: the tick is bounded to one call, never waits
-   * for it to complete, and swallows its own failures into `tick_runs.error`.
-   * A plan approved and a dial refused is a real state the call row records.
-   */
-  await runTickOnPageLoad();
-
-  /*
-   * Success lands somewhere, and somewhere specific.
-   *
-   * Approving used to return quietly: the panel unmounted, the headline
-   * mutated, and the page shrank by several hundred pixels under a doctor
-   * sitting at the very bottom of it. The single most consequential act in the
-   * product was acknowledged by an absence — and the dated rows it had just
-   * created, which are the whole argument for the product, were never shown.
-   *
-   * `redirect` throws, so nothing after this runs.
-   */
-  revalidatePath(`/patients/${patientId}`);
-  redirect(`/followups/${patientId}?approved=1`);
 }
 
 /** Stop a plan for good. Pending calls are skipped; the history stays. */
@@ -468,9 +262,6 @@ export async function cancelPlanAction(planId: string, patientId: string): Promi
  * paused the plan, resolving it restarts the follow-up, skipping the calls
  * missed while it was stopped; if the plan was running all along, nothing
  * happens to it and the resolution records exactly that.
- *
- * It used to call `resumePlan` either way, so a queue entry on a running plan
- * recorded `resumed` for something nobody had paused.
  */
 export async function resolveEscalationAction(
   escalationId: string,
@@ -500,15 +291,6 @@ export async function closePlanAction(
   revalidatePath("/dashboard");
 }
 
-/**
- * A clinician has read this escalation.
- *
- * Distinct from resolving it, and that distinction is the human-in-the-loop
- * step the queue never had: `open` means nobody has looked, `acknowledged`
- * means somebody has and it is still theirs to act on, `resolved` means they
- * acted. Without the middle state, a queue of five looks identical whether one
- * has been read or none have.
- */
 /**
  * The treatment is finished.
  *
@@ -548,15 +330,28 @@ export async function closeFinishedAction(
   revalidatePath("/dashboard");
 }
 
+/**
+ * A clinician has read this escalation.
+ *
+ * Distinct from resolving it: `open` means nobody has looked, `acknowledged`
+ * means somebody has and it is still theirs to act on, `resolved` means they
+ * acted.
+ */
 export async function acknowledgeEscalationAction(escalationId: string): Promise<void> {
   await acknowledgeEscalation(escalationId);
   revalidatePath("/dashboard");
 }
 
+/**
+ * Add to a running follow-up's note, and read the whole note again.
+ *
+ * The new goal replaces the old one; new things to find out are appended to the
+ * running plan, never rewritten over the old ones — see `updatePlanGoal`.
+ */
 export async function amendNoteAction(
   planId: string,
   addition: string,
-): Promise<{ ok: boolean; error?: string; added?: number; rewritten?: number }> {
+): Promise<{ ok: boolean; error?: string; added?: number }> {
   const text = addition.trim();
   if (text.length < 3) {
     return { ok: false, error: "Write the addition first. There is nothing to add." };
@@ -567,7 +362,7 @@ export async function amendNoteAction(
     return {
       ok: false,
       error:
-        "This plan has finished, so its note cannot be changed. Start a new " +
+        "This follow-up has finished, so its note cannot be changed. Start a new " +
         "follow-up for this patient instead.",
     };
   }
@@ -580,38 +375,18 @@ export async function amendNoteAction(
     fallbackReason: plan?.reason ?? "Follow-up",
   });
 
-  revalidatePath(`/plans/${planId}`);
-
   if (!outcome.ok) {
+    revalidatePath("/followups", "layout");
     return {
       ok: false,
-      error: `Your note was saved, but it could not be re-read: ${outcome.detail}`,
+      error: `Your note was saved, but it could not be read again: ${outcome.detail}`,
     };
   }
 
-  const merged = await mergeCompiledQuestions(
-    planId,
-    outcome.plan.questions,
-    outcome.plan.watchPoints,
-    // Refusals are kept on a draft, never dropped silently.
-    outcome.rejectedQuestions,
-  );
-  /* Plan-level values are the draft's to change. A running plan keeps the
-     cadence and the local time it was approved with — a doctor adding a new
-     symptom is not asking to move tomorrow's call. */
-  if (plan?.status === "awaiting_approval") await mergeCompiledPlan(planId, outcome.plan);
+  const updated = await updatePlanGoal(planId, outcome.plan);
 
-  /*
-   * Re-freeze the schema, or the new questions are asked and their answers
-   * thrown away: `buildResultSchema` output is frozen onto the plan at approval
-   * and `loadContext` sends that frozen copy to CALL-E. Adding a key is
-   * additive and safe — calls already placed were extracted against the older
-   * schema and their slots are already written.
-   */
-  if (merged.added > 0) await refreezeResultSchema(planId);
-
-  revalidatePath(`/plans/${planId}`);
+  revalidatePath("/followups", "layout");
   revalidatePath("/patients");
 
-  return { ok: true, ...merged };
+  return { ok: updated.ok, added: updated.added };
 }

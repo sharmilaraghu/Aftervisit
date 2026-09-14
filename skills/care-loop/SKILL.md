@@ -1,6 +1,6 @@
 ---
 name: care-loop
-description: Compile a clinician's free-text note into a structured, reviewable follow-up plan, then run it as autonomous phone calls with CALL-E — scheduling, retries, typed extraction, and rule-based escalation to a human. Use when building clinical or high-stakes follow-up where an uncertain answer must reach a person rather than be guessed.
+description: Read a clinician's free-text note into a goal, grounded things to find out and a schedule, then run it as autonomous phone calls with CALL-E — scheduling, retries, typed extraction, and rule-based escalation to a human. Use when building clinical or high-stakes follow-up where an uncertain answer must reach a person rather than be guessed.
 ---
 
 # Care Loop
@@ -44,15 +44,18 @@ design decision. Any agent built on CALL-E inherits them.
 ## The pipeline
 
 ```
-free-text note
-  → compile     strict schema; every defaultable field NULLABLE
-  → defaults    provenance stamped in code: note | default | clinician
+free-text note → a human presses "start"
+  → compile     strict schema: goal, topics (each quoting the note, with an
+                optional unit from a closed list), schedule and wait;
+                every defaultable field NULLABLE
   → grounding   refuses any medication not present in the note
-  → guard       phase 1, per question, unmasked
-  → review      defaults visibly marked; a human edits and approves
-  → expand      one dated row per occurrence; timeScale applied ONCE
-  → tick        reconcile → atomic claim → guard → dial → persist id
-  → extract     structuredResult → typed slots; unmappable is a real status
+  → defaults    filled in code, provenance stamped: note | default
+  → topics      quote must be in the note; guard phase 1 on goal and each topic,
+                unmasked; a refused topic is dropped, never asked
+  → expand      one dated row per occurrence, from the wait; timeScale applied ONCE
+  → tick        reconcile → atomic claim → goal task → guard → dial → persist id
+  → extract     fixed schema → typed slots + per-topic findings; a reading is kept
+                only when it is a plain, plausible number; unmappable is real
   → engine      PURE rule evaluation; escalate on any hit
   → queue       a human sees the rule, the reason, and the caller's own words
 ```
@@ -98,9 +101,10 @@ and emergency content — with the incident behind each rule.
 The three that are least obvious:
 
 - **The guard runs in three phases and the ordering is load-bearing.** Phase 2
-  exempts approved questions, so phase 1 must inspect each question unmasked
-  *before* it can be approved — otherwise listing a rejected question launders it
-  past the check that rejected it.
+  exempts the goal and topics as vetted text, so phase 1 must inspect each one
+  unmasked *before* it reaches a task — otherwise listing a rejected topic launders
+  it past the check that rejected it. The agent phrases its own questions, so
+  phase 3 on what it actually said is not optional.
 - **The guard is bidirectional.** A script *missing* the AI disclosure, the
   emergency stop, the non-advice statement or the emergency handoff fails.
   Absence is a violation.
